@@ -1,0 +1,48 @@
+{
+  "name": "weather_portal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start -p 3002",
+    "lint": "next lint",
+    "sync": "git pull && npm run build && pm2 restart weather_portal"
+  },
+  "dependencies": {
+    "@blockshake/defly-connect": "^1.1.5",
+    "@daffiwallet/connect": "^1.0.3",
+    "@json-rpc-tools/utils": "^1.7.6",
+    "@perawallet/connect": "^1.2.4",
+    "@randlabs/myalgo-connect": "^1.4.2",
+    "@txnlab/use-wallet": "^2.0.0",
+    "@types/node": "20.4.2",
+    "@types/react": "18.2.14",
+    "@types/react-dom": "18.2.7",
+    "@walletconnect/client": "^1.8.0",
+    "@walletconnect/modal-sign-html": "^2.6.0",
+    "algorand-walletconnect-qrcode-modal": "^1.8.0",
+    "algosdk": "^2.4.0",
+    "autoprefixer": "10.4.14",
+    "axios": "^1.4.0",
+    "bufferutil": "^4.0.7",
+    "debug": "^4.3.4",
+    "dotenv": "^16.3.1",
+    "encoding": "^0.1.13",
+    "lokijs": "^1.5.12",
+    "mongoose": "^7.4.0",
+    "next": "13.4.9",
+    "pino-pretty": "^10.0.1",
+    "postcss": "8.4.25",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-modal": "^3.16.1",
+    "tailwindcss": "3.3.2",
+    "typescript": "5.1.6",
+    "utf-8-validate": "^5.0.10",
+    "walletconnect-monorepo": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/react-modal": "^3.16.0"
+  }
+}
