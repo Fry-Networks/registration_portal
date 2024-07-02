@@ -90,7 +90,7 @@ export async function processData(data: FormData, address: string): Promise<stri
         console.log(res);
     });
 */
-    DeviceModel.updateOne({ miner_key }, { $set: { is_registered: true, registered_at: new Date() } }).then((res) => {
+    DeviceModel.updateOne({ miner_key }, { $set: { is_registered: true, registered_at: new Date(), address  } }).then((res) => {
         console.log(res);
     });
 
