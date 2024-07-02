@@ -1,12 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    webpack: (config) => {
-        config.externals.push('pino-pretty', 'lokijs', 'encoding') // list modules in error messages
-        return config
-    },
-    experimental: {
-        serverActions: true,
-    },
-}
+  images: {
+    domains: ['avatars.githubusercontent.com', 'avatar.vercel.sh']
+  },
+  experimental: {
+    serverComponentsExternalPackages: ['@tremor/react'],
+    serverActions: true
+  }
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
