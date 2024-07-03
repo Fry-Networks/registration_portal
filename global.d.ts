@@ -6,13 +6,19 @@ declare module globalThis {
 import 'next-auth'
 
 declare module 'next-auth' {
+  interface User {
+    address: string;
+  }
+
   interface Session {
-    user: {
-      name: string;
-      email: string;
-      image: string;
-      admin: boolean; // Your custom session property
-      owner: boolean; // Your custom session property
+    user: User & {
+      address: string;
     };
+  }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT {
+    address: string;
   }
 }

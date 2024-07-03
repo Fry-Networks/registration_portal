@@ -1,43 +1,44 @@
 import NextAuth, { NextAuthOptions } from 'next-auth';
 import 'dotenv/config';
 import GithubProvider from 'next-auth/providers/github';
+import WalletAuthProvider from '../../../lib/WalletAuthProvider';
+//@ts-ignore
 import { MongoDBAdapter } from "@auth/mongodb-adapter"
 import clientPromise from "../../../lib/mongoclient"
 import { Adapter } from 'next-auth/adapters';
 import { Session } from 'next-auth';
-console.log((process.env.NODE_ENV === 'development' ? process.env.GITHUB_ID_DEV : process.env.GITHUB_ID) )
+//console.log((process.env.NODE_ENV === 'development' ? process.env.GITHUB_ID_DEV : process.env.GITHUB_ID) )
 export const authOptions: NextAuthOptions = {
   jwt: {
     secret: process.env.NEXTAUTH_SECRET as string,
 
   },
-  adapter: MongoDBAdapter(clientPromise, {
-    collections: {
-      Accounts: 'webaccounts',
-      Sessions: 'websessions',
-      Users: 'webusers',
-      VerificationTokens: 'webverificationtokens',
-    },
-
-    databaseName: 'main',
-  }) as Adapter,
   providers: [
-    GithubProvider({
-      clientId: (process.env.NODE_ENV === 'development' ? process.env.GITHUB_ID_DEV : process.env.GITHUB_ID) as string,
-      clientSecret: (process.env.NODE_ENV === 'development' ? process.env.GITHUB_SECRET_DEV : process.env.GITHUB_SECRET) as string,
-
-    }),
+    WalletAuthProvider(),
   ],
   session: {
-    strategy: 'database',
+    strategy: "jwt",
   },
   callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.address = user.address;
+      }
+      return token;
+    },
     async session({ session, token, user }) {
-      //@ts-ignore
-      session.user = user;
+      if (token) {
+        session.user = {
+          ...session.user,
+          address: token.address as string,
+        };
+      }
       return session;
     }
-  }
+  },
+  pages: {
+    signIn: '/signin',
+  },
 };
 
 export default NextAuth(authOptions);
@@ -49,6 +50,7 @@ export interface MySession extends Session {
     name: string;
     email: string;
     image: string;
+    address: string;
     emailVerified: string | null;
     admin: boolean;
     owner: boolean;

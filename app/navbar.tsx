@@ -8,7 +8,7 @@ import { signIn, signOut } from 'next-auth/react';
 import Image from 'next/image';
 
 const navigation = [
-  { name: 'Vote', href: '/vote' },
+  { name: 'My registrations', href: '/my_registrations' },
   { name: 'Last Vote', href: '/lastvote' },
   { name: 'All Votes', href: '/allvotes' },
 ];
@@ -22,7 +22,7 @@ export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <Disclosure as="nav" className="bg-white shadow-sm">
+    <Disclosure as="nav" className="bg-white shadow-sm border-b border-gray-400">
       {({ open }) => (
         <>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

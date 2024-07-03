@@ -1,9 +1,15 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useWallet } from '@txnlab/use-wallet'
 import { Button, Flex, Select } from '@tremor/react'
 
 export default function ConnectMenu() {
     const { providers, activeAccount } = useWallet()
+    useEffect(() => {
+        if (activeAccount) {
+            console.log(activeAccount)
+          localStorage.setItem('walletAddress', activeAccount?.address);
+        }
+      }, [activeAccount]);
     return (
         <Flex flexDirection='col' justifyContent='between' alignItems='center'>
             <Flex flexDirection='row' justifyContent='between' alignItems='center'>
