@@ -24,8 +24,6 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       { id: PROVIDER_ID.DEFLY, clientStatic: DeflyWalletConnect },
       { id: PROVIDER_ID.PERA, clientStatic: PeraWalletConnect },
       { id: PROVIDER_ID.DAFFI, clientStatic: DaffiWalletConnect },
-      { id: PROVIDER_ID.EXODUS },
-      { id: PROVIDER_ID.KIBISIS }
     ]
   });
 

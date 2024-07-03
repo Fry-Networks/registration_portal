@@ -1,4 +1,4 @@
-import { Title } from '@tremor/react';
+import { Title, Text } from '@tremor/react';
 import { useWallet } from '@txnlab/use-wallet';
 import { useSession, signIn, signOut, getSession } from 'next-auth/react';
 import { useEffect } from 'react';
@@ -24,7 +24,8 @@ export default function MyRegistrationsPage({ userWallet }: { userWallet: any })
         <>
           <Title className='mb-20'>My Registrations</Title>
           {/* @ts-ignore */}
-          <p>Wallet address: {session.user.address}</p>
+          <Text>Wallet address: {session.user.address}</Text>
+          <Text>Wallet addr : {activeAccount?.address}</Text>
           {/* Display user wallet information here */}
           <button onClick={() => signOut()}>Sign out</button>
         </>
@@ -45,10 +46,14 @@ export async function getServerSideProps(context: any) {
   }
 
   try {
+    return {
+      props: { userWallet: session.user.address },
+    };
     const client = await clientPromise;
     const db = client.db('main');
     
-    const wallet = await db.collection('wallets').findOne({ wallet: session.user.address });
+    const wallet = null;
+    //await db.collection('wallets').findOne({ wallet: session.user.address });
     
     if (!wallet) {
       return {

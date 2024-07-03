@@ -23,6 +23,7 @@ export default function SignIn() {
       const nonce = Math.floor(Math.random() * 1000000).toString();
       const message = `Sign this message to prove you own the wallet: ${nonce}`;
       console.log('Signing message:', message);
+
       // Create a transaction to sign
       const suggestedParams = await algodClient.getTransactionParams().do();
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
@@ -34,23 +35,25 @@ export default function SignIn() {
       });
 
       // Sign the transaction
-      const signedTxns = await signTransactions([algosdk.encodeUnsignedTransaction(txn)]);
-      console.log('Signed transaction:', signedTxns);
-      if (signedTxns && signedTxns.length > 0) {
-        const decodedTxn = algosdk.decodeSignedTransaction(signedTxns[0]);
-        console.log('Decoded transaction:', decodedTxn);
-        if (decodedTxn.sig) {
-          const signature = Buffer.from(decodedTxn.sig).toString('base64');
+      const signedTxn = await signTransactions([algosdk.encodeUnsignedTransaction(txn)]);
+      console.log('Signed transaction:', signedTxn);
 
-          await signIn('wallet', {
-            address: activeAccount.address,
-            signature,
-            nonce,
-            callbackUrl: '/',
-          });
-        } else {
-          throw new Error('Decoded transaction does not contain a signature');
-        }
+      if (signedTxn && signedTxn.length > 0) {
+        const signedTxnBase64 = Buffer.from(signedTxn[0]).toString('base64');
+        console.log('Sending to server:', {
+          address: activeAccount.address,
+          signedTxn: signedTxnBase64,
+          nonce,
+        });
+
+        // Send this information to the server for verification
+        await signIn('wallet', {
+          address: activeAccount.address,
+          signedTxn: signedTxnBase64,
+          nonce,
+          callbackUrl: '/',
+        });
+
       } else {
         throw new Error('Failed to sign the transaction');
       }
