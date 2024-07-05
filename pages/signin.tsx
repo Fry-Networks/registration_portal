@@ -1,4 +1,4 @@
-import { Button } from '@tremor/react';
+import { Button, Flex, Title } from '@tremor/react';
 import { useWallet } from '@txnlab/use-wallet';
 import { signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
@@ -65,8 +65,8 @@ export default function SignIn() {
   }
 
   return (
-    <div>
-      <h1>Sign In</h1>
+    <Flex flexDirection='col' alignItems='center' justifyContent='center'>
+     <Title className='mt-10 mb-20' style={{fontSize: "30px"}}>Sign in</Title>
       {activeAccount ? (
         <Button onClick={handleWalletAuth} disabled={isAuthenticating}>
           {isAuthenticating ? 'Authenticating...' : 'Sign in with Wallet'}
@@ -74,7 +74,7 @@ export default function SignIn() {
       ) : (
         <p>Please connect your wallet first</p>
       )}
-
-    </div>
+    </Flex>
+    
   );
 }
