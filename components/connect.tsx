@@ -54,7 +54,7 @@ export default function ConnectMenu() {
                 ))}
                
             </Flex>
-            {activeAccount && (<p style={{marginTop: "15px"}}>You are successfully connected and can now head to the Vote page to cast your vote!</p>)}
+            {activeAccount && (<p style={{marginTop: "15px"}}>You are successfully connected and can now wander in the dashboard!</p>)}
         </Flex>
 
     )

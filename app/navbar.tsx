@@ -2,7 +2,7 @@
 
 import { Fragment } from 'react';
 import { usePathname } from 'next/navigation';
-import { Disclosure, Menu, Transition } from '@headlessui/react';
+import { Disclosure,  } from '@headlessui/react';
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
@@ -10,6 +10,7 @@ import { Button } from '@tremor/react';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
+  
 ];
 
 function classNames(...classes: string[]) {

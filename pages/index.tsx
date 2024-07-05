@@ -8,7 +8,7 @@ export default function IndexPage() {
 
   return (
     <main className="p-4 md:p-10 mx-auto max-w-7xl">
-      <Title className='mb-20' >Official DAO Platform of the FRY Foundation</Title>
+      <Title className='mb-20' >Your FRY Networks Dashboard</Title>
 
       <ConnectMenu />
     </main>

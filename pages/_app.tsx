@@ -8,6 +8,7 @@ import { DeflyWalletConnect } from '@blockshake/defly-connect';
 import { PeraWalletConnect } from '@perawallet/connect';
 import { DaffiWalletConnect } from '@daffiwallet/connect';
 import Navbar from '../app/navbar';
+import { ModalProvider } from '../app/modalcontext';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -28,14 +29,16 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   });
 
   return (
-    <WalletProvider value={providers}>
-      <SessionProvider session={pageProps.session}>
-        <Navbar />
-        <div id="main" className="w-full min-h-screen">
-          <ProtectedComponent Component={Component} pageProps={pageProps} />
-        </div>
-      </SessionProvider>
-    </WalletProvider>
+    < ModalProvider>
+      <WalletProvider value={providers}>
+        <SessionProvider session={pageProps.session}>
+          <Navbar />
+          <div id="main" className="w-full min-h-screen">
+            <ProtectedComponent Component={Component} pageProps={pageProps} />
+          </div>
+        </SessionProvider>
+      </WalletProvider>
+    </ModalProvider>
   );
 }
 

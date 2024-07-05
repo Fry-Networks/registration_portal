@@ -1,15 +1,19 @@
-import { Title, Text, Button, Card, Dialog, DialogPanel, TextInput, Callout } from '@tremor/react';
+import { Title, Text, Button, Card, Dialog, DialogPanel, TextInput, Callout, Flex } from '@tremor/react';
 import { useWallet } from '@txnlab/use-wallet';
 import { useSession, signIn, getSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import clientPromise from '../lib/mongoclient';
 import { RiCloseLine } from '@remixicon/react';
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import UpdateRewardModal from '../components/modals/rewardWallet';
+import AddressVerificationModal from '../components/modals/AddressVerification';
+import { useModal } from '../app/modalcontext';
 
 export default function MyRegistrationsPage({ devices }: { devices: Device[] }) {
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { openModal, closeModal } = useModal();
+  
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
@@ -20,23 +24,19 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     }
   }, [activeAccount, session]);
 
+  const handleOpenModal = (device: Device) => {
+    setCurrentDevice(device);
+    openModal('addressVerification');
+  };
+
+
   useEffect(() => {
-    // Validate the reward wallet using the regex
     const regex = /^[A-Z0-9]{58}$/;
     setIsValid(regex.test(rewardWallet));
   }, [rewardWallet]);
 
-  const handleOpenModal = (device: Device) => {
-    setCurrentDevice(device);
-    setRewardWallet(device.reward_wallet || '');
-    setIsModalOpen(true);
-  };
+ 
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setCurrentDevice(null);
-    setRewardWallet('');
-  };
 
   const handleUpdateRewardWallet = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +51,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       });
       if (response.ok) {
         setUpdateSuccess("Reward Wallet");
-        handleCloseModal();
+        closeModal('updateReward');
       } else {
         setUpdateSuccess("error");
         console.error('Failed to update reward wallet');
@@ -59,6 +59,27 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     } catch (error) {
       setUpdateSuccess("error");
       console.error('An error occurred while updating the reward wallet', error);
+    }
+  };
+  const handleVerifyAddress = async (data: any) => {
+    if (!currentDevice) return;
+    try {
+      const response = await fetch('/api/verify-address', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: currentDevice._id, address: data.address }),
+      });
+      if (response.ok) {
+        setUpdateSuccess("Verification");
+        closeModal('addressVerification');
+        // Optionally update the device list or show a success message
+      } else {
+        console.error('Failed to verify address');
+      }
+    } catch (error) {
+      console.error('An error occurred while verifying the address', error);
     }
   };
 
@@ -74,12 +95,12 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         <>
           <Title className="mb-20">My Registrations ({session.user.address})</Title>
           {(updateSuccess != "" && updateSuccess != "error") && (
-            <Callout className="mt-4" title="Success" icon={CheckCircleIcon} color="teal">
+            <Callout className="mb-4 mt-4" title="Success" icon={CheckCircleIcon} color="teal">
               Successfully updated {updateSuccess} !
             </Callout>
           )}
           {(updateSuccess == "error") && (
-            <Callout className="mt-4" title="Error" icon={CheckCircleIcon} color="red">
+            <Callout className="mb-4 mt-4" title="Error" icon={CheckCircleIcon} color="red">
               An error occured during the update!
             </Callout>
           )}
@@ -91,7 +112,13 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
                 <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
+                <Flex flexDirection='row' justifyContent='start' alignItems='center'>
                 <Button onClick={() => handleOpenModal(device)}>Update reward wallet</Button>
+               {device.verified ? 
+                    <Button className="ml-2 bg-blue-200 cursor-not-allowed" disabled>Verified</Button> : 
+                    <Button className="ml-2" onClick={() => handleOpenModal(device)}>Verify</Button>
+                  }
+                </Flex>
               </Card>
             ))
           ) : (
@@ -102,44 +129,17 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         <Title className="mb-20">Please connect your wallet and authenticate</Title>
       )}
 
-      <Dialog
-        open={isModalOpen}
-        onClose={handleCloseModal}
-        static={true}
-        className="z-[100]"
-      >
-        <DialogPanel className="sm:max-w-2xl"> {/* Changed from sm:max-w-md to sm:max-w-lg */}
-          <div className="absolute right-0 top-0 pr-3 pt-3">
-            <button
-              type="button"
-              className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              onClick={handleCloseModal}
-              aria-label="Close"
-            >
-              <RiCloseLine
-                className="h-5 w-5 shrink-0"
-                aria-hidden={true}
-              />
-            </button>
-          </div>
-          <form onSubmit={handleUpdateRewardWallet}>
-            <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-              Update Reward Wallet
-            </h4>
-            <TextInput
-              type="text"
-              value={rewardWallet}
-              onChange={(e) => setRewardWallet(e.target.value)}
-              placeholder="Enter new reward wallet"
-              className="mt-2"
-            />
-            <Button type="submit" className={`mt-4 w-full ${isValid ? '' : 'bg-blue-300 cursor-not-allowed'}`} disabled={!isValid}>
-              Update
-            </Button>
-          </form>
-        </DialogPanel>
-      </Dialog>
-
+      <UpdateRewardModal
+        modalName="updateReward"
+        handleUpdateRewardWallet={handleUpdateRewardWallet}
+        rewardWallet={rewardWallet}
+        setRewardWallet={setRewardWallet}
+        isValid={isValid}
+      />
+       <AddressVerificationModal
+        modalName="addressVerification"
+        onSubmit={handleVerifyAddress}
+      />
     </main>
   );
 }
@@ -185,6 +185,7 @@ interface Device {
   miner_key: string;
   name: string;
   created_at: Date;
+  verified: boolean;
   reward_wallet: string;
   is_registered: boolean;
   address: string;

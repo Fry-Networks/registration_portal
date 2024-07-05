@@ -22,7 +22,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { miner, reward_wallet, address } = data;
     try {
-        console.log(session, address);
         if(session.user.address !== address || !address){
             res.status(401).json({ message: "Unauthorized 2" });
             return;
