@@ -11,6 +11,7 @@ const ModalContext = createContext<ModalContextProps | undefined>(undefined);
 export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [modals, setModals] = useState<{ [key: string]: boolean }>({
     updateReward: false,
+    positionVerification: false,
     // Add other modals here as needed
   });
 

@@ -33,7 +33,7 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       <WalletProvider value={providers}>
         <SessionProvider session={pageProps.session}>
           <Navbar />
-          <div id="main" className="w-full min-h-screen">
+          <div id="main" className="w-full min-h-screen dark text-foreground bg-background">
             <ProtectedComponent Component={Component} pageProps={pageProps} />
           </div>
         </SessionProvider>

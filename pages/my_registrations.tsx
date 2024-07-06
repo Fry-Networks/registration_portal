@@ -6,14 +6,14 @@ import clientPromise from '../lib/mongoclient';
 import { RiCloseLine } from '@remixicon/react';
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import UpdateRewardModal from '../components/modals/rewardWallet';
-import AddressVerificationModal from '../components/modals/AddressVerification';
+import VerificationModal from '../components/modals/Verification';
 import { useModal } from '../app/modalcontext';
 
 export default function MyRegistrationsPage({ devices }: { devices: Device[] }) {
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
-  
+
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
@@ -24,9 +24,9 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     }
   }, [activeAccount, session]);
 
-  const handleOpenModal = (device: Device) => {
+  const handleOpenModal = (device: Device, modalName: string) => {
     setCurrentDevice(device);
-    openModal('addressVerification');
+    openModal(modalName);
   };
 
 
@@ -35,7 +35,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     setIsValid(regex.test(rewardWallet));
   }, [rewardWallet]);
 
- 
+
 
 
   const handleUpdateRewardWallet = async (e: React.FormEvent) => {
@@ -61,19 +61,19 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       console.error('An error occurred while updating the reward wallet', error);
     }
   };
-  const handleVerifyAddress = async (data: any) => {
+  const handleVerify = async (data: {latitude: number, longitude: number}) => {
     if (!currentDevice) return;
     try {
-      const response = await fetch('/api/verify-address', {
+      const response = await fetch('/api/verify-position', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ deviceId: currentDevice._id, address: data.address }),
+        body: JSON.stringify({...data, miner: currentDevice.miner_key, address: activeAccount?.address}),
       });
       if (response.ok) {
         setUpdateSuccess("Verification");
-        closeModal('addressVerification');
+        closeModal('positionVerification');
         // Optionally update the device list or show a success message
       } else {
         console.error('Failed to verify address');
@@ -112,11 +112,12 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
                 <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
-                <Flex flexDirection='row' justifyContent='start' alignItems='center'>
-                <Button onClick={() => handleOpenModal(device)}>Update reward wallet</Button>
-               {device.verified ? 
-                    <Button className="ml-2 bg-blue-200 cursor-not-allowed" disabled>Verified</Button> : 
-                    <Button className="ml-2" onClick={() => handleOpenModal(device)}>Verify</Button>
+                {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
+                <Flex className= "mt-4" flexDirection='row' justifyContent='start' alignItems='center'>
+                  <Button onClick={() => handleOpenModal(device, 'updateReward')}>Update reward wallet</Button>
+                  {device.verified ?
+                    <Button className="ml-2 bg-blue-500 cursor-not-allowed" disabled>Verified</Button> :
+                    <Button className="ml-2" onClick={() => handleOpenModal(device, 'positionVerification')}>Verify</Button>
                   }
                 </Flex>
               </Card>
@@ -136,9 +137,9 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         setRewardWallet={setRewardWallet}
         isValid={isValid}
       />
-       <AddressVerificationModal
-        modalName="addressVerification"
-        onSubmit={handleVerifyAddress}
+      <VerificationModal
+        modalName="positionVerification"
+        onSubmit={handleVerify}
       />
     </main>
   );
@@ -185,6 +186,10 @@ interface Device {
   miner_key: string;
   name: string;
   created_at: Date;
+  position: { 
+    lat: number;
+    lng: number;
+  };
   verified: boolean;
   reward_wallet: string;
   is_registered: boolean;
