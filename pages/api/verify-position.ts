@@ -23,6 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { miner, latitude, longitude, address } = data;
     try {
         if (session.user.address !== address || !address) {
+            console.log(`session.user.address: ${session.user.address}, address: ${address} SPOOF`);
             res.status(401).json({ message: "Unauthorized 2" });
             return;
         }

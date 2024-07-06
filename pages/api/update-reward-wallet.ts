@@ -4,12 +4,12 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "./auth/[...nextauth]";
 import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const session = await getServerSession(req,res, authOptions);
     // Check if user is authenticated
     if (!session || !session.user) {
+        console.log(`no session`);
         res.status(401).json({ message: "Unauthorized 1" });
         return;
     }
@@ -23,6 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { miner, reward_wallet, address } = data;
     try {
         if(session.user.address !== address || !address){
+            console.log(`session.user.address: ${session.user.address}, address: ${address} SPOOF`);
             res.status(401).json({ message: "Unauthorized 2" });
             return;
         }
@@ -43,3 +44,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(500).json({ message: "error" });
     }
 };
+

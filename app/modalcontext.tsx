@@ -12,6 +12,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [modals, setModals] = useState<{ [key: string]: boolean }>({
     updateReward: false,
     positionVerification: false,
+    burnVerification: false,
     // Add other modals here as needed
   });
 

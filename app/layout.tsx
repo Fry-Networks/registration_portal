@@ -12,12 +12,12 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   // If a user is logged in, render the requested page
   return (
-    <html lang="en" className="h-full bg-gray-50">
+    <html lang="en" className="h-full  bg-gray-50">
       <body className="h-full">
-          <Suspense fallback={<div>Loading...</div>}>
-          </Suspense>
+        <Suspense fallback={<div>Loading...</div>}>
           {children}
-          <Analytics />
+        </Suspense>
+        <Analytics />
       </body>
     </html>
   );
