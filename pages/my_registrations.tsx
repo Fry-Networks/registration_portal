@@ -9,6 +9,7 @@ import UpdateRewardModal from '../components/modals/rewardWallet';
 import VerificationModal from '../components/modals/Verification';
 import { useModal } from '../app/modalcontext';
 import VerificationBurn from '../components/modals/VerificationBurn';
+import MessageUpdate from '../components/messageUpdate';
 
 export default function MyRegistrationsPage({ devices }: { devices: Device[] }) {
   const { data: session, status } = useSession();
@@ -18,7 +19,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState("");
+  const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
   useEffect(() => {
     if (activeAccount && !session) {
       signIn('wallet');
@@ -51,14 +52,14 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         body: JSON.stringify({ miner: currentDevice.miner_key, reward_wallet: rewardWallet, address: activeAccount?.address }),
       });
       if (response.ok) {
-        setUpdateSuccess("Reward Wallet");
+        setUpdateSuccess({status: 'success', message: 'reward wallet'});
         closeModal('updateReward');
       } else {
-        setUpdateSuccess("error");
+        setUpdateSuccess({status: 'error', message: 'reward wallet'});
         console.error('Failed to update reward wallet');
       }
     } catch (error) {
-      setUpdateSuccess("error");
+      setUpdateSuccess({status: 'error', message: 'reward wallet'});
       console.error('An error occurred while updating the reward wallet', error);
     }
   };
@@ -73,7 +74,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         body: JSON.stringify({ ...data, miner: currentDevice.miner_key, address: activeAccount?.address }),
       });
       if (response.ok) {
-        setUpdateSuccess("Verification");
+        setUpdateSuccess({status: 'success', message: 'position'});
         closeModal('positionVerification');
         // Optionally update the device list or show a success message
       } else {
@@ -95,16 +96,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       {session ? (
         <>
           <Title className="mb-20 text-center">My Registrations ({session.user.address})</Title>
-          {(updateSuccess && updateSuccess !== "error") && (
-            <Callout className="mb-4 mt-4" title="Success" icon={CheckCircleIcon} color="teal">
-              Successfully updated {updateSuccess}!
-            </Callout>
-          )}
-          {updateSuccess === "error" && (
-            <Callout className="mb-4 mt-4" title="Error" icon={CheckCircleIcon} color="red">
-              An error occurred during the update!
-            </Callout>
-          )}
+          <MessageUpdate updateSuccess={updateSuccess} />
           {devices && devices.length > 0 ? (
             devices.map((device) => (
               <Card key={device._id} className="mb-4 relative">
@@ -116,7 +108,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
 
                 {/* Cross icon if any conditions are unmet */}
-                {(!device.verified || !device.position || !device.is_registered) && (
+                {(!device.verified || !device.position || !device.is_registered) ? (
                   <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
                     
                     <Flex flexDirection='col' justifyContent='end' alignItems='end' className="ml-2">
@@ -125,6 +117,11 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                       {!device.position && <Text className="text-red-500">- Position not set</Text>}
                       {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
                     </Flex>
+                  </Flex>
+                ): (
+                  <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
+                    <CheckCircleIcon className="h-6 w-6 text-green-500" />
+                    <Text className="text-green-500">Verified</Text>
                   </Flex>
                 )}
 
