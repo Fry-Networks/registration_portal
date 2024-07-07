@@ -21,7 +21,8 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
     const [email, setEmail] = useState('');
     const [orderNumber, setOrderNumber] = useState('');
     const [apiKey, setApiKey] = useState(''); 
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '' });
+    const [mac, setMac] = useState('');
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', apikey: '', mac: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -40,6 +41,12 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
                 regex = /^[0-9]{5}$/;
                 error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
                 break;
+            case 'apikey':
+                error = value.length < 3 ? 'API key must be at least 3 characters long' : /^\S+$/.test(value) ? '' : 'Invalid input';
+                break;
+            case 'mac':
+                error = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/g.test(value) ? '' : 'Invalid MAC address';
+                break;
             default:
                 break;
         }
@@ -54,8 +61,10 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
             setEmail(value);
         } else if (name === 'orderNumber') {
             setOrderNumber(value);
-        } else if (name === 'apiKey') {
+        } else if (name === 'apikey') {
             setApiKey(value);
+        } else if (name === 'mac') {
+            setMac(value);
         }
         validateInput(name, value);
     };
@@ -63,21 +72,20 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
     const handleSubmit = async () => {
         const hasErrors = Object.values(errors).some(error => error !== '');
         if (hasErrors) return;
-        const response = await fetch('/api/registrations/hardware', { // Replace with your actual API endpoint
+        const response = await fetch('/api/registrations/apikey', { // Replace with your actual API endpoint
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, apiKey }),
+            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, apikey: apiKey, mac }),
         });
-
+        const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message: 'Failed to register' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            setTimeout(() => setUpdateSuccess({status: 'error', message}), 15_000);
         } else {
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({status: 'success', message}), 15_000);
         }
 
     };
@@ -105,14 +113,14 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
                 </div>
                 <div className="space-y-4">
                     <MessageUpdate updateSuccess={updateSuccess} />
-                    <Title>Hardware registration</Title>
+                    <Title>API Device registration</Title>
                     <TextInput
                         name="first_name"
                         placeholder="Enter your first name"
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== ''}
+                        error={errors.first_name !== '' }
                     />
                     <TextInput
                         name="last_name"
@@ -139,17 +147,26 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
                         error={errors.orderNumber !== ''}
                     />
                     <TextInput
-                        name="apiKey"
+                        name="apikey"
                         placeholder="Enter your API key"
                         value={apiKey}
                         onChange={handleInputChange}
-                        error= {apiKey.length < 3}
+                        error= {errors.apikey !== ''}
+                        errorMessage={errors.apikey}
+                    />
+                     <TextInput
+                        name="mac"
+                        placeholder="Enter your MAC address"
+                        value={mac}
+                        onChange={handleInputChange}
+                        error= {errors.mac !== ''}
+                        errorMessage={errors.mac}
                     />
                 </div>
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '')}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || apiKey === '' || mac === ''}
                     >
                         Submit
                     </Button>

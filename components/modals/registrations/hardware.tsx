@@ -69,14 +69,13 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address }),
         });
 
+        const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message: 'Failed to register' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            setTimeout(() => setUpdateSuccess({status: 'error', message}), 15_000);
         } else {
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
-            setIsLoading(false);
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({status: 'success', message}), 15_000);
         }
 
     };

@@ -26,7 +26,7 @@ export default function NewRegistrationPage() {
     const response = await getMinerType(minerKey, activeAccount.address);
     console.log(response);
     if (response.message === 'ok') {
-
+      console
       openModal(response.type + 'REG')
     } else {
       setUpdateSuccess({ status: 'error', message: response.message });
@@ -52,7 +52,7 @@ export default function NewRegistrationPage() {
       />
 
       <ApiKeyREG
-        modalName='apiKeyREG'
+        modalName='apikeyREG'
         minerKey={minerKey}
         address={activeAccount?.address}
       />

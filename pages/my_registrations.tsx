@@ -105,6 +105,8 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
                 <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
+                {device.apikey && <Text>API key: {device.apikey}</Text>}
+                {device.mac && <Text>MAC: {device.mac}</Text>}
                 {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
 
                 {/* Cross icon if any conditions are unmet */}
@@ -202,6 +204,8 @@ interface Device {
   user_id: string;
   miner_key: string;
   name: string;
+  apikey?: string;
+  mac?: string;
   created_at: Date;
   position: {
     lat: number;
