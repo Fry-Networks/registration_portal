@@ -21,6 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         address: string,
         mac: string,
         apikey: string,
+        [key: string]: any, // Add index signature
     } = req.body;
 
     const { miner_key, names, email, orderNumber, address, apikey, mac } = data;
@@ -37,11 +38,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const db = client.db('main');
         const collection = db.collection('devices');
         const exists = await collection.findOne({ miner_key, address });
-        for (const key in names) {
-            const error = validateInput(key, names[key]);
-            if (error) {
-                res.status(400).json({ message: "Invalid input" });
-                return;
+        for (const key in data) {
+            if(key === 'names') {
+                let error = validateInput('first_name', data[key].first_name);
+                if (error) {
+                    res.status(400).json({ message: error });
+                    return;
+                }
+                error = validateInput('last_name', data[key].last_name);
+                if (error) {
+                    res.status(400).json({ message: error });
+                    return;
+                }
+            } else if(key !== 'miner_key' && key !== 'address' ) {
+                const error = validateInput(key, data[key]);
+                if (error) {
+                    res.status(400).json({ message: error });
+                    return;
+                }
             }
         }
         if (!exists) {
@@ -53,9 +67,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(400).json({ message: "Already registered" });
             return;
         }
-        await collection.updateOne({ miner_key, address }, { $set: { 
-            is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, apikey: apikey, mac: mac 
-        } });
+        await collection.updateOne({ miner_key, address }, {
+            $set: {
+                is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, apikey: apikey, mac: mac
+            }
+        });
         console.log(`Registered ${miner_key} with apikey ${apikey} / mac ${mac}`);
 
         res.status(200).json({ message: "ok" });
@@ -71,6 +87,7 @@ const validateInput = (name: string, value: string) => {
     let error = '';
     if (!value) {
         error = 'This field is required';
+        return error;
     }
     switch (name) {
         case 'first_name':
@@ -88,6 +105,9 @@ const validateInput = (name: string, value: string) => {
             break;
         case 'apikey':
             error = value.length < 3 ? 'API key must be at least 3 characters long' : /^\S+$/.test(value) ? '' : 'Invalid input';
+            break;
+        case 'mac':
+            error = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/g.test(value) ? '' : 'Invalid MAC address';
             break;
         default:
             error = "Invalid input"

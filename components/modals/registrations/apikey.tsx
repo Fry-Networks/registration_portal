@@ -81,11 +81,11 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
         });
         const { message } = await response.json();
         if (!response.ok) {
-            setUpdateSuccess({ status: 'error', message: 'Failed to register' });
-            setTimeout(() => setUpdateSuccess({status: 'error', message}), 15_000);
+            setUpdateSuccess({ status: 'error', message });
+            setTimeout(() => setUpdateSuccess({status: 'error', message: ''}), 15_000);
         } else {
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message}), 15_000);
+            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
         }
 
     };

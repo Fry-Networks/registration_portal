@@ -89,7 +89,6 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     return <p>Loading...</p>;
   }
 
-  console.log(devices);
 
   return (
     <main className="p-4 md:p-10 mx-auto  flex flex-col gap-6 break-words max-w-7xl">
@@ -167,7 +166,6 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
 
 export async function getServerSideProps(context: any) {
   const session = await getSession(context);
-  console.log(session);
   if (!session || !session.user.address) {
     return {
       props: {},
@@ -179,7 +177,6 @@ export async function getServerSideProps(context: any) {
     const db = client.db('main');
 
     const devices = await db.collection('devices').find({ address: session.user.address }).toArray();
-    console.log(JSON.parse(JSON.stringify(devices)));
     if (!devices) {
       return {
         props: {

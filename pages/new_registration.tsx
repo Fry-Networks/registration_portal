@@ -11,6 +11,8 @@ import HardwareREG from '../components/modals/registrations/hardware';
 import { useModal } from '../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet';
 import ApiKeyREG from '../components/modals/registrations/apikey';
+import MacREG from '../components/modals/registrations/mac';
+import RtspREG from '../components/modals/registrations/rtsp';
 export default function NewRegistrationPage() {
   const [minerKey, setMinerKey] = useState('');
   const { openModal, closeModal } = useModal();
@@ -53,6 +55,16 @@ export default function NewRegistrationPage() {
 
       <ApiKeyREG
         modalName='apikeyREG'
+        minerKey={minerKey}
+        address={activeAccount?.address}
+      />
+      <MacREG
+        modalName='macREG'
+        minerKey={minerKey}
+        address={activeAccount?.address}
+      />
+      <RtspREG
+        modalName='rtspREG'
         minerKey={minerKey}
         address={activeAccount?.address}
       />

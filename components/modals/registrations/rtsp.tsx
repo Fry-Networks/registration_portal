@@ -4,24 +4,24 @@ import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
 import MessageUpdate from '../../messageUpdate';
 
-interface HardwareREGModalProps {
+interface RtspREGModalProps {
     modalName: string;
     minerKey: string;
     address?: string;
 }
 
-const HardwareREG: React.FC<HardwareREGModalProps> = ({
+const RtspREG: React.FC<RtspREGModalProps> = ({
     modalName,
     minerKey,
     address
 }) => {
     const { modals, closeModal } = useModal();
-    const [isLoading, setIsLoading] = useState(false);
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
     const [orderNumber, setOrderNumber] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '' });
+    const [rtsp, setRtsp] = useState('');
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', rtsp: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -40,6 +40,9 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 regex = /^[0-9]{5}$/;
                 error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
                 break;
+            case 'rtsp':
+                error = /(rtsp):\/\/([^\s@/]+)@([^\s/:]+)(?::([0-9]+))?(\/.*)/.test(value) ? '' : 'Invalid rtsp link';
+                break;
             default:
                 break;
         }
@@ -54,6 +57,8 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             setEmail(value);
         } else if (name === 'orderNumber') {
             setOrderNumber(value);
+        } else if (name === 'rtsp') {
+            setRtsp(value);
         }
         validateInput(name, value);
     };
@@ -61,14 +66,13 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     const handleSubmit = async () => {
         const hasErrors = Object.values(errors).some(error => error !== '');
         if (hasErrors) return;
-        const response = await fetch('/api/registrations/hardware', { // Replace with your actual API endpoint
+        const response = await fetch('/api/registrations/rtsp', { // Replace with your actual API endpoint
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address }),
+            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, rtsp }),
         });
-
         const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message });
@@ -77,6 +81,7 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
             setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
         }
+
     };
 
     return (
@@ -102,14 +107,14 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 </div>
                 <div className="space-y-4">
                     <MessageUpdate updateSuccess={updateSuccess} />
-                    <Title>Hardware registration</Title>
+                    <Title>Camera Device registration</Title>
                     <TextInput
                         name="first_name"
                         placeholder="Enter your first name"
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== ''}
+                        error={errors.first_name !== '' }
                     />
                     <TextInput
                         name="last_name"
@@ -135,11 +140,19 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                         errorMessage={errors.orderNumber}
                         error={errors.orderNumber !== ''}
                     />
+                     <TextInput
+                        name="rtsp"
+                        placeholder="Enter your RTSP link"
+                        value={rtsp}
+                        onChange={handleInputChange}
+                        error= {errors.rtsp !== ''}
+                        errorMessage={errors.rtsp}
+                    />
                 </div>
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '')}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || rtsp === ''}
                     >
                         Submit
                     </Button>
@@ -149,4 +162,4 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     );
 };
 
-export default HardwareREG;
+export default RtspREG;

@@ -17,27 +17,37 @@ interface VerificationModalProps {
 const VerificationModal: React.FC<VerificationModalProps> = ({ modalName, onSubmit }) => {
   const { modals, closeModal } = useModal();
   const { register, handleSubmit, setValue, formState: { errors } } = useForm();
+  const [geolocation, setGeolocation] = useState(false);
   const [position, setPosition] = useState<{ lat: number, lng: number } | null>(null);
   const handleFormSubmit = (data: any) => {
     console.log("Form data to be submitted:", data);
-    onSubmit(data); 
+    onSubmit(data);
   };
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const newPosition = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        };
-        setPosition(newPosition);
-        setValue('latitude', newPosition.lat);
-        setValue('longitude', newPosition.lng);
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        if(result.state === 'denied') {
+          console.log('Geolocation permission denied.');
+          setGeolocation(false);
+          return;
+        } else if (result.state === 'granted') {
+          setGeolocation(true);
+        }
+        navigator.geolocation.getCurrentPosition((position) => {
+          console.log(position);
+          const newPosition = {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          };
+          setPosition(newPosition);
+          setValue('latitude', newPosition.lat);
+          setValue('longitude', newPosition.lng);
+        });
       });
     }
   }, [setValue]);
 
   const handlePositionChange = (newPosition: { lat: number, lng: number }) => {
-    console.log(newPosition);
     setPosition(newPosition);
     setValue('latitude', newPosition.lat);
     setValue('longitude', newPosition.lng);
@@ -79,13 +89,14 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ modalName, onSubm
             />
             {errors.latitude && <p className="text-red-500">Latitude is required.</p>}
             {errors.longitude && <p className="text-red-500">Longitude is required.</p>}
+            {!geolocation && <p className="text-red-500">Geolocation is disabled.</p>}
           </div>
           <div className="mt-4">
             {position && (
               <Map position={position} onPositionChange={handlePositionChange} />
             )}
           </div>
-          <Button type="submit" className="mt-4 w-full">
+          <Button type="submit" className="mt-4 w-full" disabled={!position}>
             Submit
           </Button>
         </form>

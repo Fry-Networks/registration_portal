@@ -4,24 +4,24 @@ import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
 import MessageUpdate from '../../messageUpdate';
 
-interface HardwareREGModalProps {
+interface MacREGModalProps {
     modalName: string;
     minerKey: string;
     address?: string;
 }
 
-const HardwareREG: React.FC<HardwareREGModalProps> = ({
+const MacREG: React.FC<MacREGModalProps> = ({
     modalName,
     minerKey,
     address
 }) => {
     const { modals, closeModal } = useModal();
-    const [isLoading, setIsLoading] = useState(false);
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
     const [orderNumber, setOrderNumber] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '' });
+    const [mac, setMac] = useState('');
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', mac: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -40,6 +40,9 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 regex = /^[0-9]{5}$/;
                 error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
                 break;
+            case 'mac':
+                error = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/g.test(value) ? '' : 'Invalid MAC address';
+                break;
             default:
                 break;
         }
@@ -54,6 +57,8 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             setEmail(value);
         } else if (name === 'orderNumber') {
             setOrderNumber(value);
+        } else if (name === 'mac') {
+            setMac(value);
         }
         validateInput(name, value);
     };
@@ -61,14 +66,13 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     const handleSubmit = async () => {
         const hasErrors = Object.values(errors).some(error => error !== '');
         if (hasErrors) return;
-        const response = await fetch('/api/registrations/hardware', { // Replace with your actual API endpoint
+        const response = await fetch('/api/registrations/mac', { // Replace with your actual API endpoint
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address }),
+            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, mac }),
         });
-
         const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message });
@@ -77,6 +81,7 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
             setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
         }
+
     };
 
     return (
@@ -102,14 +107,14 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 </div>
                 <div className="space-y-4">
                     <MessageUpdate updateSuccess={updateSuccess} />
-                    <Title>Hardware registration</Title>
+                    <Title>MAC Device registration</Title>
                     <TextInput
                         name="first_name"
                         placeholder="Enter your first name"
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== ''}
+                        error={errors.first_name !== '' }
                     />
                     <TextInput
                         name="last_name"
@@ -135,11 +140,19 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                         errorMessage={errors.orderNumber}
                         error={errors.orderNumber !== ''}
                     />
+                     <TextInput
+                        name="mac"
+                        placeholder="Enter your MAC address"
+                        value={mac}
+                        onChange={handleInputChange}
+                        error= {errors.mac !== ''}
+                        errorMessage={errors.mac}
+                    />
                 </div>
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '')}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || mac === ''}
                     >
                         Submit
                     </Button>
@@ -149,4 +162,4 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     );
 };
 
-export default HardwareREG;
+export default MacREG;

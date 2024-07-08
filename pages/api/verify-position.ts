@@ -27,6 +27,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(401).json({ message: "Unauthorized 2" });
             return;
         }
+        if(!miner || !latitude || !longitude) {
+            res.status(400).json({ message: "Missing parameters" });
+            return;
+        }
         const client = await clientPromise;
         const db = client.db('main');
         const collection = db.collection('devices');

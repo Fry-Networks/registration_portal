@@ -4,40 +4,42 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]";
 import algosdk from "algosdk";
 import clientPromise from "../../../lib/mongoclient";
+import { parse } from 'url';
+import net from 'net';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
-    const session = await getServerSession(req,res, authOptions);
+    const session = await getServerSession(req, res, authOptions);
     // Check if user is authenticated
     if (!session || !session.user) {
         console.log(`no session`);
         res.status(401).json({ message: "Unauthorized 1" });
         return;
-    }  
+    }
     const data: {
         miner_key: string,
         names: { [key: string]: string },
         email: string,
         orderNumber: string,
         address: string,
+        rtsp: string,
         [key: string]: any, // Add index signature
     } = req.body;
 
-    const { miner_key, names, email, orderNumber, address } = data;
-    if(session.user.address !== address || !address){
+    const { miner_key, names, email, orderNumber, address, rtsp } = data;
+    if (session.user.address !== address || !address) {
         console.log(`session.user.address: ${session.user.address}, address: ${address} SPOOF`);
         res.status(401).json({ message: "Unauthorized 2" });
         return;
     }
-    
-    try {
 
-        const miner_type = miner_key.split('-')[0]; 
+    try {
+        const miner_type = miner_key.split('-')[0];
         const client = await clientPromise;
         const db = client.db('main');
         const collection = db.collection('devices');
         const exists = await collection.findOne({ miner_key, address });
         for (const key in data) {
-            if(key === 'names') {
+            if (key === 'names') {
                 let error = validateInput('first_name', data[key].first_name);
                 if (error) {
                     res.status(400).json({ message: error });
@@ -48,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     res.status(400).json({ message: error });
                     return;
                 }
-            } else if(key !== 'miner_key' && key !== 'address' ) {
+            } else if (key !== 'miner_key' && key !== 'address') {
                 const error = validateInput(key, data[key]);
                 if (error) {
                     res.status(400).json({ message: error });
@@ -56,17 +58,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 }
             }
         }
-        if(!exists){
+        if (!exists) {
             res.status(400).json({ message: "Not found" });
             return;
         }
-        if(exists.is_registered) {
+        console.log(exists);
+        if (exists.is_registered) {
             res.status(400).json({ message: "Already registered" });
             return;
         }
-        await collection.updateOne({ miner_key, address }, { $set: { is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address } });
-       console.log(`Registered ${miner_key}`);
-       
+        
+        await collection.updateOne({ miner_key, address }, {
+            $set: {
+                is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, rtsp
+            }
+        });
+        
+
+        console.log(`Registered ${miner_key} with rtsp ${rtsp}`);
         res.status(200).json({ message: "ok" });
     } catch (error) {
         console.log(error);
@@ -74,10 +83,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 };
 
-
 const validateInput = (name: string, value: string) => {
     let regex;
     let error = '';
+    if (!value) {
+        error = 'This field is required';
+    }
     switch (name) {
         case 'first_name':
         case 'last_name':
@@ -92,9 +103,15 @@ const validateInput = (name: string, value: string) => {
             regex = /^[0-9]{5}$/;
             error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
             break;
+        case 'rtsp':
+            error = /(rtsp):\/\/([^\s@/]+)@([^\s/:]+)(?::([0-9]+))?(\/.*)/.test(value) ? '' : 'Invalid rtsp link';
+            break;
         default:
-            error = "Invalid input"
+            console.log('name', name);
+            error = "Invalid input";
             break;
     }
     return error;
 };
+
+
