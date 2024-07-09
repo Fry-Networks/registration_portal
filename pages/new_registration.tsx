@@ -13,6 +13,7 @@ import { useWallet } from '@txnlab/use-wallet';
 import ApiKeyREG from '../components/modals/registrations/apikey';
 import MacREG from '../components/modals/registrations/mac';
 import RtspREG from '../components/modals/registrations/rtsp';
+import ByodConvertModal from '../components/modals/ByodConvert';
 export default function NewRegistrationPage() {
   const [minerKey, setMinerKey] = useState('');
   const { openModal, closeModal } = useModal();
@@ -28,7 +29,6 @@ export default function NewRegistrationPage() {
     const response = await getMinerType(minerKey, activeAccount.address);
     console.log(response);
     if (response.message === 'ok') {
-      console
       openModal(response.type + 'REG')
     } else {
       setUpdateSuccess({ status: 'error', message: response.message });
@@ -37,7 +37,10 @@ export default function NewRegistrationPage() {
   }
   return (
     <main className="p-4 md:p-10 mx-auto max-w-7xl">
-      <Title className='mb-20' >Create a new registration</Title>
+      <Flex className="mb-20" flexDirection='row' justifyContent='between' alignItems='center'>
+        <Title className='' >Create a new registration</Title>
+        <Button color="orange" onClick={() => openModal('byodConvert')}>Convert a BYOD license</Button>
+      </Flex>
       <MessageUpdate updateSuccess={updateSuccess} />
       <Flex flexDirection='col' justifyContent='center' alignItems='center'>
         <TextInput className="mx-auto max-w-sm mb-4" placeholder='Miner-key' value={minerKey} onChange={(e) => setMinerKey(e.target.value)} />
@@ -66,6 +69,10 @@ export default function NewRegistrationPage() {
       <RtspREG
         modalName='rtspREG'
         minerKey={minerKey}
+        address={activeAccount?.address}
+      />
+      <ByodConvertModal
+        modalName='byodConvert'
         address={activeAccount?.address}
       />
 

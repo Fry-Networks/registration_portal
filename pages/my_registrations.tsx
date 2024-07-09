@@ -10,6 +10,7 @@ import VerificationModal from '../components/modals/Verification';
 import { useModal } from '../app/modalcontext';
 import VerificationBurn from '../components/modals/VerificationBurn';
 import MessageUpdate from '../components/messageUpdate';
+import NameChangeModal from '../components/modals/NameChange';
 
 export default function MyRegistrationsPage({ devices }: { devices: Device[] }) {
   const { data: session, status } = useSession();
@@ -19,7 +20,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
   const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
+  const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
   useEffect(() => {
     if (activeAccount && !session) {
       signIn('wallet');
@@ -52,14 +53,14 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         body: JSON.stringify({ miner: currentDevice.miner_key, reward_wallet: rewardWallet, address: activeAccount?.address }),
       });
       if (response.ok) {
-        setUpdateSuccess({status: 'success', message: 'reward wallet'});
+        setUpdateSuccess({ status: 'success', message: 'reward wallet' });
         closeModal('updateReward');
       } else {
-        setUpdateSuccess({status: 'error', message: 'reward wallet'});
+        setUpdateSuccess({ status: 'error', message: 'reward wallet' });
         console.error('Failed to update reward wallet');
       }
     } catch (error) {
-      setUpdateSuccess({status: 'error', message: 'reward wallet'});
+      setUpdateSuccess({ status: 'error', message: 'reward wallet' });
       console.error('An error occurred while updating the reward wallet', error);
     }
   };
@@ -74,7 +75,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         body: JSON.stringify({ ...data, miner: currentDevice.miner_key, address: activeAccount?.address }),
       });
       if (response.ok) {
-        setUpdateSuccess({status: 'success', message: 'position'});
+        setUpdateSuccess({ status: 'success', message: 'position' });
         closeModal('positionVerification');
         // Optionally update the device list or show a success message
       } else {
@@ -99,7 +100,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
           {devices && devices.length > 0 ? (
             devices.map((device) => (
               <Card key={device._id} className="mb-4 relative">
-                <Title>{device.name}</Title>
+                <Title>{device.nickname ? device.nickname : device.name}</Title>
                 <Text>Miner Key: {device.miner_key}</Text>
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
@@ -107,19 +108,20 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 {device.apikey && <Text>API key: {device.apikey}</Text>}
                 {device.mac && <Text>MAC: {device.mac}</Text>}
                 {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
+                {device.byod && <Text>BYOD: {device.byod}</Text>}
 
                 {/* Cross icon if any conditions are unmet */}
                 {(!device.verified || !device.position || !device.is_registered) ? (
                   <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
-                    
+
                     <Flex flexDirection='col' justifyContent='end' alignItems='end' className="ml-2">
-                    <XCircleIcon className="h-6 w-6 text-red-500" />
+                      <XCircleIcon className="h-6 w-6 text-red-500" />
                       {!device.verified && <Text className="text-red-500">- Not verified</Text>}
                       {!device.position && <Text className="text-red-500">- Position not set</Text>}
                       {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
                     </Flex>
                   </Flex>
-                ): (
+                ) : (
                   <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
                     <CheckCircleIcon className="h-6 w-6 text-green-500" />
                     <Text className="text-green-500">Verified</Text>
@@ -133,6 +135,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                     <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'burnVerification')}>Verify</Button>
                   }
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
+                  <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
                 </Flex>
               </Card>
             ))
@@ -158,6 +161,11 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       <VerificationBurn
         modalName="burnVerification"
         miner={currentDevice?.miner_key}
+      />
+      <NameChangeModal
+        modalName='changeName'
+        address={activeAccount?.address}
+        miner_key={currentDevice?.miner_key}
       />
     </main>
   );
@@ -199,10 +207,12 @@ export async function getServerSideProps(context: any) {
 interface Device {
   _id: string;
   user_id: string;
+  nickname?: string;
   miner_key: string;
   name: string;
   apikey?: string;
   mac?: string;
+  byod?: string;
   created_at: Date;
   position: {
     lat: number;
