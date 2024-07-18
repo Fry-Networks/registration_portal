@@ -31,11 +31,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const db = client.db('main');
         const collection = db.collection('products');
         const test = await collection.findOne({ key: miner_type });
+        console.log(test)
         if(!test){
-            res.status(404).json({ message: "Not found" });
+            res.status(404).json({ message: "Product Not found" });
             return;
         }
-        const exists = await db.collection('devices').findOne({ miner_key: miner_key, address: session.user.address });
+        const exists = await db.collection('devices').findOne({ miner_key: miner_key });
         if(!exists){
             res.status(400).json({ message: "Not found" });
             return;

@@ -214,15 +214,15 @@ interface Device {
   mac?: string;
   byod?: string;
   created_at: Date;
-  position: {
+  position?: {
     lat: number;
     lng: number;
   };
   verified: boolean;
-  reward_wallet: string;
+  reward_wallet?: string;
   is_registered: boolean;
+  hexId?: string;
   address: string;
   email: string;
   __v: number;
-
 }

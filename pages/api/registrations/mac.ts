@@ -36,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const client = await clientPromise;
         const db = client.db('main');
         const collection = db.collection('devices');
-        const exists = await collection.findOne({ miner_key, address });
+        const exists = await collection.findOne({ miner_key });
         for (const key in data) {
             if(key === 'names') {
                 let error = validateInput('first_name', data[key].first_name);
@@ -66,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(400).json({ message: "Already registered" });
             return;
         }
-        await collection.updateOne({ miner_key, address }, {
+        await collection.updateOne({ miner_key }, {
             $set: {
                 is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, mac: mac
             }

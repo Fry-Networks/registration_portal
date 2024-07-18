@@ -53,8 +53,7 @@ const Map: React.FC<MapProps> = ({ position, onPositionChange }) => {
         if (distance <= MAX_DISTANCE_KM) {
             return newLatLng;
         } else {
-            const direction = originalLatLng.bearingTo(newLatLng);
-            return originalLatLng.destinationPoint(MAX_DISTANCE_KM * 1000, direction);
+            return originalPosition;
         }
     };
 
