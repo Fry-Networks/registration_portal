@@ -42,8 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         lat: latitude,
                         lng: longitude
                     
-                    },
-                    verified: true
+                    }
                 }
 
             }
