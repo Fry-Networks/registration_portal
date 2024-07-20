@@ -5,7 +5,7 @@ import {
   Button,
   Flex
 } from '@tremor/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import MessageUpdate from '../components/messageUpdate';
 import HardwareREG from '../components/modals/registrations/hardware';
 import { useModal } from '../app/modalcontext';
@@ -14,13 +14,20 @@ import ApiKeyREG from '../components/modals/registrations/apikey';
 import MacREG from '../components/modals/registrations/mac';
 import RtspREG from '../components/modals/registrations/rtsp';
 import ByodConvertModal from '../components/modals/ByodConvert';
+import { signIn, useSession } from 'next-auth/react';
 export default function NewRegistrationPage() {
   const [minerKey, setMinerKey] = useState('');
+  const { data: session, status } = useSession();
   const { openModal, closeModal } = useModal();
   const { activeAccount } = useWallet();
   const isValid = /\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(minerKey);
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
-
+  useEffect(() => {
+    if (activeAccount && !session) {
+      signIn('wallet');
+    }
+  }, [activeAccount, session]);
+  
   const startRegistration = async () => {
     if (!activeAccount) {
       setUpdateSuccess({ status: 'error', message: 'Please connect your wallet' });
