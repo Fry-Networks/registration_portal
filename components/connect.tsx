@@ -1,15 +1,16 @@
 import React, { useEffect } from 'react'
 import { useWallet } from '@txnlab/use-wallet'
 import { Button, Flex, Select } from '@tremor/react'
+import { signOut } from 'next-auth/react';
 
 export default function ConnectMenu() {
     const { providers, activeAccount } = useWallet()
     useEffect(() => {
         if (activeAccount) {
             console.log(activeAccount)
-          localStorage.setItem('walletAddress', activeAccount?.address);
+            localStorage.setItem('walletAddress', activeAccount?.address);
         }
-      }, [activeAccount]);
+    }, [activeAccount]);
     return (
         <Flex flexDirection='col' justifyContent='between' alignItems='center'>
             <Flex flexDirection='row' justifyContent='between' alignItems='center'>
@@ -32,19 +33,23 @@ export default function ConnectMenu() {
 
                         {provider.isActive && provider.accounts.length && (
                             <>
-                             <Button onClick={provider.disconnect} disabled={!provider.isConnected} color='red' className='mb-2'>
-                             Disconnect
-                           </Button>
-                            <Select
-                                value={activeAccount?.address}
-                                onValueChange={(value) => provider.setActiveAccount(value)}
-                            >
-                                {provider.accounts.map((account) => (
-                                    <option key={account.address} value={account.address}>
-                                        {account.address}
-                                    </option>
-                                ))}
-                            </Select>
+                                <Button onClick={() => {
+                                    provider.disconnect()
+                                    signOut()
+                                }
+                                } disabled={!provider.isConnected} color='red' className='mb-2'>
+                                    Disconnect
+                                </Button>
+                                <Select
+                                    value={activeAccount?.address}
+                                    onValueChange={(value) => provider.setActiveAccount(value)}
+                                >
+                                    {provider.accounts.map((account) => (
+                                        <option key={account.address} value={account.address}>
+                                            {account.address}
+                                        </option>
+                                    ))}
+                                </Select>
                             </>
                         )}
 
@@ -52,9 +57,9 @@ export default function ConnectMenu() {
                     </Flex>
 
                 ))}
-               
+
             </Flex>
-            {activeAccount && (<p style={{marginTop: "15px"}}>You are successfully connected and can now wander in the dashboard!</p>)}
+            {activeAccount && (<p style={{ marginTop: "15px" }}>You are successfully connected and can now wander in the dashboard!</p>)}
         </Flex>
 
     )
