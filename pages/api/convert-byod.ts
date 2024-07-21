@@ -26,6 +26,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(401).json({ message: "Unauthorized 2" });
         return;
     }
+    if(['SDN', 'RDN', 'SVN'].includes(key)){
+        res.status(400).json({ message: "Invalid key" });
+        return;
+    }
+
     try {
         const client = await clientPromise;
         const db = client.db('main');

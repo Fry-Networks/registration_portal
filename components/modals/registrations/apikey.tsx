@@ -19,10 +19,9 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
-    const [orderNumber, setOrderNumber] = useState('');
     const [apiKey, setApiKey] = useState(''); 
     const [mac, setMac] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', apikey: '', mac: '' });
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', apikey: '', mac: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -36,10 +35,6 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
             case 'email':
                 regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 error = regex.test(value) ? '' : 'Invalid email format.';
-                break;
-            case 'orderNumber':
-                regex = /^[0-9]{5}$/;
-                error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
                 break;
             case 'apikey':
                 error = value.length < 3 ? 'API key must be at least 3 characters long' : /^\S+$/.test(value) ? '' : 'Invalid input';
@@ -59,8 +54,6 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
             setNames(prevNames => ({ ...prevNames, [name]: value }));
         } else if (name === 'email') {
             setEmail(value);
-        } else if (name === 'orderNumber') {
-            setOrderNumber(value);
         } else if (name === 'apikey') {
             setApiKey(value);
         } else if (name === 'mac') {
@@ -77,7 +70,7 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, apikey: apiKey, mac }),
+            body: JSON.stringify({ names, email,  miner_key: minerKey, address, apikey: apiKey, mac }),
         });
         const { message } = await response.json();
         if (!response.ok) {
@@ -139,14 +132,6 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
                         error={errors.email !== ''}
                     />
                     <TextInput
-                        name="orderNumber"
-                        placeholder="Enter your order number"
-                        value={orderNumber}
-                        onChange={handleInputChange}
-                        errorMessage={errors.orderNumber}
-                        error={errors.orderNumber !== ''}
-                    />
-                    <TextInput
                         name="apikey"
                         placeholder="Enter your API key"
                         value={apiKey}
@@ -166,7 +151,7 @@ const ApiKeyREG: React.FC<ApiKeyREGModalProps> = ({
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || apiKey === '' || mac === ''}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || apiKey === '' || mac === ''}
                     >
                         Submit
                     </Button>

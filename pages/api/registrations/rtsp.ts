@@ -19,13 +19,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         miner_key: string,
         names: { [key: string]: string },
         email: string,
-        orderNumber: string,
         address: string,
         rtsp: string,
         [key: string]: any, // Add index signature
     } = req.body;
 
-    const { miner_key, names, email, orderNumber, address, rtsp } = data;
+    const { miner_key, names, email,  address, rtsp } = data;
     if (session.user.address !== address || !address) {
         console.log(`session.user.address: ${session.user.address}, address: ${address} SPOOF`);
         res.status(401).json({ message: "Unauthorized 2" });
@@ -67,10 +66,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(400).json({ message: "Already registered" });
             return;
         }
-        
         await collection.updateOne({ miner_key }, {
             $set: {
-                is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, rtsp
+                is_registered: true, names: names, email: email, address: address, rtsp
             }
         });
         
@@ -98,10 +96,6 @@ const validateInput = (name: string, value: string) => {
         case 'email':
             regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             error = regex.test(value) ? '' : 'Invalid email format.';
-            break;
-        case 'orderNumber':
-            regex = /^[0-9]{5}$/;
-            error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
             break;
         case 'rtsp':
             error = /(rtsp):\/\/([^\s@/]+)@([^\s/:]+)(?::([0-9]+))?(\/.*)/.test(value) ? '' : 'Invalid rtsp link';

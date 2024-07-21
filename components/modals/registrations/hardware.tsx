@@ -20,8 +20,7 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
-    const [orderNumber, setOrderNumber] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '' });
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -36,10 +35,6 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 error = regex.test(value) ? '' : 'Invalid email format.';
                 break;
-            case 'orderNumber':
-                regex = /^[0-9]{5}$/;
-                error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
-                break;
             default:
                 break;
         }
@@ -52,8 +47,6 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             setNames(prevNames => ({ ...prevNames, [name]: value }));
         } else if (name === 'email') {
             setEmail(value);
-        } else if (name === 'orderNumber') {
-            setOrderNumber(value);
         }
         validateInput(name, value);
     };
@@ -66,7 +59,7 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address }),
+            body: JSON.stringify({ names, email,  miner_key: minerKey, address }),
         });
 
         const { message } = await response.json();
@@ -127,14 +120,7 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                         errorMessage={errors.email}
                         error={errors.email !== ''}
                     />
-                    <TextInput
-                        name="orderNumber"
-                        placeholder="Enter your order number"
-                        value={orderNumber}
-                        onChange={handleInputChange}
-                        errorMessage={errors.orderNumber}
-                        error={errors.orderNumber !== ''}
-                    />
+            
                 </div>
                 <div className="mt-4">
                     <Button

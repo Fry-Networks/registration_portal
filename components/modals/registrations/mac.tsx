@@ -19,9 +19,8 @@ const MacREG: React.FC<MacREGModalProps> = ({
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
-    const [orderNumber, setOrderNumber] = useState('');
     const [mac, setMac] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', mac: '' });
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', mac: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -36,10 +35,7 @@ const MacREG: React.FC<MacREGModalProps> = ({
                 regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 error = regex.test(value) ? '' : 'Invalid email format.';
                 break;
-            case 'orderNumber':
-                regex = /^[0-9]{5}$/;
-                error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
-                break;
+   
             case 'mac':
                 error = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/g.test(value) ? '' : 'Invalid MAC address';
                 break;
@@ -55,9 +51,7 @@ const MacREG: React.FC<MacREGModalProps> = ({
             setNames(prevNames => ({ ...prevNames, [name]: value }));
         } else if (name === 'email') {
             setEmail(value);
-        } else if (name === 'orderNumber') {
-            setOrderNumber(value);
-        } else if (name === 'mac') {
+        }  else if (name === 'mac') {
             setMac(value);
         }
         validateInput(name, value);
@@ -71,7 +65,7 @@ const MacREG: React.FC<MacREGModalProps> = ({
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, mac }),
+            body: JSON.stringify({ names, email, miner_key: minerKey, address, mac }),
         });
         const { message } = await response.json();
         if (!response.ok) {
@@ -132,14 +126,7 @@ const MacREG: React.FC<MacREGModalProps> = ({
                         errorMessage={errors.email}
                         error={errors.email !== ''}
                     />
-                    <TextInput
-                        name="orderNumber"
-                        placeholder="Enter your order number"
-                        value={orderNumber}
-                        onChange={handleInputChange}
-                        errorMessage={errors.orderNumber}
-                        error={errors.orderNumber !== ''}
-                    />
+        
                      <TextInput
                         name="mac"
                         placeholder="Enter your MAC address"
@@ -152,7 +139,7 @@ const MacREG: React.FC<MacREGModalProps> = ({
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || mac === ''}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' ||  mac === ''}
                     >
                         Submit
                     </Button>

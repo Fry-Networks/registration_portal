@@ -59,7 +59,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
             });
             const data = await response.json();
             if (data.message === 'ok') {
-                setProducts(data.data);
+                setProducts(data.data.filter((product: { key: string; name: string; }) => !['SDN', 'RDN', 'SVN'].includes(product.key)));
             }
         };
         fetchProducts();

@@ -16,12 +16,11 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
     address
 }) => {
     const { modals, closeModal } = useModal();
-    const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
+    const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
-    const [orderNumber, setOrderNumber] = useState('');
     const [rtsp, setRtsp] = useState('');
-    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', orderNumber: '', rtsp: '' });
+    const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '', rtsp: '' });
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -35,10 +34,6 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
             case 'email':
                 regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                 error = regex.test(value) ? '' : 'Invalid email format.';
-                break;
-            case 'orderNumber':
-                regex = /^[0-9]{5}$/;
-                error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
                 break;
             case 'rtsp':
                 error = /(rtsp):\/\/([^\s@/]+)@([^\s/:]+)(?::([0-9]+))?(\/.*)/.test(value) ? '' : 'Invalid rtsp link';
@@ -55,8 +50,6 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
             setNames(prevNames => ({ ...prevNames, [name]: value }));
         } else if (name === 'email') {
             setEmail(value);
-        } else if (name === 'orderNumber') {
-            setOrderNumber(value);
         } else if (name === 'rtsp') {
             setRtsp(value);
         }
@@ -71,15 +64,15 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email, orderNumber, miner_key: minerKey, address, rtsp }),
+            body: JSON.stringify({ names, email, miner_key: minerKey, address, rtsp }),
         });
         const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message });
-            setTimeout(() => setUpdateSuccess({status: 'error', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({ status: 'error', message: '' }), 15_000);
         } else {
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({ status: 'success', message: '' }), 15_000);
         }
 
     };
@@ -114,7 +107,7 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== '' }
+                        error={errors.first_name !== ''}
                     />
                     <TextInput
                         name="last_name"
@@ -132,27 +125,21 @@ const RtspREG: React.FC<RtspREGModalProps> = ({
                         errorMessage={errors.email}
                         error={errors.email !== ''}
                     />
+
+
                     <TextInput
-                        name="orderNumber"
-                        placeholder="Enter your order number"
-                        value={orderNumber}
-                        onChange={handleInputChange}
-                        errorMessage={errors.orderNumber}
-                        error={errors.orderNumber !== ''}
-                    />
-                     <TextInput
                         name="rtsp"
                         placeholder="Enter your RTSP link"
                         value={rtsp}
                         onChange={handleInputChange}
-                        error= {errors.rtsp !== ''}
+                        error={errors.rtsp !== ''}
                         errorMessage={errors.rtsp}
                     />
                 </div>
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || orderNumber === '' || rtsp === ''}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' || rtsp === ''}
                     >
                         Submit
                     </Button>

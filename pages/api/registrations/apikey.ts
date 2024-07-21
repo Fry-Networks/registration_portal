@@ -17,14 +17,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         miner_key: string,
         names: { [key: string]: string },
         email: string,
-        orderNumber: string,
         address: string,
         mac: string,
         apikey: string,
         [key: string]: any, // Add index signature
     } = req.body;
 
-    const { miner_key, names, email, orderNumber, address, apikey, mac } = data;
+    const { miner_key, names, email,  address, apikey, mac } = data;
     if (session.user.address !== address || !address) {
         console.log(`session.user.address: ${session.user.address}, address: ${address} SPOOF`);
         res.status(401).json({ message: "Unauthorized 2" });
@@ -69,7 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         await collection.updateOne({ miner_key }, {
             $set: {
-                is_registered: true, names: names, email: email, orderNumber: orderNumber, address: address, apikey: apikey, mac: mac
+                is_registered: true, names: names, email: email, address: address, apikey: apikey, mac: mac
             }
         });
         console.log(`Registered ${miner_key} with apikey ${apikey} / mac ${mac}`);
@@ -98,10 +97,6 @@ const validateInput = (name: string, value: string) => {
         case 'email':
             regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             error = regex.test(value) ? '' : 'Invalid email format.';
-            break;
-        case 'orderNumber':
-            regex = /^[0-9]{5}$/;
-            error = regex.test(value) ? '' : 'Order number can only contain uppercase letters and numbers. Must be 5 characters long.';
             break;
         case 'apikey':
             error = value.length < 3 ? 'API key must be at least 3 characters long' : /^\S+$/.test(value) ? '' : 'Invalid input';
