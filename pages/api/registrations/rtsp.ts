@@ -6,6 +6,7 @@ import algosdk from "algosdk";
 import clientPromise from "../../../lib/mongoclient";
 import { parse } from 'url';
 import net from 'net';
+import { isValidRTSP } from "../../../lib/rtspCheck";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const session = await getServerSession(req, res, authOptions);
@@ -64,6 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.log(exists);
         if (exists.is_registered) {
             res.status(400).json({ message: "Already registered" });
+            return;
+        }
+        const urlCheck = await isValidRTSP(rtsp);
+        if (!urlCheck) {
+            res.status(400).json({ message: "Invalid rtsp link" });
             return;
         }
         await collection.updateOne({ miner_key }, {
