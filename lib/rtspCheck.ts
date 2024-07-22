@@ -1,76 +1,104 @@
 import * as net from 'net';
-import { URL } from 'url';
+import * as url from 'url';
+import * as crypto from 'crypto';
 
-// Function to create the Authorization header
-function createAuthHeader(username: string, password: string): string {
-    const credentials = `${username}:${password}`;
-    const base64Credentials = Buffer.from(credentials).toString('base64');
-    return `Basic ${base64Credentials}`;
+function generateDigestResponse(username: string, password: string, realm: string, nonce: string, uri: string): string {
+  const ha1 = crypto.createHash('md5').update(`${username}:${realm}:${password}`).digest('hex');
+  const ha2 = crypto.createHash('md5').update(`DESCRIBE:${uri}`).digest('hex');
+  return crypto.createHash('md5').update(`${ha1}:${nonce}:${ha2}`).digest('hex');
 }
 
-// Function to check if RTSP link is valid
-export async function isValidRTSP(urlString: string): Promise<boolean> {
-    try {
-        // Parse the URL
-        const url = new URL(urlString);
-        
-        // Check if the scheme is 'rtsp'
-        if (url.protocol !== 'rtsp:') {
-            console.log('Invalid protocol');
-            return false;
-        }
-        console.log(url)
-        const host = url.hostname;
-        const port = url.port ? parseInt(url.port, 10) : 554;
-        const username = url.username;
-        const password = url.password;
-        const authHeader = username && password ? createAuthHeader(username, password) : null;
+export function checkRtspLink(rtspUrl: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = url.parse(rtspUrl);
 
-        // Create a socket connection
-        const socket = new net.Socket();
-        const connectPromise = new Promise<void>((resolve, reject) => {
-            socket.setTimeout(20_000); // Set a timeout for the connection
-            socket.once('connect', resolve);
-            socket.once('error', reject);
-            socket.connect(port, host);
-        });
-
-        await connectPromise;
-
-        // Send RTSP OPTIONS request
-        let request = `OPTIONS ${url.pathname} RTSP/1.0\r\nCSeq: 1\r\n`;
-        if (authHeader) {
-            request += `Authorization: ${authHeader}\r\n`;
-        }
-        request += `\r\n`;
-        socket.write(request);
-
-        // Wait for response and check for validity
-        const responsePromise = new Promise<string>((resolve, reject) => {
-            let response = '';
-            socket.on('data', (chunk) => {
-                response += chunk.toString();
-                if (response.includes('RTSP/1.0 200 OK')) {
-                    resolve(response);
-                }
-            });
-            socket.on('error', reject);
-            socket.on('timeout', () => reject(new Error('Socket timeout')));
-        });
-
-        const response = await responsePromise;
-        socket.destroy();
-
-        if (response.includes('RTSP/1.0 200 OK')) {
-            console.log('Valid RTSP response');
-            return true;
-        } else {
-            console.log('Invalid RTSP response');
-            return false;
-        }
-
-    } catch (error: any) {
-        console.error('Error:', error.message);
-        return false;
+    if (!parsedUrl.protocol || parsedUrl.protocol.toLowerCase() !== 'rtsp:') {
+      reject(new Error('Invalid protocol. Must be RTSP.'));
+      return;
     }
+
+    if (!parsedUrl.hostname) {
+      reject(new Error('Invalid URL. Missing hostname.'));
+      return;
+    }
+
+    const host = parsedUrl.hostname;
+    const port = parsedUrl.port ? parseInt(parsedUrl.port, 10) : 554;
+    
+    const auth = parsedUrl.auth ? parsedUrl.auth.split(':') : [];
+    const username = auth[0] || '';
+    const password = auth[1] || '';
+
+    const socket = new net.Socket();
+    socket.setTimeout(5000); // 5 seconds timeout
+
+    let authAttempted = false;
+
+    function sendRequest(authHeader = '') {
+      const cseq = authAttempted ? '2' : '1';
+      const request = `DESCRIBE ${rtspUrl} RTSP/1.0\r\n` +
+                      `CSeq: ${cseq}\r\n` +
+                      `User-Agent: LibVLC/3.0.8 (LIVE555 Streaming Media v2018.02.18)\r\n` +
+                      `Accept: application/sdp\r\n` +
+                      `x-sessioncookie: 31df7d10b7ba43f0\r\n` +
+                      authHeader +
+                      '\r\n';
+      console.log('Sending request:');
+      console.log(request);
+      socket.write(request);
+    }
+
+    socket.connect(port, host, () => {
+      sendRequest();
+    });
+
+    let response = '';
+
+    socket.on('data', (data) => {
+      response += data.toString();
+      console.log('Received response:');
+      console.log(response);
+
+      if (response.includes('RTSP/1.0 200 OK')) {
+        socket.destroy();
+        resolve(true);
+      } else if (response.includes('RTSP/1.0 401 Unauthorized') && !authAttempted) {
+        const wwwAuthHeaders = response.split('\n').filter(line => line.startsWith('WWW-Authenticate:'));
+        const digestHeader = wwwAuthHeaders.find(header => header.includes('Digest'));
+        const realm = digestHeader?.match(/realm="([^"]+)"/)?.[1];
+        const nonce = digestHeader?.match(/nonce="([^"]+)"/)?.[1];
+        
+        if (realm && nonce && username && password) {
+          const digestResponse = generateDigestResponse(username, password, realm, nonce, rtspUrl);
+          const authHeader = `Authorization: Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${rtspUrl}", response="${digestResponse}"\r\n`;
+          authAttempted = true;
+          response = '';
+          sendRequest(authHeader);
+        } else {
+          socket.destroy();
+          resolve(false);
+        }
+      } else {
+        socket.destroy();
+        resolve(false);
+      }
+    });
+
+    socket.on('timeout', () => {
+      socket.destroy();
+      reject(new Error('Connection timed out'));
+    });
+
+    socket.on('error', (err) => {
+      console.error('Socket error:', err);
+      socket.destroy();
+      reject(err);
+    });
+
+    socket.on('close', () => {
+      if (!response.includes('RTSP/1.0 200 OK')) {
+        resolve(false);
+      }
+    });
+  });
 }

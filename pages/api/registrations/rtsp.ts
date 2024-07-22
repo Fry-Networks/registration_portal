@@ -6,7 +6,7 @@ import algosdk from "algosdk";
 import clientPromise from "../../../lib/mongoclient";
 import { parse } from 'url';
 import net from 'net';
-import { isValidRTSP } from "../../../lib/rtspCheck";
+import { checkRtspLink } from "../../../lib/rtspCheck";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const session = await getServerSession(req, res, authOptions);
@@ -67,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(400).json({ message: "Already registered" });
             return;
         }
-        const urlCheck = await isValidRTSP(rtsp);
+        const urlCheck = await checkRtspLink(rtsp);
         if (!urlCheck) {
             res.status(400).json({ message: "Invalid rtsp link" });
             return;
