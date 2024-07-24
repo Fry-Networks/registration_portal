@@ -23,6 +23,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
   const [minerTypes, setMinerTypes] = useState(['']);
   const [typeFilter, setTypeFilter] = useState(['ALL']);
+  const [miscFilter, setMiscFilter] = useState(['ALL']);
   const [filter, setFilter] = useState('');
   const [filteredDevices, setFilteredDevices] = useState<Device[]>(devices);
 
@@ -56,14 +57,16 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
 
   useEffect(() => {
     let updatedDevices = devices.filter(device => {
-      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) && (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0]));
+      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) && 
+      (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
+      (miscFilter.includes('ALL') || (miscFilter.some(filter => (device as any)[filter])));
     }
     )
-    updatedDevices.sort((a, b) => {
+    updatedDevices.sort((a, b) => { 
       return a.name.localeCompare(b.name);
     });
     setFilteredDevices(updatedDevices);
-  }, [filter, devices, typeFilter]);
+  }, [filter, devices, typeFilter, miscFilter]);
 
 
 
@@ -131,15 +134,16 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         <>
           <Title className="mb-20 text-center">My Registrations ({session.user.address})</Title>
           <MessageUpdate updateSuccess={updateSuccess} />
-          <Flex justifyContent="between" className="mb-4">
+          <Flex justifyContent="end" className="mb-4">
             <TextInput
               placeholder="Filter by reward wallet"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               className="w-full md:w-auto"
             />
+            <Flex flexDirection='col' justifyContent='center' alignItems='end'>
             <MultiSelect
-              className="w-full md:w-auto"
+              className="w-full md:w-auto mb-2"
               value={typeFilter}
               onValueChange={(val) => setTypeFilter(val)}
             >
@@ -148,6 +152,19 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <MultiSelectItem value={type}>{type}</MultiSelectItem>
               ))}
             </MultiSelect>
+            <MultiSelect
+              className="w-full md:w-auto"
+              value={miscFilter}
+              onValueChange={(val) => setMiscFilter(val)}
+            >
+              <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+              <MultiSelectItem value="is_registered">Registered</MultiSelectItem>
+              <MultiSelectItem value="verified">Verified</MultiSelectItem>
+              <MultiSelectItem value="position">Position set</MultiSelectItem>
+
+            </MultiSelect>  
+            </Flex>
+
           </Flex>
 
           {filteredDevices && filteredDevices.length > 0 ? (
