@@ -13,10 +13,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     updateReward: false,
     positionVerification: false,
     burnVerification: false,
-    hardwareREG: false,
-    apikeyREG: false,
-    macREG: false,
-    rtspREG: false,
+    registration: false,
     byodConvert: false,
     changeName: false,
     // Add other modals here as needed

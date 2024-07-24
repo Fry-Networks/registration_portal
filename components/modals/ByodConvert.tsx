@@ -41,6 +41,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
             setTimeout(() => setUpdateSuccess({ status: 'success', message: '' }), 15_000);
             setMinerKey(data.miner_key);
         } else {
+            setByodLicense('');
             setUpdateSuccess({ status: 'error', message: data.message });
             setTimeout(() => setUpdateSuccess({ status: 'error', message: '' }), 15_000);
         }

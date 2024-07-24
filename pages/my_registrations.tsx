@@ -4,7 +4,7 @@ import { useSession, signIn, getSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import clientPromise from '../lib/mongoclient';
 import { RiCloseLine } from '@remixicon/react';
-import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
 import UpdateRewardModal from '../components/modals/rewardWallet';
 import VerificationModal from '../components/modals/Verification';
 import { useModal } from '../app/modalcontext';
@@ -105,8 +105,6 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
                 <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
-                {device.apikey && <Text>API key: {device.apikey}</Text>}
-                {device.mac && <Text>MAC: {device.mac}</Text>}
                 {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
                 {device.byod && <Text>BYOD: {device.byod}</Text>}
 
@@ -136,6 +134,12 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                   }
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
+                  {currentDevice?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + currentDevice?.hexId, '_blank')}>
+                    <Flex flexDirection='row'>
+                    Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
+
+                    </Flex>
+                  </Button>}
                 </Flex>
               </Card>
             ))
@@ -210,8 +214,6 @@ interface Device {
   nickname?: string;
   miner_key: string;
   name: string;
-  apikey?: string;
-  mac?: string;
   byod?: string;
   created_at: Date;
   position?: {

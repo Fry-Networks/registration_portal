@@ -7,14 +7,11 @@ import {
 } from '@tremor/react';
 import { useEffect, useState } from 'react';
 import MessageUpdate from '../components/messageUpdate';
-import HardwareREG from '../components/modals/registrations/hardware';
 import { useModal } from '../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet';
-import ApiKeyREG from '../components/modals/registrations/apikey';
-import MacREG from '../components/modals/registrations/mac';
-import RtspREG from '../components/modals/registrations/rtsp';
 import ByodConvertModal from '../components/modals/ByodConvert';
 import { signIn, useSession } from 'next-auth/react';
+import RegistrationModal from '../components/modals/registrations/RegistrationModal';
 export default function NewRegistrationPage() {
   const [minerKey, setMinerKey] = useState('');
   const { data: session, status } = useSession();
@@ -36,7 +33,7 @@ export default function NewRegistrationPage() {
     const response = await getMinerType(minerKey, activeAccount.address);
     console.log(response);
     if (response.message === 'ok') {
-      openModal(response.type + 'REG')
+      openModal('registration')
     } else {
       setUpdateSuccess({ status: 'error', message: response.message });
     }
@@ -57,24 +54,8 @@ export default function NewRegistrationPage() {
         >Start registration</Button>
       </Flex>
 
-      <HardwareREG
-        modalName='hardwareREG'
-        minerKey={minerKey}
-        address={activeAccount?.address}
-      />
-
-      <ApiKeyREG
-        modalName='apikeyREG'
-        minerKey={minerKey}
-        address={activeAccount?.address}
-      />
-      <MacREG
-        modalName='macREG'
-        minerKey={minerKey}
-        address={activeAccount?.address}
-      />
-      <RtspREG
-        modalName='rtspREG'
+      <RegistrationModal
+        modalName='registration'
         minerKey={minerKey}
         address={activeAccount?.address}
       />

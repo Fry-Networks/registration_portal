@@ -4,19 +4,18 @@ import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
 import MessageUpdate from '../../messageUpdate';
 
-interface HardwareREGModalProps {
+interface REGModalProps {
     modalName: string;
     minerKey: string;
     address?: string;
 }
 
-const HardwareREG: React.FC<HardwareREGModalProps> = ({
+const RegistrationModal: React.FC<REGModalProps> = ({
     modalName,
     minerKey,
     address
 }) => {
     const { modals, closeModal } = useModal();
-    const [isLoading, setIsLoading] = useState(false);
     const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
@@ -54,22 +53,25 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     const handleSubmit = async () => {
         const hasErrors = Object.values(errors).some(error => error !== '');
         if (hasErrors) return;
-        const response = await fetch('/api/registrations/hardware', { // Replace with your actual API endpoint
+        const response = await fetch('/api/registrations/create', { // Replace with your actual API endpoint
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({ names, email,  miner_key: minerKey, address }),
         });
-
         const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message });
             setTimeout(() => setUpdateSuccess({status: 'error', message: ''}), 15_000);
         } else {
+            //clear fields
+            setNames({first_name: '', last_name: ''});
+            setEmail('')
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
             setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
         }
+
     };
 
     return (
@@ -95,14 +97,14 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                 </div>
                 <div className="space-y-4">
                     <MessageUpdate updateSuccess={updateSuccess} />
-                    <Title>Hardware registration</Title>
+                    <Title>Device registration</Title>
                     <TextInput
                         name="first_name"
                         placeholder="Enter your first name"
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== ''}
+                        error={errors.first_name !== '' }
                     />
                     <TextInput
                         name="last_name"
@@ -120,12 +122,11 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
                         errorMessage={errors.email}
                         error={errors.email !== ''}
                     />
-            
                 </div>
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '')}
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' }
                     >
                         Submit
                     </Button>
@@ -135,4 +136,4 @@ const HardwareREG: React.FC<HardwareREGModalProps> = ({
     );
 };
 
-export default HardwareREG;
+export default RegistrationModal;
