@@ -1,4 +1,4 @@
-import { Title, Text, Button, Card, Dialog, DialogPanel, TextInput, Callout, Flex } from '@tremor/react';
+import { Title, Text, Button, Card, Dialog, DialogPanel, TextInput, Callout, Flex, Select, MultiSelect, MultiSelectItem } from '@tremor/react';
 import { useWallet } from '@txnlab/use-wallet';
 import { useSession, signIn, getSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
@@ -21,24 +21,58 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
-  useEffect(() => {
-    if (activeAccount && !session) {
-      signIn('wallet');
-    }
-  }, [activeAccount, session]);
-
-  const handleOpenModal = (device: Device, modalName: string) => {
-    setCurrentDevice(device);
-    openModal(modalName);
-  };
-
+  const [minerTypes, setMinerTypes] = useState(['']);
+  const [typeFilter, setTypeFilter] = useState(['ALL']);
+  const [filter, setFilter] = useState('');
+  const [filteredDevices, setFilteredDevices] = useState<Device[]>(devices);
 
   useEffect(() => {
     const regex = /^[A-Z0-9]{58}$/;
     setIsValid(regex.test(rewardWallet));
   }, [rewardWallet]);
 
+  useEffect(() => {
+    if (activeAccount && !session) {
+      signIn('wallet');
+    }
 
+    const fetchMinerTypes = async () => {
+      const response = await fetch('/api/get_miner_types', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ address: activeAccount?.address }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMinerTypes(data.data.map((miner: { name: string, key: string }) => miner.key));
+      }
+    };
+    fetchMinerTypes();
+
+  }, [activeAccount, session]);
+
+
+  useEffect(() => {
+    let updatedDevices = devices.filter(device => {
+      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) && (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0]));
+    }
+    )
+    updatedDevices.sort((a, b) => {
+      return a.name.localeCompare(b.name);
+    });
+    setFilteredDevices(updatedDevices);
+  }, [filter, devices, typeFilter]);
+
+
+
+
+
+  const handleOpenModal = (device: Device, modalName: string) => {
+    setCurrentDevice(device);
+    openModal(modalName);
+  };
 
 
   const handleUpdateRewardWallet = async (e: React.FormEvent) => {
@@ -97,8 +131,27 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         <>
           <Title className="mb-20 text-center">My Registrations ({session.user.address})</Title>
           <MessageUpdate updateSuccess={updateSuccess} />
-          {devices && devices.length > 0 ? (
-            devices.map((device) => (
+          <Flex justifyContent="between" className="mb-4">
+            <TextInput
+              placeholder="Filter by reward wallet"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-full md:w-auto"
+            />
+            <MultiSelect
+              className="w-full md:w-auto"
+              value={typeFilter}
+              onValueChange={(val) => setTypeFilter(val)}
+            >
+              <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+              {minerTypes.map((type) => (
+                <MultiSelectItem value={type}>{type}</MultiSelectItem>
+              ))}
+            </MultiSelect>
+          </Flex>
+
+          {filteredDevices && filteredDevices.length > 0 ? (
+            filteredDevices.map((device) => (
               <Card key={device._id} className="mb-4 relative">
                 <Title>{device.nickname ? device.nickname : device.name}</Title>
                 <Text>Miner Key: {device.miner_key}</Text>
@@ -108,22 +161,24 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
                 {device.byod && <Text>BYOD: {device.byod}</Text>}
 
-                {/* Cross icon if any conditions are unmet */}
                 {(!device.verified || !device.position || !device.is_registered) ? (
-                  <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
-
-                    <Flex flexDirection='col' justifyContent='end' alignItems='end' className="ml-2">
+                  <div className="absolute top-4 right-4">
+                    <Flex flexDirection='row' justifyContent='end' alignItems='end'>
                       <XCircleIcon className="h-6 w-6 text-red-500" />
-                      {!device.verified && <Text className="text-red-500">- Not verified</Text>}
-                      {!device.position && <Text className="text-red-500">- Position not set</Text>}
-                      {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
+                      <Flex flexDirection='col' justifyContent='end' alignItems='end' className="ml-2">
+                        {!device.verified && <Text className="text-red-500">- Not verified</Text>}
+                        {!device.position && <Text className="text-red-500">- Position not set</Text>}
+                        {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
+                      </Flex>
                     </Flex>
-                  </Flex>
+                  </div>
                 ) : (
-                  <Flex flexDirection='row' justifyContent='end' alignItems='end' className="absolute top-4 right-4">
-                    <CheckCircleIcon className="h-6 w-6 text-green-500" />
-                    <Text className="text-green-500">Verified</Text>
-                  </Flex>
+                  <div className="absolute top-4 right-4">
+                    <Flex flexDirection='row' justifyContent='end' alignItems='end'>
+                      <CheckCircleIcon className="h-6 w-6 text-green-500" />
+                      <Text className="text-green-500 ml-2">Verified</Text>
+                    </Flex>
+                  </div>
                 )}
 
                 <Flex className="mt-4 flex-col md:flex-row" justifyContent='start' alignItems='center'>
@@ -136,8 +191,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
                   {currentDevice?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + currentDevice?.hexId, '_blank')}>
                     <Flex flexDirection='row'>
-                    Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
-
+                      Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
                     </Flex>
                   </Button>}
                 </Flex>
@@ -146,6 +200,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
           ) : (
             <p>No devices found</p>
           )}
+
         </>
       ) : (
         <Title className="mb-20 text-center">Please connect your wallet and authenticate</Title>
