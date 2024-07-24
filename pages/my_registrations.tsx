@@ -35,7 +35,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     if (activeAccount && !session) {
       signIn('wallet');
     }
-
+    if(!activeAccount) return;
     const fetchMinerTypes = async () => {
       const response = await fetch('/api/get_miner_types', {
         method: 'POST',
@@ -189,7 +189,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                   }
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
-                  {currentDevice?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + currentDevice?.hexId, '_blank')}>
+                  {device?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
                     <Flex flexDirection='row'>
                       Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
                     </Flex>
