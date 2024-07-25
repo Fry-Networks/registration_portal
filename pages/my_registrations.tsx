@@ -21,7 +21,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
-  const [minerTypes, setMinerTypes] = useState(['']);
+  const [minerTypes, setMinerTypes] = useState([{ name: '', key: '' }]);
   const [typeFilter, setTypeFilter] = useState(['ALL']);
   const [miscFilter, setMiscFilter] = useState(['ALL']);
   const [filter, setFilter] = useState('');
@@ -36,7 +36,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
     if (activeAccount && !session) {
       signIn('wallet');
     }
-    if(!activeAccount) return;
+    if (!activeAccount) return;
     const fetchMinerTypes = async () => {
       const response = await fetch('/api/get_miner_types', {
         method: 'POST',
@@ -47,7 +47,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       });
       if (response.ok) {
         const data = await response.json();
-        setMinerTypes(data.data.map((miner: { name: string, key: string }) => miner.key));
+        setMinerTypes(data.data as { name: string, key: string }[]);
       }
     };
     fetchMinerTypes();
@@ -57,12 +57,15 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
 
   useEffect(() => {
     let updatedDevices = devices.filter(device => {
-      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) && 
-      (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
-      (miscFilter.includes('ALL') || (miscFilter.some(filter => (device as any)[filter])));
+      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) &&
+        (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
+        (miscFilter.includes('ALL') || (miscFilter.some(filter => {
+          return filter.startsWith('!') ? !(device as any)[filter.split('!')[1]] : (device as any)[filter];
+        })
+        ));
     }
     )
-    updatedDevices.sort((a, b) => { 
+    updatedDevices.sort((a, b) => {
       return a.name.localeCompare(b.name);
     });
     setFilteredDevices(updatedDevices);
@@ -142,27 +145,28 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
               className="w-full md:w-auto"
             />
             <Flex flexDirection='col' justifyContent='center' alignItems='end'>
-            <MultiSelect
-              className="w-full md:w-auto mb-2"
-              value={typeFilter}
-              onValueChange={(val) => setTypeFilter(val)}
-            >
-              <MultiSelectItem value="ALL">ALL</MultiSelectItem>
-              {minerTypes.map((type) => (
-                <MultiSelectItem value={type}>{type}</MultiSelectItem>
-              ))}
-            </MultiSelect>
-            <MultiSelect
-              className="w-full md:w-auto"
-              value={miscFilter}
-              onValueChange={(val) => setMiscFilter(val)}
-            >
-              <MultiSelectItem value="ALL">ALL</MultiSelectItem>
-              <MultiSelectItem value="is_registered">Registered</MultiSelectItem>
-              <MultiSelectItem value="verified">Verified</MultiSelectItem>
-              <MultiSelectItem value="position">Position set</MultiSelectItem>
+              <MultiSelect
+                className="w-full md:w-1/2 mb-2"
+                value={typeFilter}
+                onValueChange={(val) => setTypeFilter(val)}
+              >
+                <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+                {minerTypes.map((miner) => (
+                  <MultiSelectItem value={miner.key}>{miner.key} - {miner.name}</MultiSelectItem>
+                ))}
+              </MultiSelect>
+              <MultiSelect
+                className="w-full md:w-auto"
+                value={miscFilter}
+                onValueChange={(val) => setMiscFilter(val)}
+              >
+                <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+                <MultiSelectItem value="is_registered">Registered</MultiSelectItem>
+                <MultiSelectItem value="verified">Verified</MultiSelectItem>
+                <MultiSelectItem value="position">Position set</MultiSelectItem>
+                <MultiSelectItem value="!is_registered">Not registered</MultiSelectItem>
 
-            </MultiSelect>  
+              </MultiSelect>
             </Flex>
 
           </Flex>
