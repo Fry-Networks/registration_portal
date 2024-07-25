@@ -60,13 +60,26 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
       return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) &&
         (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
         (miscFilter.includes('ALL') || (miscFilter.some(filter => {
-          return filter.startsWith('!') ? !(device as any)[filter.split('!')[1]] : (device as any)[filter];
+          const split = filter.split('!')[1]
+          return filter.startsWith('!') ? !miscFilter.includes(split)&& !(device as any)[split] : (device as any)[filter];
         })
         ));
     }
     )
     updatedDevices.sort((a, b) => {
-      return a.name.localeCompare(b.name);
+      if(a.nickname) {
+        if(b.nickname) {
+          return a.nickname.localeCompare(b.nickname);
+        } else {
+          return a.nickname.localeCompare(b.name);
+        }
+      } else {
+        if(b.nickname) {
+          return a.name.localeCompare(b.nickname);
+        } else {
+          return a.name.localeCompare(b.name);
+        }
+      }
     });
     setFilteredDevices(updatedDevices);
   }, [filter, devices, typeFilter, miscFilter]);
@@ -93,6 +106,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
         body: JSON.stringify({ miner: currentDevice.miner_key, reward_wallet: rewardWallet, address: activeAccount?.address }),
       });
       if (response.ok) {
+        setRewardWallet('');
         setUpdateSuccess({ status: 'success', message: 'reward wallet' });
         closeModal('updateReward');
       } else {
@@ -165,6 +179,8 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <MultiSelectItem value="verified">Verified</MultiSelectItem>
                 <MultiSelectItem value="position">Position set</MultiSelectItem>
                 <MultiSelectItem value="!is_registered">Not registered</MultiSelectItem>
+                <MultiSelectItem value="!verified">Not verified</MultiSelectItem>
+                <MultiSelectItem value="!position">Position not set</MultiSelectItem>
 
               </MultiSelect>
             </Flex>

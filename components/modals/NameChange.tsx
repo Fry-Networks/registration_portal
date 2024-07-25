@@ -31,6 +31,7 @@ const NameChangeModal: React.FC<NameChangeModalProps> = ({
         });
         const data = await response.json();
         if (response.ok) {
+            setName('');
             setUpdateSuccess({ status: 'success', message: 'Successfully changed your device name' });
             setTimeout(() => setUpdateSuccess({ status: 'success', message: '' }), 15_000);
         } else {
@@ -69,7 +70,7 @@ const NameChangeModal: React.FC<NameChangeModalProps> = ({
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Enter your new device name"
                     className="mt-2 mb-2"
-                    error={name.length > 20 || name.length < 3}
+                    error={(name.length > 20 || name.length < 3) && name.length !== 0}
                     errorMessage="Invalid name (check length)"
                 />
                 <Button onClick={handleSubmit} disabled={name === '' || name.length > 20 || name.length < 3}>Submit</Button>
