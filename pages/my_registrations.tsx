@@ -12,7 +12,7 @@ import VerificationBurn from '../components/modals/VerificationBurn';
 import MessageUpdate from '../components/messageUpdate';
 import NameChangeModal from '../components/modals/NameChange';
 
-export default function MyRegistrationsPage({ devices }: { devices: Device[] }) {
+export default function MyRegistrationsPage({ devices= [] }: { devices: Device[] }) {
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
