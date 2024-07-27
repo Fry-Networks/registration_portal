@@ -195,7 +195,7 @@ export default function MyRegistrationsPage({ devices }: { devices: Device[] }) 
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
                 <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
                 <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
-                {device.verified && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
+                {device.position && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
                 {device.byod && <Text>BYOD: {device.byod}</Text>}
 
                 {(!device.verified || !device.position || !device.is_registered) ? (
