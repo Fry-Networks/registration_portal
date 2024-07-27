@@ -222,7 +222,7 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>Update reward wallet</Button>
                   {device.verified ?
                     <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto bg-blue-500 cursor-not-allowed" disabled>Verified</Button> :
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'burnVerification')}>Verify</Button>
+                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" disabled={true} onClick={() => handleOpenModal(device, 'burnVerification')}>Verify</Button>
                   }
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
