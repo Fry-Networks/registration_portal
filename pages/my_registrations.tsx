@@ -6,11 +6,12 @@ import clientPromise from '../lib/mongoclient';
 import { RiCloseLine } from '@remixicon/react';
 import { CheckCircleIcon, XCircleIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
 import UpdateRewardModal from '../components/modals/rewardWallet';
-import VerificationModal from '../components/modals/Verification';
+import PositionModal from '../components/modals/Position';
 import { useModal } from '../app/modalcontext';
-import VerificationBurn from '../components/modals/VerificationBurn';
+import StakeVerification from '../components/modals/StakeVerification';
 import MessageUpdate from '../components/messageUpdate';
 import NameChangeModal from '../components/modals/NameChange';
+import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
 
 export default function MyRegistrationsPage({ devices= [] }: { devices: Device[] }) {
   const { data: session, status } = useSession();
@@ -144,7 +145,7 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
     return <p>Loading...</p>;
   }
 
-
+  console.log(currentDevice)
   return (
     <main className="p-4 md:p-10 mx-auto  flex flex-col gap-6 break-words max-w-7xl">
       {session ? (
@@ -220,9 +221,9 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
 
                 <Flex className="mt-4 flex-col md:flex-row" justifyContent='start' alignItems='center'>
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>Update reward wallet</Button>
-                  {device.verified ?
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto bg-blue-500 cursor-not-allowed" disabled>Verified</Button> :
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" disabled={true} onClick={() => handleOpenModal(device, 'burnVerification')}>Verify</Button>
+                  {device.verified && device.staked ?
+                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>Withdraw stake</Button> :
+                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>Verify (stake)</Button>
                   }
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
                   <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
@@ -250,19 +251,25 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
         setRewardWallet={setRewardWallet}
         isValid={isValid}
       />
-      <VerificationModal
+      <PositionModal
         modalName="positionVerification"
         onSubmit={handleVerify}
       />
-      <VerificationBurn
-        modalName="burnVerification"
+      <StakeVerification
+        modalName="stakeVerification"
         miner={currentDevice?.miner_key}
+      />
+       <WithdrawStakeVerification
+        modalName="withdraw_stakeVerification"
+        miner={currentDevice?.miner_key}
+        staked={currentDevice?.staked?.amount}
       />
       <NameChangeModal
         modalName='changeName'
         address={activeAccount?.address}
         miner_key={currentDevice?.miner_key}
       />
+     
     </main>
   );
 }
@@ -315,6 +322,11 @@ interface Device {
   verified: boolean;
   reward_wallet?: string;
   is_registered: boolean;
+  staked?: {
+    amount: number;
+    time: string;
+    txId: string;
+  }
   hexId?: string;
   address: string;
   email: string;

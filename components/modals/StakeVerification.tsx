@@ -8,7 +8,7 @@ import {
 
 
 } from '@tremor/react';
-import { Key, useState } from 'react';
+import { Key, useEffect, useState } from 'react';
 import algosdk from 'algosdk'
 import { Dialog, DialogPanel, Divider, TextInput } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
@@ -23,16 +23,36 @@ const algodClient = new algosdk.Algodv2(
     "https://mainnet-api.algonode.cloud",
     ""
 );
-const BURN_ADDRESS = 'MO3FUXGKGZRTVYOSCXR3FXMPZQCZHR2BGGT2B5SINVBA3W6YCZNO25GGLM';
+const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 const FRYIndex = 924268058;
-const USDamount = 50;
-export default function VerificationBurn({ modalName, miner }: { modalName: string, miner?: string }) {
+export default function StakeVerification({ modalName, miner }: { modalName: string, miner?: string }) {
     const { modals, closeModal } = useModal();
     const { activeAddress, signTransactions, sendTransactions } = useWallet()
     const [updateSuccess, setUpdateSuccess] = useState("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [paid, setPaid] = useState<boolean>(false);
+    const [FRYamount, setFRYAmount] = useState<number>(0);
+    const { activeAccount } = useWallet();
+    useEffect(() => {
+        const fetchMinerTypes = async () => {
+            const response = await fetch('/api/stake-amount', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ address: activeAccount?.address, key: miner!.split('-')[0] }),
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setFRYAmount(data.data.stake);
+            }
+        };
+        if (miner) {
+            fetchMinerTypes();
+        }
 
+
+    }, [miner]);
 
     const sendTransaction = async (from?: string, to?: string, amount?: number) => {
         try {
@@ -44,8 +64,8 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
             const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
                 from,
                 to,
-                amount,
-                note: new Uint8Array(Buffer.from("Verification burn")),
+                amount: amount * 1_000_000,
+                note: new Uint8Array(Buffer.from("Verification stake")),
                 assetIndex: FRYIndex,
                 suggestedParams
             })
@@ -62,7 +82,7 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
         }
     }
 
-    const handleBurn = async () => {
+    const handleStake = async () => {
         setIsLoading(true);
         const FRYPrice = await getFRYPrice();
         if (!FRYPrice || !miner || !activeAddress) {
@@ -70,14 +90,12 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
             setIsLoading(false);
             return;
         }
-        const value = Math.floor((USDamount / FRYPrice)) * (process.env.NODE_ENV === 'development' ? 1 : 1000000)
-        console.log(value)
-        const txId = await sendTransaction(activeAddress, BURN_ADDRESS, value);
+        const txId = await sendTransaction(activeAddress, STAKE_ADDRESS, FRYamount);
         console.log(txId)
         if (txId) {
             setUpdateSuccess('Successfully sent transaction. Your miner will be verified soon.')
             setTimeout(() => setUpdateSuccess(""), 15_000);
-            const response = await fetch('/api/verify-burn', { // Replace with your actual API endpoint
+            const response = await fetch('/api/verify-stake', { // Replace with your actual API endpoint
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -88,7 +106,7 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
             if (!response.ok) {
                 setUpdateSuccess("error"); // Reset success state
                 setTimeout(() => setUpdateSuccess(""), 30_000);
-                throw new Error(`HTTP error! Status: ${response.status}`);
+                setIsLoading(false);
             } else {
                 setUpdateSuccess('Your miner has been verified.')
                 setIsLoading(false);
@@ -134,10 +152,10 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
             )}
             <form action="#" method="POST">
                 <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                    Pay for verification (50$ worth of $FRY)
+                    Stake for verification ({FRYamount} $FRY)
                 </h4>
                 <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                    All $FRY sent will be burnt
+                    All $FRY sent will be locked for 24h before you can withdraw them again.
                 </p>
 
                 <Button
@@ -145,11 +163,11 @@ export default function VerificationBurn({ modalName, miner }: { modalName: stri
                     color="blue"
                     onClick={async (e) => {
                         e.preventDefault();
-                        await handleBurn();
+                        await handleStake();
                     }}
-                    disabled={isLoading || paid} // Disable button while loading
+                    disabled={isLoading || paid || FRYamount == 0} // Disable button while loading
                 >
-                    {isLoading ? 'Processing...' : 'Pay (will initiate a transaction)'} 
+                    {isLoading ? 'Processing...' : 'Stake (will initiate a transaction)'}
                 </Button>
             </form>
         </DialogPanel>

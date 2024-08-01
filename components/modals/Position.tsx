@@ -10,11 +10,11 @@ const Map = dynamic(() => import('../Map'), {
   ssr: false,
   loading: () => (<Text>Loading map...</Text>)
 });
-interface VerificationModalProps {
+interface PositionModalProps {
   modalName: string;
   onSubmit: (data: any) => void;
 }
-const VerificationModal: React.FC<VerificationModalProps> = ({ modalName, onSubmit }) => {
+const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) => {
   const { modals, closeModal } = useModal();
   const { register, handleSubmit, setValue, formState: { errors } } = useForm();
   const [geolocation, setGeolocation] = useState(false);
@@ -105,4 +105,4 @@ const VerificationModal: React.FC<VerificationModalProps> = ({ modalName, onSubm
   );
 };
 
-export default VerificationModal;
+export default PositionModal;
