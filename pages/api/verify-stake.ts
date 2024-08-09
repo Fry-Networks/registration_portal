@@ -40,12 +40,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(404).json({ message: "not found" });
             return;
         }
-        let price = await getFRYPrice();
+        /*let price = await getFRYPrice();
         if (!price) return 1;
         const USD = product.reward.stake ?? 0;
         //price = Math.floor((USD / price)) * (process.env.NODE_ENV === 'development' ? 1 : 1000000)
         const FRYamount = Math.floor((USD / price))
-        price = FRYamount * 1_000_000;
+        */
+        const FRYamount = product.reward.stake ?? 0;
+        let price = FRYamount * 1_000_000;
         const result = await confirmTransaction(txId, price);
         console.log(result);
         if (result.code !== 0) {

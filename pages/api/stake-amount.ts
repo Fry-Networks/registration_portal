@@ -37,10 +37,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return;
         }
         console.log(product)
-        let price = await getFRYPrice();
+        /*let price = await getFRYPrice();
         if (!price) return 1;
         const USD = product.reward.stake ?? 0;
         price = Math.floor((USD / price)) 
+        */
+        let price = product.reward.stake ?? 0;
+        
         const data = {
             stake: price
         }
