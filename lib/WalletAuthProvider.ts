@@ -12,7 +12,7 @@ export default function WalletAuthProvider(): Provider {
       nonce: { label: "Nonce", type: "text" },
     },
     authorize: async (credentials) => {
-      console.log(credentials);
+ 
       if (!credentials?.address || !credentials?.signedTxn || !credentials?.nonce) {
         console.error('Missing credentials');
         return null;
@@ -23,7 +23,7 @@ export default function WalletAuthProvider(): Provider {
         credentials.signedTxn,
         credentials.nonce
       );
-      console.log('isValid', isValid);
+
       if (isValid) {
         return { id: credentials.address, address: credentials.address };
       }

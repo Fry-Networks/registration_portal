@@ -42,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const USD = product.reward.stake ?? 0;
         price = Math.floor((USD / price)) 
         */
-        let price = product.reward.stake ?? 0;
+        let price = product.reward.stake ?? {stake_one: 0, stake_two: 0};
         
         const data = {
             stake: price

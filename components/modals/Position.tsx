@@ -20,7 +20,6 @@ const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) =>
   const [geolocation, setGeolocation] = useState(false);
   const [position, setPosition] = useState<{ lat: number, lng: number } | null>(null);
   const handleFormSubmit = (data: any) => {
-    console.log("Form data to be submitted:", data);
     onSubmit(data);
   };
   useEffect(() => {
@@ -34,7 +33,7 @@ const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) =>
           setGeolocation(true);
         }
         navigator.geolocation.getCurrentPosition((position) => {
-          console.log(position);
+ 
           const newPosition = {
             lat: position.coords.latitude,
             lng: position.coords.longitude

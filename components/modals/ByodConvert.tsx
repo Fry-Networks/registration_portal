@@ -27,7 +27,6 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
     const [miner_key, setMinerKey] = useState('');
 
     const handleConvert = async () => {
-        console.log(selectedProduct, byodLicense);
         const response = await fetch('/api/convert-byod', {
             method: 'PUT',
             headers: {
@@ -49,7 +48,6 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
 
 
     useEffect(() => {
-        console.log('address', address);
         const fetchProducts = async () => {
             const response = await fetch('/api/get_miner_types', {
                 method: 'PUT',

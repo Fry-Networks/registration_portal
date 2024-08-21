@@ -7,7 +7,6 @@ export default function ConnectMenu() {
     const { providers, activeAccount } = useWallet()
     useEffect(() => {
         if (activeAccount) {
-            console.log(activeAccount)
             localStorage.setItem('walletAddress', activeAccount?.address);
         }
     }, [activeAccount]);

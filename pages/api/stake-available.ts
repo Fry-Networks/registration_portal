@@ -6,6 +6,7 @@ import { authOptions } from "./auth/[...nextauth]";
 import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
 import { getFRYPrice } from "../../lib/price";
+import { Device } from "../../lib/types";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const session = await getServerSession(req, res, authOptions);
@@ -31,20 +32,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const client = await clientPromise;
         const db = client.db('main');
         const collection = db.collection('devices');
-        const device = await collection.findOne({ miner_key })
+        const device = (await collection.findOne({ miner_key })) as unknown as Device
         if (!device) {
             res.status(404).json({ message: "not found" });
             return;
         }
-        if(device.staked.amount == 0) {
+        if(!device.staked) {
             res.status(401).json({ message: "Unauthorized 3" });
             return;
         }
+        if(device.staked?.amount == 0) {
+            res.status(401).json({ message: "Unauthorized 4" });
+            return;
+        }
         const dayCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) > 1;
-
+        const sixMonthsCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) > 180;
+        
         const data = {
-            available: dayCheck,
-            availableIn: 1 - (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24)
+            available: device.staked.type == "one"  ? dayCheck : sixMonthsCheck,
+            availableIn: device.staked.type == "one" ? 1 - (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) : 180 - (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24)
         }
 
         res.status(200).json({ message: "ok", data });

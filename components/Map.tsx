@@ -15,7 +15,7 @@ interface MapProps {
     onPositionChange: (position: { lat: number; lng: number }) => void;
 }
 
-const MAX_DISTANCE_KM = 3; // Maximum allowed distance in kilometers
+const MAX_DISTANCE_KM = 15; // Maximum allowed distance in kilometers
 
 const Map: React.FC<MapProps> = ({ position, onPositionChange }) => {
     const [originalPosition] = useState(position);

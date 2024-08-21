@@ -31,7 +31,7 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
     const [updateSuccess, setUpdateSuccess] = useState("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [paid, setPaid] = useState<boolean>(false);
-    const [FRYamount, setFRYAmount] = useState<number>(0);
+    const [FRYamount, setFRYAmount] = useState<{stake_one: number, stake_two: number}>({stake_one: 0, stake_two: 0});
     const { activeAccount } = useWallet();
     useEffect(() => {
         const fetchMinerTypes = async () => {
@@ -82,7 +82,7 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
         }
     }
 
-    const handleStake = async () => {
+    const handleStake = async (type: "one" | "two") => {
         setIsLoading(true);
         const FRYPrice = await getFRYPrice();
         if (!FRYPrice || !miner || !activeAddress) {
@@ -90,7 +90,7 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
             setIsLoading(false);
             return;
         }
-        const txId = await sendTransaction(activeAddress, STAKE_ADDRESS, FRYamount);
+        const txId = await sendTransaction(activeAddress, STAKE_ADDRESS, FRYamount[`stake_${type}`]);
         console.log(txId)
         if (txId) {
             setUpdateSuccess('Successfully sent transaction. Your miner will be verified soon.')
@@ -100,7 +100,7 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ txId, address: activeAddress, miner: miner }),
+                body: JSON.stringify({ txId, address: activeAddress, miner: miner, type }),
             });
 
             if (!response.ok) {
@@ -152,10 +152,10 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
             )}
             <form action="#" method="POST">
                 <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                    Stake for verification ({FRYamount} $FRY)
+                    Stake for verification
                 </h4>
                 <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                    All $FRY sent will be locked for 24h before you can withdraw them again.
+                    All $FRY sent will be locked for 24h OR 6 months before you can withdraw them again.
                 </p>
 
                 <Button
@@ -163,12 +163,24 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
                     color="blue"
                     onClick={async (e) => {
                         e.preventDefault();
-                        await handleStake();
+                        await handleStake("one");
                     }}
-                    disabled={isLoading || paid || FRYamount == 0} // Disable button while loading
+                    disabled={isLoading || paid || FRYamount.stake_one == 0} // Disable button while loading
                 >
-                    {isLoading ? 'Processing...' : 'Stake (will initiate a transaction)'}
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_one} $FRY) 24h Lock`}
                 </Button>
+                <Button
+                    className="mt-4 ml-4"
+                    color="blue"
+                    onClick={async (e) => {
+                        e.preventDefault();
+                        await handleStake("two");
+                    }}
+                    disabled={isLoading || paid || FRYamount.stake_one == 0} // Disable button while loading
+                >
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_two} $FRY) 6 months Lock}`}
+                </Button>
+
             </form>
         </DialogPanel>
     </Dialog>

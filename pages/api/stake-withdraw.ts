@@ -8,6 +8,7 @@ import algosdk from "algosdk";
 import 'dotenv/config';
 import clientPromise from "../../lib/mongoclient";
 import { getFRYPrice } from "../../lib/price";
+import { Device } from "../../lib/types";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const session = await getServerSession(req, res, authOptions);
@@ -34,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const db = client.db('main');
         const collection = db.collection('devices');
         console.log(req.body)
-        const device = await collection.findOne({ miner_key })
+        const device = await collection.findOne({ miner_key }) as unknown as Device;
         if (!device) {
             res.status(404).json({ message: "not found" });
             return;
@@ -43,8 +44,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(401).json({ message: "Unauthorized 3" });
             return;
         }
-        const dayCheck = (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 1;
-        if (!dayCheck) {
+        const type = device.staked.type;
+        const check = type == "one"  ? (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 1 : (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 180;
+        if (!check) {
             res.status(401).json({ message: "Unauthorized 4" });
             return;
         }

@@ -31,7 +31,7 @@ export default function NewRegistrationPage() {
       return;
     }
     const response = await getMinerType(minerKey, activeAccount.address);
-    console.log(response);
+  
     if (response.message === 'ok') {
       openModal('registration')
     } else {

@@ -12,8 +12,10 @@ import StakeVerification from '../components/modals/StakeVerification';
 import MessageUpdate from '../components/messageUpdate';
 import NameChangeModal from '../components/modals/NameChange';
 import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
+import mongoose from 'mongoose';
+import { Device } from '../lib/types';
 
-export default function MyRegistrationsPage({ devices= [] }: { devices: Device[] }) {
+export default function MyRegistrationsPage({ devices = [] }: { devices: Device[] }) {
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
@@ -62,20 +64,20 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
         (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
         (miscFilter.includes('ALL') || (miscFilter.some(filter => {
           const split = filter.split('!')[1]
-          return filter.startsWith('!') ? !miscFilter.includes(split)&& !(device as any)[split] : (device as any)[filter];
+          return filter.startsWith('!') ? !miscFilter.includes(split) && !(device as any)[split] : (device as any)[filter];
         })
         ));
     }
     )
     updatedDevices.sort((a, b) => {
-      if(a.nickname) {
-        if(b.nickname) {
+      if (a.nickname) {
+        if (b.nickname) {
           return a.nickname.localeCompare(b.nickname);
         } else {
           return a.nickname.localeCompare(b.name);
         }
       } else {
-        if(b.nickname) {
+        if (b.nickname) {
           return a.name.localeCompare(b.nickname);
         } else {
           return a.name.localeCompare(b.name);
@@ -145,7 +147,7 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
     return <p>Loading...</p>;
   }
 
-  console.log(currentDevice)
+
   return (
     <main className="p-4 md:p-10 mx-auto  flex flex-col gap-6 break-words max-w-7xl">
       {session ? (
@@ -259,7 +261,7 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
         modalName="stakeVerification"
         miner={currentDevice?.miner_key}
       />
-       <WithdrawStakeVerification
+      <WithdrawStakeVerification
         modalName="withdraw_stakeVerification"
         miner={currentDevice?.miner_key}
         staked={currentDevice?.staked?.amount}
@@ -269,7 +271,7 @@ export default function MyRegistrationsPage({ devices= [] }: { devices: Device[]
         address={activeAccount?.address}
         miner_key={currentDevice?.miner_key}
       />
-     
+
     </main>
   );
 }
@@ -296,7 +298,25 @@ export async function getServerSideProps(context: any) {
       };
     } else {
       return {
-        props: { devices: JSON.parse(JSON.stringify(devices)) },
+        props: {
+          devices: JSON.parse(JSON.stringify(devices.map((device) => {
+            return {
+              address: device.address,
+              byod: device.byod,
+              is_registered: device.is_registered,
+              miner_key: device.miner_key,
+              name: device.name,
+              nickname: device.nickname,
+              position: device.position,
+              reward_wallet: device.reward_wallet,
+              staked: device.staked,
+              stake_type: device.stake_type,
+              verified: device.verified,
+              hexId: device.hexId,
+              created_at: device.created_at,
+            };
+          })))
+        }
       };
     }
   } catch (e) {
@@ -307,28 +327,3 @@ export async function getServerSideProps(context: any) {
   }
 }
 
-interface Device {
-  _id: string;
-  user_id: string;
-  nickname?: string;
-  miner_key: string;
-  name: string;
-  byod?: string;
-  created_at: Date;
-  position?: {
-    lat: number;
-    lng: number;
-  };
-  verified: boolean;
-  reward_wallet?: string;
-  is_registered: boolean;
-  staked?: {
-    amount: number;
-    time: string;
-    txId: string;
-  }
-  hexId?: string;
-  address: string;
-  email: string;
-  __v: number;
-}

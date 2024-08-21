@@ -25,11 +25,11 @@ const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WL
 const FRYIndex = 924268058;
 export default function WithdrawStakeVerification({ modalName, miner, staked }: { modalName: string, miner?: string, staked?: number }) {
     const { modals, closeModal } = useModal();
-    const { activeAddress} = useWallet()
+    const { activeAddress } = useWallet()
     const [updateSuccess, setUpdateSuccess] = useState("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [disabled, setDisabled] = useState<boolean>(false);
-    const [available, setAvailable] = useState<{available: boolean, availableIn: number}>({available: false, availableIn: 0});
+    const [available, setAvailable] = useState<{ available: boolean, availableIn: number }>({ available: false, availableIn: 0 });
     const { activeAccount } = useWallet();
     useEffect(() => {
         const fetchAvailable = async () => {
@@ -59,17 +59,17 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ address: activeAccount?.address, miner_key: miner}),
+            body: JSON.stringify({ address: activeAccount?.address, miner_key: miner }),
         });
         if (response.ok) {
             const data = await response.json();
             setIsLoading(false);
             setUpdateSuccess("Your stake has been withdrawn successfully");
             setDisabled(true);
-            console.log(data);
+
         } else {
             setUpdateSuccess("error");
-            console.log(response);
+
         }
     };
 
@@ -121,7 +121,10 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                     disabled={isLoading || !available.available || disabled} // Disable button while loading
                 >
 
-                    {available.availableIn > 0 ? `Available in ${(available.availableIn * 24).toFixed(0)} hours` : isLoading ? 'Processing...' : 'Withdraw'}
+                    {available.availableIn > 0 ? `Available in ${(available.availableIn * 24) > 24 ? `${(available.availableIn * 24 / 24).toFixed(0)} days` : `${(available.availableIn * 24).toFixed(0)} hours`}` :
+                        isLoading ?
+                            'Processing...' :
+                            'Withdraw'}
                 </Button>
             </form>
         </DialogPanel>
