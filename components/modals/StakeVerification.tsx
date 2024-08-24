@@ -25,7 +25,7 @@ const algodClient = new algosdk.Algodv2(
 );
 const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 const FRYIndex = 924268058;
-export default function StakeVerification({ modalName, miner }: { modalName: string, miner?: string }) {
+export default function StakeVerification({ modalName, miner, byod }: { modalName: string, miner?: string, byod: boolean }) {
     const { modals, closeModal } = useModal();
     const { activeAddress, signTransactions, sendTransactions } = useWallet()
     const [updateSuccess, setUpdateSuccess] = useState("");
@@ -44,7 +44,13 @@ export default function StakeVerification({ modalName, miner }: { modalName: str
             });
             if (response.ok) {
                 const data = await response.json();
-                setFRYAmount(data.data.stake);
+                const stake_data = data.data.stake as {stake_one: number, stake_two: number};
+                //if byod, set the amounts to half
+                if (byod) {
+                    stake_data.stake_one = stake_data.stake_one / 2;
+                    stake_data.stake_two = stake_data.stake_two / 2;
+                }
+                setFRYAmount(stake_data);
             }
         };
         if (miner) {

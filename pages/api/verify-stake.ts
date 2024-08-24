@@ -48,16 +48,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         //price = Math.floor((USD / price)) * (process.env.NODE_ENV === 'development' ? 1 : 1000000)
         const FRYamount = Math.floor((USD / price))
         */
-        if(!product.reward.stake) {
+        if (!product.reward.stake) {
             res.status(404).json({ message: "product stake empty" });
             return;
         }
         const FRYamount = (type === "one" ? product.reward.stake.stake_one : product.reward.stake.stake_two) ?? 0;
-        if(FRYamount === 0) {
+        if (FRYamount === 0) {
             res.status(404).json({ message: "withdraw = 0" });
             return
         }
-        let price = FRYamount * 1_000_000;
+        const miner_data = await db.collection('devices').findOne({ miner_key: miner })
+        if (!miner_data) {
+            res.status(404).json({ message: "miner not found" });
+            return;
+        }
+        if (miner_data.verified) {
+            res.status(400).json({ message: "already verified" });
+            return;
+        }
+
+        let price = (miner_data.byod ? FRYamount / 2 : FRYamount) * 1_000_000;
         const result = await confirmTransaction(txId, price);
         console.log(result);
         if (result.code !== 0) {
@@ -92,30 +102,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 const fryReceiver = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 
-async function confirmTransaction(txId: string, price: number): Promise<{code: number, amount?: number}> {
+async function confirmTransaction(txId: string, price: number): Promise<{ code: number, amount?: number }> {
     console.log(txId);
     console.log(price);
     let amount;
     try {
 
-    const lowerBound = price - (price * 0.05); // lower bound is 95% of the price
-    const upperBound = price + (price * 0.05); // upper bound is 105% of the price
+        const lowerBound = price - (price * 0.05); // lower bound is 95% of the price
+        const upperBound = price + (price * 0.05); // upper bound is 105% of the price
 
-    // Get the confirmed transaction
-    console.log("Getting transaction info for txId: " + txId);
-    await wait(2000)
-    const confirmedTxn = await algodClient.pendingTransactionInformation(txId).do();
-    console.log("Got transaction info");
-    // Check if the receiver is correct
-    const actualReceiverField = 'arcv';
-    const actualReceiver = algosdk.encodeAddress(confirmedTxn['txn']['txn'][actualReceiverField]);
-    const receiver = fryReceiver;
-    if (actualReceiver !== receiver) return { code: 2 }
+        // Get the confirmed transaction
+        console.log("Getting transaction info for txId: " + txId);
+        await wait(2000)
+        const confirmedTxn = await algodClient.pendingTransactionInformation(txId).do();
+        console.log("Got transaction info");
+        // Check if the receiver is correct
+        const actualReceiverField = 'arcv';
+        const actualReceiver = algosdk.encodeAddress(confirmedTxn['txn']['txn'][actualReceiverField]);
+        const receiver = fryReceiver;
+        if (actualReceiver !== receiver) return { code: 2 }
 
-    // Check if the amount is correct (assuming price is in MicroAlgos)
-    const amountField = 'aamt';
-    amount = confirmedTxn['txn']['txn'][amountField] || 0; // Default to 0 if amt field is missing
-    if (amount < lowerBound || amount > upperBound) return {code: 3}
+        // Check if the amount is correct (assuming price is in MicroAlgos)
+        const amountField = 'aamt';
+        amount = confirmedTxn['txn']['txn'][amountField] || 0; // Default to 0 if amt field is missing
+        if (amount < lowerBound || amount > upperBound) return { code: 3 }
     } catch (error) {
         console.error(error);
         return { code: 4 }

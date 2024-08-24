@@ -260,6 +260,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
       <StakeVerification
         modalName="stakeVerification"
         miner={currentDevice?.miner_key}
+        byod={!!currentDevice?.byod}
       />
       <WithdrawStakeVerification
         modalName="withdraw_stakeVerification"
