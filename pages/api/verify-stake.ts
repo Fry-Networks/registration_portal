@@ -52,11 +52,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(404).json({ message: "product stake empty" });
             return;
         }
-        const FRYamount = (type === "one" ? product.reward.stake.stake_one : product.reward.stake.stake_two) ?? 0;
-        if (FRYamount === 0) {
-            res.status(404).json({ message: "withdraw = 0" });
-            return
-        }
+        const stake_amt = (type === "one" ? product.reward.stake.stake_one : product.reward.stake.stake_two) ?? 0
+
         const miner_data = await db.collection('devices').findOne({ miner_key: miner })
         if (!miner_data) {
             res.status(404).json({ message: "miner not found" });
@@ -66,8 +63,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(400).json({ message: "already verified" });
             return;
         }
-
-        let price = (miner_data.byod ? FRYamount / 2 : FRYamount) * 1_000_000;
+        const FRYamount = miner_data.byod ? stake_amt / 2 : stake_amt;
+        if (FRYamount === 0) {
+            res.status(404).json({ message: "withdraw = 0" });
+            return
+        }
+        let price = FRYamount * 1_000_000;
         const result = await confirmTransaction(txId, price);
         console.log(result);
         if (result.code !== 0) {
