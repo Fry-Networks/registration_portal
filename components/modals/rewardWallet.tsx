@@ -16,7 +16,7 @@ const UpdateRewardModal: React.FC<UpdateRewardModalProps> = ({
   handleUpdateRewardWallet,
   rewardWallet,
   setRewardWallet,
-  isValid
+  isValid,
 }) => {
   const { modals, closeModal } = useModal();
 
@@ -35,16 +35,15 @@ const UpdateRewardModal: React.FC<UpdateRewardModalProps> = ({
             onClick={() => closeModal(modalName)}
             aria-label="Close"
           >
-            <RiCloseLine
-              className="h-5 w-5 shrink-0"
-              aria-hidden={true}
-            />
+            <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
           </button>
         </div>
+
         <form onSubmit={handleUpdateRewardWallet}>
           <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
             Update Reward Wallet
           </h4>
+
           <TextInput
             type="text"
             value={rewardWallet}
@@ -52,7 +51,12 @@ const UpdateRewardModal: React.FC<UpdateRewardModalProps> = ({
             placeholder="Enter new reward wallet"
             className="mt-2"
           />
-          <Button type="submit" className={`mt-4 w-full ${isValid ? '' : 'bg-blue-300 cursor-not-allowed'}`} disabled={!isValid}>
+
+          <Button
+            type="submit"
+            className={`mt-4 w-full ${isValid ? '' : 'bg-blue-300 cursor-not-allowed'}`}
+            disabled={!isValid}
+          >
             Update
           </Button>
         </form>
