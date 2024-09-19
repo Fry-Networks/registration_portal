@@ -34,7 +34,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
   useEffect(() => {
     const regex = /^[A-Z0-9]{58}$/;
-    setIsValid(regex.test(rewardWallet));
+    setIsValid(rewardWallet.length === 0 ?? regex.test(rewardWallet));
   }, [rewardWallet]);
 
   useEffect(() => {
