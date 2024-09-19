@@ -14,8 +14,10 @@ import NameChangeModal from '../components/modals/NameChange';
 import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
 import mongoose from 'mongoose';
 import { Device } from '../lib/types';
+import { useRouter } from 'next/router';
 
 export default function MyRegistrationsPage({ devices = [] }: { devices: Device[] }) {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
@@ -112,6 +114,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
         setRewardWallet('');
         setUpdateSuccess({ status: 'success', message: 'reward wallet' });
         closeModal('updateReward');
+        router.reload();
       } else {
         setUpdateSuccess({ status: 'error', message: 'reward wallet' });
         console.error('Failed to update reward wallet');
@@ -134,6 +137,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
       if (response.ok) {
         setUpdateSuccess({ status: 'success', message: 'position' });
         closeModal('positionVerification');
+        router.reload();
         // Optionally update the device list or show a success message
       } else {
         console.error('Failed to verify address');
