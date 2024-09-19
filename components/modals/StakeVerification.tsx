@@ -147,62 +147,64 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
             onClose={() => closeModal(modalName)}
             static={true}
             className="z-[100]"
-        >
-            <DialogPanel className="max-w-xl">
+            >
+            <DialogPanel className="max-w-xl w-full mx-auto p-4 md:p-6 relative bg-white dark:bg-dark-tremor-background rounded-lg shadow-lg">
                 <div className="absolute right-0 top-0 pr-3 pt-3">
-                    <button
-                        type="button"
-                        className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-                        onClick={() => closeModal(modalName)}
-                        aria-label="Close"
-                    >
-                        <RiCloseLine className="h-5 w-5" aria-hidden={true} />
-                    </button>
+                <button
+                    type="button"
+                    className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
+                    onClick={() => closeModal(modalName)}
+                    aria-label="Close"
+                >
+                    <RiCloseLine className="h-5 w-5" aria-hidden={true} />
+                </button>
                 </div>
 
                 {updateSuccess && updateSuccess !== "error" && (
-                    <Callout className="mt-4 mb-4" title="Success" icon={CheckCircleIcon} color="teal">
-                        {updateSuccess}
-                    </Callout>
+                <Callout className="mt-4 mb-4" title="Success" icon={CheckCircleIcon} color="teal">
+                    {updateSuccess}
+                </Callout>
                 )}
 
                 {updateSuccess === "error" && (
-                    <Callout className="mt-4 mb-4" title="Error" icon={CheckCircleIcon} color="red">
-                        Error sending transaction. Please contact us before trying again!
-                    </Callout>
+                <Callout className="mt-4 mb-4" title="Error" icon={CheckCircleIcon} color="red">
+                    Error sending transaction. Please contact us before trying again!
+                </Callout>
                 )}
 
                 <form>
-                    <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                        Stake for verification
-                    </h4>
-                    <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                        All $FRY sent will be locked for 24h OR 6 months before you can withdraw them again.
-                    </p>
+                <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+                    Stake for verification
+                </h4>
+                <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                    All $FRY sent will be locked for 24h OR 6 months before you can withdraw them again.
+                </p>
 
+                <div className="flex flex-col md:flex-row gap-4 mt-4">
                     <Button
-                        className="mt-4"
-                        color="blue"
-                        onClick={async (e) => {
-                            e.preventDefault();
-                            await handleStake("one");
-                        }}
-                        disabled={isLoading || paid || FRYamount.stake_one === 0}
+                    className="w-full md:w-auto"
+                    color="blue"
+                    onClick={async (e) => {
+                        e.preventDefault();
+                        await handleStake("one");
+                    }}
+                    disabled={isLoading || paid || FRYamount.stake_one === 0}
                     >
-                        {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_one} $FRY) 24h Lock`}
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_one} $FRY) 24h Lock`}
                     </Button>
 
                     <Button
-                        className="mt-4 ml-4"
-                        color="blue"
-                        onClick={async (e) => {
-                            e.preventDefault();
-                            await handleStake("two");
-                        }}
-                        disabled={isLoading || paid || FRYamount.stake_two === 0}
+                    className="w-full md:w-auto"
+                    color="blue"
+                    onClick={async (e) => {
+                        e.preventDefault();
+                        await handleStake("two");
+                    }}
+                    disabled={isLoading || paid || FRYamount.stake_two === 0}
                     >
-                        {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_two} $FRY) 6 months Lock`}
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_two} $FRY) 6 months Lock`}
                     </Button>
+                </div>
                 </form>
             </DialogPanel>
         </Dialog>
