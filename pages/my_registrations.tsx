@@ -225,19 +225,26 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                   </div>
                 )}
 
-                <Flex className="mt-4 flex-col md:flex-row" justifyContent='start' alignItems='center'>
+                <Flex className="mt-4 flex-col md:flex-row justify-start items-center space-y-2 md:space-y-0 md:space-x-4">
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>Update reward wallet</Button>
-                  {device.verified && device.staked ?
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>Withdraw stake</Button> :
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>Verify (stake)</Button>
-                  }
-                  <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
-                  <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
-                  {device?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
-                    <Flex flexDirection='row'>
-                      Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
-                    </Flex>
-                  </Button>}
+                  
+                  {device.verified && device.staked ? (
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>Withdraw stake</Button>
+                  ) : (
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>Verify (stake)</Button>
+                  )}
+                  
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
+                  
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
+                  
+                  {device?.hexId && (
+                    <Button className="w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
+                      <Flex className="flex-row">
+                        Explorer <ArrowTopRightOnSquareIcon className="ml-2" />
+                      </Flex>
+                    </Button>
+                  )}
                 </Flex>
               </Card>
             ))
