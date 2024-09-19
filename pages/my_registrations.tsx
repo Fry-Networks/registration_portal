@@ -211,7 +211,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
                 {/* Status Section */}
                 {(!device.verified || !device.position || !device.is_registered) ? (
-                  <div className="absolute top-4 right-4">
+                  <div className="md:absolute md:top-4 md:right-4">
                     <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <XCircleIcon className="h-6 w-6 text-red-500" />
                       <Flex flexDirection="col" justifyContent="end" alignItems="end" className="ml-2">
@@ -222,7 +222,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                     </Flex>
                   </div>
                 ) : (
-                  <div className="absolute top-4 right-4">
+                  <div className="md:absolute md:top-4 md:right-4">
                     <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <CheckCircleIcon className="h-6 w-6 text-green-500" />
                       <Text className="text-green-500 ml-2">Verified</Text>
