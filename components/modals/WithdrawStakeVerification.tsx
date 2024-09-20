@@ -4,6 +4,7 @@ import { RiCloseLine } from '@remixicon/react';
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import { useModal } from '../../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet';
+import { useRouter } from 'next/router';
 import algosdk from 'algosdk';
 
 const algodClient = new algosdk.Algodv2(
@@ -22,6 +23,7 @@ interface WithdrawStakeProps {
 }
 
 export default function WithdrawStakeVerification({ modalName, miner, staked }: WithdrawStakeProps) {
+    const router = useRouter();
     const { modals, closeModal } = useModal();
     const { activeAccount } = useWallet();
     const [updateSuccess, setUpdateSuccess] = useState<string>('');
@@ -74,6 +76,7 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                 const data = await response.json();
                 setUpdateSuccess('Your stake has been withdrawn successfully');
                 setDisabled(true);
+                router.reload();
             } else {
                 setUpdateSuccess('error');
             }

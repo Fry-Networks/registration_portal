@@ -17,6 +17,7 @@ import { useWallet } from '@txnlab/use-wallet';
 import { CheckCircleIcon } from '@heroicons/react/24/outline';
 import { useModal } from '../../app/modalcontext';
 import { getFRYPrice } from '../../lib/price';
+import { useRouter } from 'next/router';
 
 const algodClient = new algosdk.Algodv2(
     "",
@@ -27,6 +28,7 @@ const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WL
 const FRYIndex = 924268058;
 
 export default function StakeVerification({ modalName, miner, byod }: { modalName: string, miner?: string, byod: boolean }) {
+    const router = useRouter();
     const { modals, closeModal } = useModal();
     const { activeAddress, signTransactions, sendTransactions } = useWallet();
     const [updateSuccess, setUpdateSuccess] = useState<string>("");
@@ -127,6 +129,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                 if (response.ok) {
                     setUpdateSuccess('Your miner has been verified.');
                     setPaid(true);
+                    router.reload();
                 } else {
                     setUpdateSuccess("error");
                 }
