@@ -60,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(500).json({ message: "error" });
             return;
         }
-        await collection.updateOne( { miner_key }, { $set: { staked: { amount: 0, txId: result, time: new Date() }, verified: false } });
+        await collection.updateOne( { miner_key }, { $set: { staked: { amount: 0, txId: result, time: new Date(), rewarded_time: new Date() }, verified: false } });
         console.log(result);
         res.status(200).json({ message: "ok" });
     } catch (error) {

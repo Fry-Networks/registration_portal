@@ -14,8 +14,10 @@ import NameChangeModal from '../components/modals/NameChange';
 import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
 import mongoose from 'mongoose';
 import { Device } from '../lib/types';
+import { useRouter } from 'next/router';
 
 export default function MyRegistrationsPage({ devices = [] }: { devices: Device[] }) {
+  const router = useRouter();
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
@@ -32,7 +34,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
   useEffect(() => {
     const regex = /^[A-Z0-9]{58}$/;
-    setIsValid(regex.test(rewardWallet));
+    setIsValid(rewardWallet.length === 0 || regex.test(rewardWallet));
   }, [rewardWallet]);
 
   useEffect(() => {
@@ -112,6 +114,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
         setRewardWallet('');
         setUpdateSuccess({ status: 'success', message: 'reward wallet' });
         closeModal('updateReward');
+        router.reload();
       } else {
         setUpdateSuccess({ status: 'error', message: 'reward wallet' });
         console.error('Failed to update reward wallet');
@@ -134,6 +137,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
       if (response.ok) {
         setUpdateSuccess({ status: 'success', message: 'position' });
         closeModal('positionVerification');
+        router.reload();
         // Optionally update the device list or show a success message
       } else {
         console.error('Failed to verify address');
@@ -149,19 +153,21 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
 
   return (
-    <main className="p-4 md:p-10 mx-auto  flex flex-col gap-6 break-words max-w-7xl">
+    <main className="p-4 md:p-10 mx-auto flex flex-col gap-6 break-words max-w-7xl">
       {session ? (
         <>
-          <Title className="mb-20 text-center">My Registrations ({session.user.address})</Title>
+          <Title className="mb-10 md:mb-20 text-center">My Registrations ({session.user.address})</Title>
           <MessageUpdate updateSuccess={updateSuccess} />
-          <Flex justifyContent="end" className="mb-4">
+
+          {/* Filter section */}
+          <Flex justifyContent="end" className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-4">
             <TextInput
               placeholder="Filter by reward wallet"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               className="w-full md:w-auto"
             />
-            <Flex flexDirection='col' justifyContent='center' alignItems='end'>
+            <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
               <MultiSelect
                 className="w-full md:w-1/2 mb-2"
                 value={typeFilter}
@@ -169,9 +175,12 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
               >
                 <MultiSelectItem value="ALL">ALL</MultiSelectItem>
                 {minerTypes.map((miner) => (
-                  <MultiSelectItem value={miner.key}>{miner.key} - {miner.name}</MultiSelectItem>
+                  <MultiSelectItem key={miner.key} value={miner.key}>
+                    {miner.key} - {miner.name}
+                  </MultiSelectItem>
                 ))}
               </MultiSelect>
+
               <MultiSelect
                 className="w-full md:w-auto"
                 value={miscFilter}
@@ -184,15 +193,14 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                 <MultiSelectItem value="!is_registered">Not registered</MultiSelectItem>
                 <MultiSelectItem value="!verified">Not verified</MultiSelectItem>
                 <MultiSelectItem value="!position">Position not set</MultiSelectItem>
-
               </MultiSelect>
-            </Flex>
-
+            </div>
           </Flex>
 
+          {/* Devices section */}
           {filteredDevices && filteredDevices.length > 0 ? (
             filteredDevices.map((device) => (
-              <Card key={device._id} className="mb-4 relative">
+              <Card key={device._id} className="mb-4 relative p-4 md:p-6">
                 <Title>{device.nickname ? device.nickname : device.name}</Title>
                 <Text>Miner Key: {device.miner_key}</Text>
                 <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
@@ -201,11 +209,12 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                 {device.position && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
                 {device.byod && <Text>BYOD: {device.byod}</Text>}
 
+                {/* Status Section */}
                 {(!device.verified || !device.position || !device.is_registered) ? (
-                  <div className="absolute top-4 right-4">
-                    <Flex flexDirection='row' justifyContent='end' alignItems='end'>
+                  <div className="md:absolute md:top-4 md:right-4">
+                    <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <XCircleIcon className="h-6 w-6 text-red-500" />
-                      <Flex flexDirection='col' justifyContent='end' alignItems='end' className="ml-2">
+                      <Flex flexDirection="col" justifyContent="end" alignItems="end" className="ml-2">
                         {!device.verified && <Text className="text-red-500">- Not verified</Text>}
                         {!device.position && <Text className="text-red-500">- Position not set</Text>}
                         {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
@@ -213,39 +222,57 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                     </Flex>
                   </div>
                 ) : (
-                  <div className="absolute top-4 right-4">
-                    <Flex flexDirection='row' justifyContent='end' alignItems='end'>
+                  <div className="md:absolute md:top-4 md:right-4">
+                    <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <CheckCircleIcon className="h-6 w-6 text-green-500" />
                       <Text className="text-green-500 ml-2">Verified</Text>
                     </Flex>
                   </div>
                 )}
 
-                <Flex className="mt-4 flex-col md:flex-row" justifyContent='start' alignItems='center'>
-                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>Update reward wallet</Button>
-                  {device.verified && device.staked ?
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>Withdraw stake</Button> :
-                    <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>Verify (stake)</Button>
-                  }
-                  <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>Change location</Button>
-                  <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>Change name</Button>
-                  {device?.hexId && <Button className="ml-2 mt-2 md:mt-0 w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
-                    <Flex flexDirection='row'>
-                      Explorer <ArrowTopRightOnSquareIcon style={{ marginLeft: '8px', width: '1rem', height: '1rem' }} />
-                    </Flex>
-                  </Button>}
+                {/* Action Buttons */}
+                <Flex className="mt-4 flex-col md:flex-row justify-start items-center space-y-2 md:space-y-0 md:space-x-4">
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>
+                    Update reward wallet
+                  </Button>
+
+                  {device.verified && device.staked ? (
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>
+                      Withdraw stake
+                    </Button>
+                  ) : (
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>
+                      Verify (stake)
+                    </Button>
+                  )}
+
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>
+                    Change location
+                  </Button>
+
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>
+                    Change name
+                  </Button>
+
+                  {device?.hexId && (
+                    <Button className="w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
+                      <Flex className="flex-row">
+                        Explorer <ArrowTopRightOnSquareIcon className="ml-2" />
+                      </Flex>
+                    </Button>
+                  )}
                 </Flex>
               </Card>
             ))
           ) : (
             <p>No devices found</p>
           )}
-
         </>
       ) : (
         <Title className="mb-20 text-center">Please connect your wallet and authenticate</Title>
       )}
 
+      {/* Modals */}
       <UpdateRewardModal
         modalName="updateReward"
         handleUpdateRewardWallet={handleUpdateRewardWallet}
@@ -253,27 +280,12 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
         setRewardWallet={setRewardWallet}
         isValid={isValid}
       />
-      <PositionModal
-        modalName="positionVerification"
-        onSubmit={handleVerify}
-      />
-      <StakeVerification
-        modalName="stakeVerification"
-        miner={currentDevice?.miner_key}
-        byod={!!currentDevice?.byod}
-      />
-      <WithdrawStakeVerification
-        modalName="withdraw_stakeVerification"
-        miner={currentDevice?.miner_key}
-        staked={currentDevice?.staked?.amount}
-      />
-      <NameChangeModal
-        modalName='changeName'
-        address={activeAccount?.address}
-        miner_key={currentDevice?.miner_key}
-      />
-
+      <PositionModal modalName="positionVerification" onSubmit={handleVerify} />
+      <StakeVerification modalName="stakeVerification" miner={currentDevice?.miner_key} byod={!!currentDevice?.byod} />
+      <WithdrawStakeVerification modalName="withdraw_stakeVerification" miner={currentDevice?.miner_key} staked={currentDevice?.staked?.amount} />
+      <NameChangeModal modalName="changeName" address={activeAccount?.address} miner_key={currentDevice?.miner_key} />
     </main>
+
   );
 }
 

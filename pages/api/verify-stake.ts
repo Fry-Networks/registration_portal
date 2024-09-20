@@ -87,7 +87,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         type: type,
                         amount: FRYamount,
                         txId,
-                        time: new Date()
+                        time: new Date(),
+                        rewarded_time: new Date()
                     }
                 }
 

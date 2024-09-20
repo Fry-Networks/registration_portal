@@ -81,8 +81,7 @@ export default function Navbar() {
                     className="text-sm font-medium "
                   >
                     Sign out
-                  </Button
-                   >
+                  </Button>
                 ) : ''}
               </div>
               <div className="-mr-2 flex items-center sm:hidden">
