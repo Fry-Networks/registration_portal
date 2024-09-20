@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return;
         }
         const type = device.staked.type;
-        const check = type == "one"  ? (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 /** 60 * 24*/) > 1 : (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 180;
+        const check = type == "one"  ? (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 1 : (Date.now() - new Date(device.staked.time).getTime()) / (1000 * 60 * 60 * 24) > 180;
         if (!check) {
             res.status(401).json({ message: "Unauthorized 4" });
             return;

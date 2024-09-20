@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(401).json({ message: "Unauthorized 4" });
             return;
         }
-        const dayCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 /** 60 * 24*/) > 1;
+        const dayCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) > 1;
         const sixMonthsCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) > 180;
         
         const data = {
