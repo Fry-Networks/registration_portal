@@ -23,7 +23,7 @@ const algodClient = new algosdk.Algodv2(
     "https://mainnet-api.algonode.cloud",
     ""
 );
-const STAKE_ADDRESS = process.env.FRY_STAKE_POOL ? process.env.FRY_STAKE_POOL : 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
+const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 const FRYIndex = 924268058;
 
 export default function StakeVerification({ modalName, miner, byod }: { modalName: string, miner?: string, byod: boolean }) {

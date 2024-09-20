@@ -101,7 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 };
 
-const fryReceiver = process.env.FRY_STAKE_POOL ? process.env.FRY_STAKE_POOL : 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
+const fryReceiver = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 
 async function confirmTransaction(txId: string, price: number): Promise<{ code: number, amount?: number }> {
     console.log(txId);
