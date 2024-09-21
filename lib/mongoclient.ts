@@ -11,7 +11,7 @@ if (!process.env.MONGO_URI) {
 
 const uri = process.env.MONGO_URI;
 const options = {
-  keepAlive: true,
+  // keepAlive: true,
   
 };
 
