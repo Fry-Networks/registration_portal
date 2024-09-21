@@ -237,7 +237,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                   </Button>
 
                   {device.verified && device.staked ? (
-                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')}>
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')} disabled={device.is_registered === false}>
                       Withdraw stake
                     </Button>
                   ) : (
