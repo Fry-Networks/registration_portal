@@ -241,7 +241,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                       Withdraw stake
                     </Button>
                   ) : (
-                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')}>
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')} disabled={device.is_registered === false}>
                       Verify (stake)
                     </Button>
                   )}
@@ -302,7 +302,7 @@ export async function getServerSideProps(context: any) {
     const client = await clientPromise;
     const db = client.db('main');
 
-    const devices = await db.collection('devices').find({ address: session.user.address }).toArray();
+    const devices = await db.collection('devices').find({ address: session.user.address}).toArray();
     if (!devices) {
       return {
         props: {
