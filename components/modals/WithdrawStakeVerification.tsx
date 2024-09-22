@@ -130,13 +130,15 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                         color="blue"
                         onClick={handleWithdrawal}
                         disabled={isLoading || !available.available || disabled}
-                    >
+                        >
                         {available.availableIn > 0
-                            ? `Available in ${
-                                  (available.availableIn * 24) > 24
-                                      ? `${(available.availableIn / 1).toFixed(0)} days`
-                                      : `${(available.availableIn * 24).toFixed(0)} hours`
-                              }`
+                            ? available.availableIn * 24 > 24
+                            ? `${(available.availableIn / 1).toFixed(0)} days`
+                            : available.availableIn * 24 > 1
+                            ? `${(available.availableIn * 24).toFixed(0)} hours`
+                            : `${Math.floor(available.availableIn * 24 * 60)} minutes ${
+                                Math.floor((available.availableIn * 24 * 60 * 60) % 60)
+                                } seconds`
                             : isLoading
                             ? 'Processing...'
                             : 'Withdraw'}
