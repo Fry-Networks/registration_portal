@@ -43,7 +43,7 @@ export default function NewRegistrationPage() {
     <main className="p-4 md:p-10 mx-auto max-w-7xl">
       <Flex className="mb-20" flexDirection='row' justifyContent='between' alignItems='center'>
         <Title className='' >Create a new registration</Title>
-        <Button color="orange" onClick={() => openModal('byodConvert')}>Convert a BYOD license</Button>
+        <Button color="orange" onClick={() => openModal('byodConvert')} disabled={!isValid}>Convert a BYOD license</Button>
       </Flex>
       <MessageUpdate updateSuccess={updateSuccess} />
       <Flex flexDirection='col' justifyContent='center' alignItems='center'>
