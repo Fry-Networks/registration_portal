@@ -89,7 +89,7 @@ async function withdraw(address: string,amount: number) {
         from: account.addr,
         to: address,
         amount: amount*1_000_000,
-        note: new Uint8Array(Buffer.from("Stake withdraw")),
+        note: new Uint8Array(Buffer.from("Stake withdraw" + (Math.floor(Math.random() * 1000)))),
         assetIndex: FRYIndex,
         suggestedParams: params
     });
