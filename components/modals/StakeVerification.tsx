@@ -81,7 +81,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                 from,
                 to,
                 amount: amount * 1_000_000, // Amount in microAlgos
-                note: new Uint8Array(Buffer.from("Verification stake")),
+                note: new Uint8Array(Buffer.from("Verification stake" + (Math.floor(Math.random() * 1000)))),
                 assetIndex: FRYIndex,
                 suggestedParams,
             });
