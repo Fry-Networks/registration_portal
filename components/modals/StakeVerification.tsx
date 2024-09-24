@@ -89,10 +89,10 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
             const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
             const signedTransactions = await signTransactions([encodedTransaction]);
             const waitRoundsToConfirm = 4;
-            const { id } = await sendTransactions(signedTransactions, waitRoundsToConfirm);
+            const { txId } = await sendTransactions(signedTransactions, waitRoundsToConfirm);
 
-            console.log('Successfully sent transaction. Transaction ID:', id);
-            return id;
+            console.log('Successfully sent transaction. Transaction ID:', txId);
+            return txId;
         } catch (error) {
             console.error("Transaction failed:", error);
             return null;
