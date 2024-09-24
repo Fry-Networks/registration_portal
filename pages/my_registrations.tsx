@@ -215,6 +215,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                     <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <XCircleIcon className="h-6 w-6 text-red-500" />
                       <Flex flexDirection="col" justifyContent="end" alignItems="end" className="ml-2">
+                        {!device.reward_wallet && <Text className="text-red-500">- Reward wallet not set</Text>}
                         {!device.verified && <Text className="text-red-500">- Not verified</Text>}
                         {!device.position && <Text className="text-red-500">- Position not set</Text>}
                         {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
