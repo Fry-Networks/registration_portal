@@ -248,7 +248,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                   )}
 
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>
-                    Change location
+                    {!device.position ? "Set location" : "Change location"}
                   </Button>
 
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>
