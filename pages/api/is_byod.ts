@@ -43,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         console.log(exists);
        
-        res.status(200).json({ message: "ok", byod: !exists.byod ? exists.byod : "" });
+        res.status(200).json({ message: "ok", byod: exists.byod ? exists.byod : "" });
     } catch (error) {
         console.log(error);
         res.status(500).json({ message: "error" });
