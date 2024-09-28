@@ -99,7 +99,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
                     errorMessage="Invalid byod license"
                 />
                 <Select defaultValue="1" value={selectedProduct} onValueChange={setSelectedProduct} className="mb-2">
-                    {products.map(product => (
+                    {products.filter(product => ['OLWQM', 'OHWQM', 'EM', 'RDN', 'IRM', 'SVN', 'CN'].includes(product.key) === false).map(product => (
                         <SelectItem key={product.key} value={product.key}>
                             {product.name}
                         </SelectItem>

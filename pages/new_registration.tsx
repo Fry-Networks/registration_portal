@@ -30,9 +30,26 @@ export default function NewRegistrationPage() {
       setUpdateSuccess({ status: 'error', message: 'Please connect your wallet' });
       return;
     }
+
+    const byodResponse = await getIsByod(minerKey, activeAccount.address);
+    if (byodResponse.message === 'ok') {
+      const isByod = byodResponse.byod && byodResponse.byod.length != 0;
+      const minerType = minerKey.split('-')[0];
+      console.log('Byod check: ' + isByod + ' | Miner types: ' + minerType);
+      if (isByod && isNotAllowedMiner(minerType)) {
+        setUpdateSuccess({status: 'error', message: 'This byod miner is not allowed to register'});
+        return;
+      }
+    } 
+    else {
+      setUpdateSuccess({ status: 'error', message: byodResponse.message });
+      return;
+    }
+
     const response = await getMinerType(minerKey, activeAccount.address);
   
     if (response.message === 'ok') {
+      const type = response.type;
       openModal('registration')
     } else {
       setUpdateSuccess({ status: 'error', message: response.message });
@@ -79,9 +96,28 @@ export default function NewRegistrationPage() {
   );
 }
 
+const isNotAllowedMiner = (minerType: string) : boolean => {
+  if (minerType === 'OLWQM' ||  minerType === 'OHWQM' || minerType === 'EM' || minerType === 'RDN'|| minerType === 'IRM' || minerType === 'SVN' || minerType === 'CN') {
+    return true; 
+  }
+
+  return false;
+}
 
 const getMinerType = async (miner_key: string, address: string) => {
   const response = await fetch('/api/miner_types', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ miner_key, address: address })
+  });
+  const data = await response.json();
+  return data;
+}
+
+const getIsByod = async (miner_key: string, address: string) => {
+  const response = await fetch('/api/is_byod', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
