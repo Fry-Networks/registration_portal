@@ -215,7 +215,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                     <Flex flexDirection="row" justifyContent="end" alignItems="end">
                       <XCircleIcon className="h-6 w-6 text-red-500" />
                       <Flex flexDirection="col" justifyContent="end" alignItems="end" className="ml-2">
-                        {!device.reward_wallet && <Text className="text-red-500">- Reward wallet not set</Text>}
+                        {!device.reward_wallet && <Text className="text-red-500">- Wallet not set</Text>}
                         {!device.verified && <Text className="text-red-500">- Not verified</Text>}
                         {!device.position && <Text className="text-red-500">- Position not set</Text>}
                         {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
@@ -234,7 +234,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                 {/* Action Buttons */}
                 <Flex className="mt-4 flex-col md:flex-row justify-start items-center space-y-2 md:space-y-0 md:space-x-4">
                   <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>
-                    Update reward wallet
+                    {!device.reward_wallet ? "Set reward wallet" : "Change reward wallet"}
                   </Button>
 
                   {device.verified && device.staked ? (
