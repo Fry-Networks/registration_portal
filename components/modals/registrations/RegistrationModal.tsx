@@ -3,6 +3,7 @@ import { Button, Dialog, DialogPanel, TextInput, Title } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
 import MessageUpdate from '../../messageUpdate';
+import Link from 'next/link';
 
 interface REGModalProps {
     modalName: string;
@@ -20,6 +21,26 @@ const RegistrationModal: React.FC<REGModalProps> = ({
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
     const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '' });
+
+    const getPortalLink = () => {
+        const minerType = minerKey.split('-')[0];
+
+        if (['OHAQM', 'IHAQM', 'ILAQM'].includes(minerType)) {
+            return "https://air.frynetworks.com";
+        } else if (['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'].includes(minerType)) {
+            return "https://camera.frynetworks.com";
+        } else if (['HWM', 'LWM'].includes(minerType)) {
+            return "https://weather.frynetworks.com";
+        } else if (['OLWQM', 'OHWQM'.includes(minerType)]) {
+            return "https://water.frynetworks.com";
+        } else if (minerType === 'EM') {
+            return "https://energy.frynetworks.com";
+        } else if (minerType === 'IRM') {
+            return "https://radiation.frynetworks.com";
+        }
+
+        return ""
+    }
 
     const validateInput = (name: string, value: string) => {
         let regex;
@@ -123,6 +144,16 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                         error={errors.email !== ''}
                     />
                 </div>
+                {
+                    getPortalLink()?.length > 0 && <div className="mt-4">
+                    <Link href={getPortalLink()} passHref>
+                        <a className="text-blue-500 hover:underline">
+                            Want to go to portal before you register?
+                        </a>
+                    </Link>
+                </div>
+                }
+                
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
