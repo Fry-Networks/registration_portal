@@ -145,13 +145,14 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                     />
                 </div>
                 {
-                    getPortalLink()?.length > 0 && <div className="mt-4">
-                    <Link href={getPortalLink()} passHref>
-                        <a className="text-blue-500 hover:underline">
-                            Want to go to portal before you register?
-                        </a>
-                    </Link>
-                </div>
+                    getPortalLink()?.length > 0 && 
+                    <div className="mt-4">
+                        <Link href={getPortalLink()} passHref>
+                            <a className="text-blue-500 hover:underline">
+                                Want to go to portal before you register?
+                            </a>
+                        </Link>
+                    </div>
                 }
                 
                 <div className="mt-4">
