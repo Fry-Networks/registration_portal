@@ -5,6 +5,7 @@ import { authOptions } from "./auth/[...nextauth]";
 import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
 
     const session = await getServerSession(req, res, authOptions);
     // Check if user is authenticated
@@ -29,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
         const client = await clientPromise;
         const db = client.db('main');
-        const collection = db.collection('devices');
+        const collection = db.collection(testMode ? 'test-devices' : 'devices');
         const device = await collection.findOne({ miner_key, address });
         if (!device) {
             res.status(404).json({ message: "Not found" });

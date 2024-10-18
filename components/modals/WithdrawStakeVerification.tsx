@@ -34,6 +34,8 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
         availableIn: 0,
     });
 
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+
     // Fetch availability for withdrawal
     useEffect(() => {
         const fetchAvailable = async () => {

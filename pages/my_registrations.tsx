@@ -292,6 +292,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
 
 export async function getServerSideProps(context: any) {
+  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === "true";
   const session = await getSession(context);
   if (!session || !session.user.address) {
     return {
@@ -303,7 +304,7 @@ export async function getServerSideProps(context: any) {
     const client = await clientPromise;
     const db = client.db('main');
 
-    const devices = await db.collection('devices').find({ address: session.user.address}).toArray();
+    const devices = await db.collection(testMode ? 'test-devices' : 'devices').find({ address: session.user.address}).toArray();
     if (!devices) {
       return {
         props: {

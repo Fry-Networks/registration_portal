@@ -14,6 +14,7 @@ const algodClient = new algosdk.Algodv2(
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
 
     const session = await getServerSession(req, res, authOptions);
     // Check if user is authenticated
@@ -54,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         const stake_amt = (type === "one" ? product.reward.stake.stake_one : product.reward.stake.stake_two) ?? 0
 
-        const miner_data = await db.collection('devices').findOne({ miner_key: miner })
+        const miner_data = await db.collection(testMode ? 'test-devices' : 'devices').findOne({ miner_key: miner })
         if (!miner_data) {
             res.status(404).json({ message: "miner not found" });
             return;
@@ -68,16 +69,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(404).json({ message: "withdraw = 0" });
             return
         }
-        let price = FRYamount * 1_000_000;
-        const result = await confirmTransaction(txId, price);
-        console.log(result);
-        if (result.code !== 0) {
-            console.log(`Transaction verification failed: ${result} for txId: ${txId} and miner: ${miner}`);
-            res.status(400).json({ message: "Transaction verification failed" });
-            return;
+    
+        if (!testMode) {
+            let price = FRYamount * 1_000_000;
+            const result = await confirmTransaction(txId, price);
+            console.log(result);
+            if (result.code !== 0) {
+                console.log(`Transaction verification failed: ${result} for txId: ${txId} and miner: ${miner}`);
+                res.status(400).json({ message: "Transaction verification failed" });
+                return;
+            }
         }
-
-        const collection = db.collection('devices');
+        
+        const collection = db.collection(testMode ? 'test-devices' : 'devices');
         await collection.updateOne(
             { miner_key: miner, address: session.user.address },
             {
