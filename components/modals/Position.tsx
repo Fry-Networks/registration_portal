@@ -74,70 +74,28 @@ const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) =>
           </button>
         </div>
         <form onSubmit={handleSubmit(handleFormSubmit)}>
-          <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong text-lg md:text-xl">
+          <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
             Verify Your Location
           </h4>
-
-          {/* Input Section */}
-          <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Latitude input */}
-            <div className="flex flex-col">
-              <label htmlFor="latitude" className="block text-sm font-medium">
-                Latitude:
-              </label>
-              <input
-                id="latitude"
-                type="number"
-                step="any"
-                {...register('latitude', { required: true })}
-                className="border rounded-md p-2 w-full"
-                placeholder="Enter Latitude"
-                onChange={(e) => {
-                  const newLat = parseFloat(e.target.value);
-                  if (!isNaN(newLat) && position) {
-                    handlePositionChange({ lat: newLat, lng: position.lng });
-                  }
-                }}
-              />
-              {errors.latitude && <p className="text-red-500">Latitude is required.</p>}
-            </div>
-
-            {/* Longitude input */}
-            <div className="flex flex-col">
-              <label htmlFor="longitude" className="block text-sm font-medium">
-                Longitude:
-              </label>
-              <input
-                id="longitude"
-                type="number"
-                step="any"
-                {...register('longitude', { required: true })}
-                className="border rounded-md p-2 w-full"
-                placeholder="Enter Longitude"
-                onChange={(e) => {
-                  const newLng = parseFloat(e.target.value);
-                  if (!isNaN(newLng) && position) {
-                    handlePositionChange({ lat: position.lat, lng: newLng });
-                  }
-                }}
-              />
-              {errors.longitude && <p className="text-red-500">Longitude is required.</p>}
-            </div>
+          <div className="mt-2">
+            <input
+              type="hidden"
+              {...register('latitude', { required: true })}
+            />
+            <input
+              type="hidden"
+              {...register('longitude', { required: true })}
+            />
+            {errors.latitude && <p className="text-red-500">Latitude is required.</p>}
+            {errors.longitude && <p className="text-red-500">Longitude is required.</p>}
+            {!geolocation && <p className="text-red-500">Geolocation is disabled.</p>}
           </div>
-
-          {/* Map Section */}
-          <div className="mt-4 h-64 md:h-96 w-full">
+          <div className="mt-4">
             {position && (
               <Map position={position} onPositionChange={handlePositionChange} />
             )}
           </div>
-
-          {/* Submit Button */}
-          <Button
-            type="submit"
-            className="mt-4 w-full md:w-auto px-6 py-2"
-            disabled={!position && !errors.latitude && !errors.longitude}
-          >
+          <Button type="submit" className="mt-4 w-full" disabled={!position}>
             Submit
           </Button>
         </form>

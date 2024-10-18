@@ -144,7 +144,7 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                         error={errors.email !== ''}
                     />
                 </div>
-                {
+                {/* {
                     getPortalLink()?.length > 0 && 
                     <div className="mt-4">
                         <Link href={getPortalLink()} passHref>
@@ -153,7 +153,7 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                             </a>
                         </Link>
                     </div>
-                }
+                } */}
                 
                 <div className="mt-4">
                     <Button
