@@ -36,6 +36,8 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
     const [paid, setPaid] = useState<boolean>(false);
     const [FRYamount, setFRYAmount] = useState<{ stake_one: number, stake_two: number }>({ stake_one: 0, stake_two: 0 });
 
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+
     useEffect(() => {
         const fetchMinerTypes = async () => {
             try {
@@ -112,7 +114,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
             }
 
             const amountToStake = FRYamount[`stake_${type}`];
-            const txId = await sendTransaction(activeAddress, STAKE_ADDRESS, amountToStake);
+            const txId = testMode ? 'success' : await sendTransaction(activeAddress, STAKE_ADDRESS, amountToStake);
 
             if (txId) {
                 setUpdateSuccess('Successfully sent transaction. Your miner will be verified soon.');

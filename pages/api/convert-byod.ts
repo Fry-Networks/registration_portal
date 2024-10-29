@@ -5,6 +5,7 @@ import { authOptions } from "./auth/[...nextauth]";
 import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
 
     const session = await getServerSession(req, res, authOptions);
     // Check if user is authenticated
@@ -53,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return;
         }
         const product = data.find(product => product.key === key)!;
-        const devicesCollection = db.collection('devices');
+        const devicesCollection = db.collection(testMode ? 'test-devices' : 'devices');
         const byodAlreadyUsed = await devicesCollection.findOne({ byod: byod });
         if (byodAlreadyUsed) {
             res.status(400).json({ message: "Byod already used" });

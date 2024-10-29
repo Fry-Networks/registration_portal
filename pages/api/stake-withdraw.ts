@@ -10,6 +10,7 @@ import clientPromise from "../../lib/mongoclient";
 import { getFRYPrice } from "../../lib/price";
 import { Device } from "../../lib/types";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
 
     const session = await getServerSession(req, res, authOptions);
     // Check if user is authenticated
@@ -33,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
         const client = await clientPromise;
         const db = client.db('main');
-        const collection = db.collection('devices');
+        const collection = db.collection(testMode ? 'test-devices' : 'devices');
         console.log(req.body)
         const device = await collection.findOne({ miner_key }) as unknown as Device;
         if (!device) {
@@ -55,13 +56,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             res.status(401).json({ message: "Unauthorized 5" });
             return;
         }
-        const result = await withdraw(address, amount);
-        if(!result) {
-            res.status(500).json({ message: "error" });
-            return;
+
+        let result = 'success';
+
+        if (!testMode) {
+            result = await withdraw(address, amount);
+            if(!result) {
+                res.status(500).json({ message: "error" });
+                return;
+            }
+
+            console.log(result);
         }
+        
         await collection.updateOne( { miner_key }, { $set: { staked: { amount: 0, txId: result, time: new Date(), rewarded_time: new Date() }, verified: false } });
-        console.log(result);
+        
         res.status(200).json({ message: "ok" });
     } catch (error) {
         console.log(error);
