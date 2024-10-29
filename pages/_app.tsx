@@ -3,12 +3,17 @@ import { AppProps } from 'next/app';
 import '../app/globals.css';
 import { useSession, SessionProvider } from 'next-auth/react';
 import React from 'react';
-import { WalletProvider, useInitializeProviders, PROVIDER_ID } from '@txnlab/use-wallet';
+import {
+  WalletProvider,
+  useInitializeProviders,
+  PROVIDER_ID
+} from '@txnlab/use-wallet';
 import { DeflyWalletConnect } from '@blockshake/defly-connect';
 import { PeraWalletConnect } from '@perawallet/connect';
 import { DaffiWalletConnect } from '@daffiwallet/connect';
 import Navbar from '../app/navbar';
 import { ModalProvider } from '../app/modalcontext';
+import { Flex } from '@tremor/react';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -24,16 +29,19 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
     providers: [
       { id: PROVIDER_ID.DEFLY, clientStatic: DeflyWalletConnect },
       { id: PROVIDER_ID.PERA, clientStatic: PeraWalletConnect },
-      { id: PROVIDER_ID.DAFFI, clientStatic: DaffiWalletConnect },
+      { id: PROVIDER_ID.DAFFI, clientStatic: DaffiWalletConnect }
     ]
   });
 
   return (
-    < ModalProvider>
+    <ModalProvider>
       <WalletProvider value={providers}>
         <SessionProvider session={pageProps.session}>
           <Navbar />
-          <div id="main" className="w-full min-h-screen dark text-foreground bg-background">
+          <div
+            id="main"
+            className="w-full min-h-screen dark text-foreground bg-background"
+          >
             <ProtectedComponent Component={Component} pageProps={pageProps} />
           </div>
         </SessionProvider>
