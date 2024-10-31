@@ -5,6 +5,7 @@
 :root {
   color-scheme: light dark;
   color: rgba(255, 255, 255, 0.87);
+  background-color: #121212;
 }
 
 .logo {
@@ -12,6 +13,10 @@
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
+}
+
+body {
+  background-color: #121212;
 }
 
 .logo_wallet {

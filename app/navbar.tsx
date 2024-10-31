@@ -130,7 +130,9 @@ export default function Navbar() {
                 if (devMode) {
                   setDevConnect(false);
                 } else {
-                  setIsWalletModalOpen(true);
+                  providers
+                    ?.filter((provider) => provider.isConnected)[0]
+                    .disconnect();
                 }
               }}
             >
