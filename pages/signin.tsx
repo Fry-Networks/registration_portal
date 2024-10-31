@@ -3,17 +3,18 @@ import { useWallet } from '@txnlab/use-wallet';
 import { signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import algosdk from 'algosdk';
+import { useDevWallet } from '../hooks/UseDevWallet';
 
 const algodClient = new algosdk.Algodv2(
-  "",
-  "https://mainnet-api.algonode.cloud",
-  ""
+  '',
+  'https://mainnet-api.algonode.cloud',
+  ''
 );
-
 
 export default function SignIn() {
   const { activeAccount, signTransactions } = useWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const { devConnect } = useDevWallet();
 
   async function handleWalletAuth() {
     if (!activeAccount) return;
@@ -35,7 +36,9 @@ export default function SignIn() {
       });
 
       // Sign the transaction
-      const signedTxn = await signTransactions([algosdk.encodeUnsignedTransaction(txn)]);
+      const signedTxn = await signTransactions([
+        algosdk.encodeUnsignedTransaction(txn)
+      ]);
       console.log('Signed transaction:', signedTxn);
 
       if (signedTxn && signedTxn.length > 0) {
@@ -43,7 +46,7 @@ export default function SignIn() {
         console.log('Sending to server:', {
           address: activeAccount.address,
           signedTxn: signedTxnBase64,
-          nonce,
+          nonce
         });
 
         // Send this information to the server for verification
@@ -51,9 +54,8 @@ export default function SignIn() {
           address: activeAccount.address,
           signedTxn: signedTxnBase64,
           nonce,
-          callbackUrl: '/',
+          callbackUrl: '/'
         });
-
       } else {
         throw new Error('Failed to sign the transaction');
       }
@@ -65,9 +67,11 @@ export default function SignIn() {
   }
 
   return (
-    <Flex flexDirection='col' alignItems='center' justifyContent='center'>
-     <Title className='mt-10 mb-20' style={{fontSize: "30px"}}>Sign in</Title>
-      {activeAccount ? (
+    <Flex flexDirection="col" alignItems="center" justifyContent="center">
+      <Title className="mt-10 mb-20" style={{ fontSize: '30px' }}>
+        Sign in
+      </Title>
+      {activeAccount || devConnect ? (
         <Button onClick={handleWalletAuth} disabled={isAuthenticating}>
           {isAuthenticating ? 'Authenticating...' : 'Sign in with Wallet'}
         </Button>
@@ -75,6 +79,5 @@ export default function SignIn() {
         <p>Please connect your wallet first</p>
       )}
     </Flex>
-    
   );
 }
