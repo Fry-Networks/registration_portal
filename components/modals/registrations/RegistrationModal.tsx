@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button, Dialog, DialogPanel, TextInput, Title } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
-import MessageUpdate from '../../messageUpdate';
+import MessageUpdate from '../../MessageUpdate';
 import Link from 'next/link';
 
 interface REGModalProps {
@@ -17,7 +17,7 @@ const RegistrationModal: React.FC<REGModalProps> = ({
     address
 }) => {
     const { modals, closeModal } = useModal();
-    const [updateSuccess, setUpdateSuccess] = useState({status: 'success', message: ''});
+    const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
     const [names, setNames] = useState({ first_name: '', last_name: '' });
     const [email, setEmail] = useState('');
     const [errors, setErrors] = useState({ first_name: '', last_name: '', email: '' });
@@ -79,18 +79,18 @@ const RegistrationModal: React.FC<REGModalProps> = ({
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ names, email,  miner_key: minerKey, address }),
+            body: JSON.stringify({ names, email, miner_key: minerKey, address }),
         });
         const { message } = await response.json();
         if (!response.ok) {
             setUpdateSuccess({ status: 'error', message });
-            setTimeout(() => setUpdateSuccess({status: 'error', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({ status: 'error', message: '' }), 15_000);
         } else {
             //clear fields
-            setNames({first_name: '', last_name: ''});
+            setNames({ first_name: '', last_name: '' });
             setEmail('')
             setUpdateSuccess({ status: 'success', message: 'Successfully registered' });
-            setTimeout(() => setUpdateSuccess({status: 'success', message: ''}), 15_000);
+            setTimeout(() => setUpdateSuccess({ status: 'success', message: '' }), 15_000);
         }
 
     };
@@ -125,7 +125,7 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                         value={names.first_name}
                         onChange={handleInputChange}
                         errorMessage={errors.first_name}
-                        error={errors.first_name !== '' }
+                        error={errors.first_name !== ''}
                     />
                     <TextInput
                         name="last_name"
@@ -154,11 +154,11 @@ const RegistrationModal: React.FC<REGModalProps> = ({
                         </Link>
                     </div>
                 } */}
-                
+
                 <div className="mt-4">
                     <Button
                         onClick={handleSubmit}
-                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === '' }
+                        disabled={Object.values(errors).some(error => error !== '') || Object.values(names).some(name => name === '') || email === ''}
                     >
                         Submit
                     </Button>

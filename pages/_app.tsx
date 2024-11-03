@@ -11,7 +11,7 @@ import {
 import { DeflyWalletConnect } from '@blockshake/defly-connect';
 import { PeraWalletConnect } from '@perawallet/connect';
 import { DaffiWalletConnect } from '@daffiwallet/connect';
-import Navbar from '../app/navbar';
+import Navbar from '../components/Navbar';
 import { ModalProvider } from '../app/modalcontext';
 import { Flex } from '@tremor/react';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
@@ -39,13 +39,13 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       <WalletProvider value={providers}>
         <SessionProvider session={pageProps.session}>
           <DevWalletProvider>
-            <Navbar />
-            <div
-              id="main"
-              className="w-full min-h-screen dark text-foreground bg-background"
-            >
-              <ProtectedComponent Component={Component} pageProps={pageProps} />
-            </div>
+          <Navbar />
+          <div
+            id="main"
+            className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
+          >
+            <ProtectedComponent Component={Component} pageProps={pageProps} />
+          </div>
           </DevWalletProvider>
         </SessionProvider>
       </WalletProvider>
