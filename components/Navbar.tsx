@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Disclosure } from '@headlessui/react';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet';
 import Image from 'next/image';
@@ -27,7 +26,7 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-export default function Navbar() {
+export default () => {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { providers, activeAccount, getAssets, getAccountInfo } = useWallet();
@@ -85,8 +84,8 @@ export default function Navbar() {
       if (activeAccount) {
         setAddress(
           activeAccount.address.substring(0, 4) +
-            '...' +
-            activeAccount.address.slice(-4)
+          '...' +
+          activeAccount.address.slice(-4)
         );
       } else {
         setAddress('');
@@ -98,7 +97,7 @@ export default function Navbar() {
     <div>
       <Flex
         flexDirection="row"
-        className="w-full px-20 border-b  border-white/10 max-sm:px-0"
+        className="w-full px-20 border-b h-24 border-white/10 max-sm:px-0"
       >
         <div className="flex">
           <Link

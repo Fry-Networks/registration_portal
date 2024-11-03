@@ -4,7 +4,7 @@ export default {
   content: [
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
     './node_modules/@tremor/**/*.{js,ts,jsx,tsx,mdx}'
   ],
   theme: {
@@ -63,7 +63,7 @@ export default {
         'tremor-metric': ['1.875rem', { lineHeight: '2.25rem' }]
       },
       spacing: {
-        '15': '3.75rem', // Add custom value for m-15, p-15, etc.
+        '15': '3.75rem' // Add custom value for m-15, p-15, etc.
       }
     }
   },

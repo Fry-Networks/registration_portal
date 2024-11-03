@@ -2,7 +2,7 @@ import React, { use, useEffect, useState } from 'react';
 import { Button, Dialog, DialogPanel, TextInput, Select, SelectItem, Title } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../app/modalcontext';
-import MessageUpdate from '../messageUpdate';
+import MessageUpdate from '../MessageUpdate';
 
 interface ByodConvertModalProps {
     modalName: string;

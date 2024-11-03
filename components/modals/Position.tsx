@@ -25,7 +25,7 @@ const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) =>
   useEffect(() => {
     if (typeof window !== 'undefined') {
       navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-        if(result.state === 'denied') {
+        if (result.state === 'denied') {
           console.log('Geolocation permission denied.');
           setGeolocation(false);
           return;
@@ -33,7 +33,7 @@ const PositionModal: React.FC<PositionModalProps> = ({ modalName, onSubmit }) =>
           setGeolocation(true);
         }
         navigator.geolocation.getCurrentPosition((position) => {
- 
+
           const newPosition = {
             lat: position.coords.latitude,
             lng: position.coords.longitude

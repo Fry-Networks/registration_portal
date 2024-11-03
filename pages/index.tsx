@@ -1,5 +1,5 @@
 import { Flex, Title } from '@tremor/react';
-import ConnectMenu from '../components/connect';
+import ConnectMenu from '../components/Connect';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useDevWallet } from '../hooks/UseDevWallet';
