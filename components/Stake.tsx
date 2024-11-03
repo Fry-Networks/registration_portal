@@ -48,7 +48,7 @@ const Stake = ({ data, setData, onNext, onSkip }) => {
                 <div className="py-8 px-24 relative h-full">
                     <form className="space-y-6">
                         <div className="flex items-center space-x-4">
-                            <label className="flex items-center space-x-2">
+                            <label className="flex items-center space-x-2 text-white">
                                 <input
                                     type="radio"
                                     name="stakeOption"
@@ -59,7 +59,7 @@ const Stake = ({ data, setData, onNext, onSkip }) => {
                                 />
                                 <span>24-Hour Staking</span>
                             </label>
-                            <label className="flex items-center space-x-2">
+                            <label className="flex items-center space-x-2 text-white">
                                 <input
                                     type="radio"
                                     name="stakeOption"
@@ -74,7 +74,7 @@ const Stake = ({ data, setData, onNext, onSkip }) => {
                         {errors.stakeOption && <span className="text-red-500">{errors.stakeOption}</span>}
 
                         <div>
-                            <label className="block mb-2">Amount to Stake:</label>
+                            <label className="block mb-2 text-white">Amount to Stake:</label>
                             <input
                                 type="number"
                                 min="0"
@@ -88,7 +88,7 @@ const Stake = ({ data, setData, onNext, onSkip }) => {
                     </form>
 
                     {/* Button container positioned at the bottom right */}
-                    <div className="absolute bottom-4 right-4 flex space-x-4">
+                    <div className="absolute bottom-4 right-4 flex space-x-4 text-white">
                         <button
                             type="button"
                             className="px-4 py-2 border border-gray-500 rounded"
