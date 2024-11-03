@@ -51,7 +51,7 @@ const DeviceInfo = ({ data, setData, onNext, onSkip }) => {
         <div className="py-8 px-16 md:px-24 h-full relative">
           <form className="w-full">
             <div>
-              <label className="block mb-2">Email{" "}
+              <label className="block mb-2 text-white">Email{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -64,7 +64,7 @@ const DeviceInfo = ({ data, setData, onNext, onSkip }) => {
               {errors.email && <span className="text-red-500 text-sm">{errors.email}</span>}
             </div>
             <div>
-              <label className="block mb-2 mt-2">First Name{" "}
+              <label className="block mb-2 mt-2 text-white">First Name{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -77,7 +77,7 @@ const DeviceInfo = ({ data, setData, onNext, onSkip }) => {
               {errors.firstName && <span className="text-red-500 text-sm">{errors.firstName}</span>}
             </div>
             <div>
-              <label className="block mb-2 mt-2">Last Name{" "}
+              <label className="block mb-2 mt-2 text-white">Last Name{" "}
                 <span className="text-red-500">*</span>
               </label>
               <input
@@ -90,7 +90,7 @@ const DeviceInfo = ({ data, setData, onNext, onSkip }) => {
               {errors.lastName && <span className="text-red-500 text-sm">{errors.lastName}</span>}
             </div>
             <div>
-              <label className="block mb-2 mt-2">Nickname</label>
+              <label className="block mb-2 mt-2 text-white">Nickname</label>
               <input
                 type="text"
                 className="w-full p-2 border border-red-600 rounded"
@@ -100,7 +100,7 @@ const DeviceInfo = ({ data, setData, onNext, onSkip }) => {
               />
             </div>
           </form>
-          <div className="absolute bottom-4 right-4 flex gap-2">
+          <div className="absolute bottom-4 right-4 flex gap-2 text-white">
             <button
               type="button"
               className="px-4 py-2 border border-gray-500 rounded"
