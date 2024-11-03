@@ -6,6 +6,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useWallet } from '@txnlab/use-wallet';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect } from 'react';
+import SignIn from '../components/SignIn';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -15,17 +16,6 @@ export default function IndexPage() {
   const { devConnect } = useDevWallet();
   const { activeAccount } = useWallet();
   const { data: session, status } = useSession();
-
-  useEffect(() => {
-    if ((activeAccount && !session) || (devConnect && !session)) {
-      console.log('signIn');
-      signIn('wallet');
-    }
-
-    if (!activeAccount || !devConnect) {
-      return;
-    }
-  }, [activeAccount, session, devConnect]);
 
   return (
     <main className="w-full">
@@ -51,7 +41,7 @@ export default function IndexPage() {
             Please connect your wallet to onboard your devices to FRY NETWORKS
           </Title>
         ) : (
-          <p></p>
+          <SignIn />
         )}
       </Flex>
     </main>

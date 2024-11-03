@@ -129,10 +129,18 @@ export default function Navbar() {
               onClick={(e) => {
                 if (devMode) {
                   setDevConnect(false);
+                  if (session) {
+                    console.log('Log out');
+                    signOut();
+                  }
                 } else {
                   providers
                     ?.filter((provider) => provider.isConnected)[0]
                     .disconnect();
+                  if (session) {
+                    console.log('Log out');
+                    signOut();
+                  }
                 }
               }}
             >
