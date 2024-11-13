@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import algosdk from 'algosdk';
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
+import Link from 'next/link';
 
 interface SignInProps {
   signed?: boolean;
@@ -136,9 +137,11 @@ export default function SignIn({ signed }: SignInProps) {
               {isAuthenticating ? 'Authenticating...' : 'Sign In'}
             </Button>
           ) : (
-            <Button className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
-              Goto Dashboard
-            </Button>
+            <Link href="/devices">
+              <Button className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
+                Goto Dashboard
+              </Button>
+            </Link>
           )}
         </div>
       </Flex>

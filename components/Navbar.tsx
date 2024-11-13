@@ -84,8 +84,8 @@ export default () => {
       if (activeAccount) {
         setAddress(
           activeAccount.address.substring(0, 4) +
-          '...' +
-          activeAccount.address.slice(-4)
+            '...' +
+            activeAccount.address.slice(-4)
         );
       } else {
         setAddress('');
@@ -99,7 +99,7 @@ export default () => {
         flexDirection="row"
         className="w-full px-20 border-b h-24 border-white/10 max-sm:px-0"
       >
-        <div className="flex">
+        <div className="flex" key="logo">
           <Link
             href="https://frynetworks.com"
             target="_blank"
@@ -108,7 +108,10 @@ export default () => {
             <Image src={fryLogo} className="logo" alt="Fry logo" />
           </Link>
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div
+          className="flex items-center justify-between gap-2"
+          key="connect-button"
+        >
           {!address || address.length === 0 ? (
             <Button
               className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
@@ -207,7 +210,7 @@ export default () => {
       </Modal>
     </div>
   );
-}
+};
 
 const customStyles = {
   content: {
