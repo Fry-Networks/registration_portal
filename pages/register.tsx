@@ -49,6 +49,7 @@ export default () => {
     }
 
     setDeviceStatus(isDeviceInfoInputed());
+    setWalletStatus(isWalletInfoInputed());
 
     setDeviceInfoData({
       email: device.email,
@@ -80,6 +81,22 @@ export default () => {
     }
 
     return false;
+  };
+
+  const isWalletInfoInputed = () => {
+    if (!device) {
+      return false;
+    }
+
+    if (!device.reward_wallet || device.reward_wallet.length <= 0) {
+      return false;
+    }
+
+    if (!device.connectivity_wallet || device.connectivity_wallet.length <= 0) {
+      return false;
+    }
+
+    return true;
   };
   // State for each form's data
   const [deviceInfoData, setDeviceInfoData] = useState({
@@ -184,6 +201,7 @@ export default () => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <WalletInfo
+              status={walletStatus}
               minerKey={minerKey}
               data={walletInfoData}
               setData={setWalletInfoData}

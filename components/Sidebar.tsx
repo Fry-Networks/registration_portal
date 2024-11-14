@@ -58,7 +58,7 @@ export default ({
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 1 ? 'bg-gray-800 p-2 rounded' : ''}`}
       >
         <span className="mr-2">
-          {completionStatus.map ? (
+          {completionStatus.wallet ? (
             <CheckIcon className="h-5 w-5 text-green-500" /> // Display check icon if complete
           ) : (
             <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
