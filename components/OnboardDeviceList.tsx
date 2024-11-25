@@ -3,12 +3,14 @@ import { Device } from '../lib/types';
 import CopyAddress from './CopyAddress';
 import ListItem from './ListItem';
 
-export default function InformationList({
+export default function OnboardDeviceList({
   devices,
-  handleDelete
+  handleDelete,
+  handleChange
 }: {
   devices: Device[];
   handleDelete: (miner_key: string) => Promise<void>;
+  handleChange: (miner_key: string) => Promise<void>;
 }) {
   const isDeviceStatusOkay = (device: Device) => {
     return (
@@ -20,11 +22,16 @@ export default function InformationList({
   };
 
   return (
-    <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-10">
+    <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
       {devices.length > 0 ? (
         devices.map((device) => {
           return (
-            <ListItem device={device} type={0} handleDelete={handleDelete} />
+            <ListItem
+              device={device}
+              type={0}
+              handleDelete={handleDelete}
+              handleChange={handleChange}
+            />
           );
         })
       ) : (

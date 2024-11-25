@@ -5,6 +5,7 @@ import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import algosdk, { Account, Algodv2 } from 'algosdk';
+import MessageUpdate from './MessageUpdate';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -128,6 +129,9 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
           className="w-screen h-[30vh] object-cover"
           alt="Background Image"
         />
+        <div className="px-16 md:px-24">
+          <MessageUpdate updateSuccess={updateSuccess} />
+        </div>
         <div className="py-8 px-16 md:px-24 h-full relative">
           <form className="w-full">
             <div>

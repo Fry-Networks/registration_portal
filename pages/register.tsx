@@ -7,8 +7,11 @@ import Stake from '../components/Stake';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import WalletInfo from '../components/WalletInfo';
 import { Device } from '../lib/types';
+import { getSession } from 'next-auth/react';
+import clientPromise from '../lib/mongoclient';
+import { Product } from './api/verify-stake';
 
-export default () => {
+export default ({ products }: { products: Product[] }) => {
   const router = useRouter();
   const [currentSection, setCurrentSection] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -18,11 +21,16 @@ export default () => {
   const [walletStatus, setWalletStatus] = useState(false);
   const { minerKey } = router.query;
   const [device, setDevice] = useState<Device | undefined>(undefined);
+  const [product, setProduct] = useState<Product | undefined>(undefined);
+
+  console.log(`MinerKey: ${minerKey}`);
 
   useEffect(() => {
     if (!minerKey || typeof minerKey !== 'string') {
       return;
     }
+
+    console.log(minerKey);
 
     const fetchDeviceInfo = async (minerKey: string) => {
       console.log(minerKey);
@@ -41,15 +49,30 @@ export default () => {
     };
 
     fetchDeviceInfo(minerKey);
-  }, [currentSection]);
+  }, [minerKey, currentSection]);
+
+  const findProduct = (minerKey: string) => {
+    const key = minerKey.split('-')[0];
+    console.log(key);
+
+    const specificProduct = products.find((product) => {
+      return product.key === key;
+    });
+
+    return specificProduct;
+  };
 
   useEffect(() => {
     if (device === undefined) {
       return;
     }
 
+    setProduct(findProduct(device.miner_key));
+
     setDeviceStatus(isDeviceInfoInputed());
     setWalletStatus(isWalletInfoInputed());
+    setLocationStatus(isMapinfoInputed());
+    setStakeStatus(isStaked());
 
     setDeviceInfoData({
       email: device.email,
@@ -83,6 +106,18 @@ export default () => {
     return false;
   };
 
+  const isMapinfoInputed = () => {
+    if (!device) {
+      return false;
+    }
+
+    if (!device.position) {
+      return false;
+    }
+
+    return true;
+  };
+
   const isWalletInfoInputed = () => {
     if (!device) {
       return false;
@@ -93,6 +128,18 @@ export default () => {
     }
 
     if (!device.connectivity_wallet || device.connectivity_wallet.length <= 0) {
+      return false;
+    }
+
+    return true;
+  };
+
+  const isStaked = () => {
+    if (!device) {
+      return false;
+    }
+
+    if (!device.verified) {
       return false;
     }
 
@@ -114,7 +161,6 @@ export default () => {
     latitude: '',
     longitude: ''
   });
-  const [stakeData, setStakeData] = useState({ stakeOption: '', amount: '' });
 
   const sections = [
     { id: 0, title: 'Device Information' },
@@ -211,6 +257,8 @@ export default () => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
+              status={locationStatus}
+              minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}
               onNext={handleNext}
@@ -219,8 +267,9 @@ export default () => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <Stake
-              data={stakeData}
-              setData={setStakeData}
+              status={stakeStatus}
+              device={device}
+              product={product}
               onNext={handleNext}
               onSkip={handleSkip}
             />
@@ -230,3 +279,46 @@ export default () => {
     </div>
   );
 };
+
+export async function getServerSideProps(context: any) {
+  const session = await getSession(context);
+  if (!session || !session.user.address) {
+    return { props: {} };
+  }
+
+  try {
+    const client = await clientPromise;
+    const db = client.db('main');
+
+    const products = await db.collection('products').find({}).toArray();
+
+    if (!products) {
+      return {
+        props: {
+          products: []
+        }
+      };
+    } else {
+      return {
+        props: {
+          products: JSON.parse(
+            JSON.stringify(
+              products.map((product) => {
+                return {
+                  name: product.name,
+                  key: product.key,
+                  reward: product.reward
+                };
+              })
+            )
+          )
+        }
+      };
+    }
+  } catch (error) {
+    console.error(error);
+    return {
+      props: {}
+    };
+  }
+}

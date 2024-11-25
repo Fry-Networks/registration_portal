@@ -96,7 +96,7 @@ export default ({
             <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
           )}
         </span>
-        Stake
+        {completionStatus.stake ? 'Withdraw' : 'Stake'}
       </div>
     </div>
   );

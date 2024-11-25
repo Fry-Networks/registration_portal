@@ -10,8 +10,7 @@ import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Device } from '../lib/types';
 import CopyAddress from '../components/CopyAddress';
-import InformationList from '../components/InformationList';
-import VerificationList from '../components/VerificationList';
+import OnboardDeviceList from '../components/OnboardDeviceList';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -22,10 +21,6 @@ import AddDeviceModal from '../components/modals/AddDevice';
 const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
   const router = useRouter();
   const { openModal } = useModal();
-  // const [devices, setDevices] = useState<Device[]>([]);
-  const [view, setView] = useState<'Information' | 'Verification'>(
-    'Information'
-  ); // State to toggle between views
 
   const [updateSuccess, setUpdateSuccess] = useState({
     status: 'success',
@@ -97,9 +92,27 @@ const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
     }
   };
 
-  const handleChange = (id: string) => {
+  const handleChange = async (miner_key: string): Promise<void> => {
     // Redirect to an edit page where the device details can be modified
-    router.push(`/edit-device/${id}`);
+    try {
+      const response = await fetch(`/api/devices/${miner_key}`);
+      if (!response.ok) {
+        setUpdateSuccess({ status: 'error', message: 'Device not found.' });
+        setTimeout(() => {
+          setUpdateSuccess({ status: 'error', message: '' });
+        }, 5_000);
+      }
+
+      router.push({ pathname: '/register', query: { minerKey: miner_key } });
+    } catch (error) {
+      setUpdateSuccess({
+        status: 'error',
+        message: 'Failed to fetch device information.'
+      });
+      setTimeout(() => {
+        setUpdateSuccess({ status: 'error', message: '' });
+      }, 5_000);
+    }
   };
 
   return (
@@ -107,43 +120,43 @@ const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
       <div className="relative flex">
         <Image
           src={bgImg}
-          className="w-full h-[40vh] object-cover"
+          className="w-full h-[30vh] object-cover"
           alt="Background Image"
         />
         <Flex
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl">Fry Networks Dashboard</Title>
-          <p className="text-lg">
-            Here you can easily register your miner to Fry Networks. Also can
-            remove and edit miner too.
-          </p>
+          <Title className="text-white text-5xl">
+            Onboard your miners to Fry networks
+          </Title>
+          <p className="text-lg">Explanation for about onboarding miners</p>
         </Flex>
       </div>
-      <div className="w-full relative mt-10 px-10">
+      <Flex
+        flexDirection="row"
+        justifyContent="evenly"
+        className="flex-wrap px-20 mt-10"
+      >
+        <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] ">
+          <Title className="text-white">Your Miners</Title>
+          <p>{devices.length}</p>
+        </div>
+        <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px] ">
+          <Title className="text-white">Unverified Miners</Title>
+          <p>{devices.length}</p>
+        </div>
+        <div className="rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] ">
+          <Title className="text-white">Verified Miners</Title>
+          <p>{devices.filter((device) => device.verified).length}</p>
+        </div>
+      </Flex>
+
+      <div className="w-full mt-10 px-20">
         <Flex
           flexDirection="row"
-          justifyContent="center"
-          className="gap-3 w-full"
-        >
-          <p
-            className={`${view === 'Information' ? 'text-xl text-red-600 hover:text-red-400 cursor-default' : 'text-white hover:text-red-600 cursor-default'}`}
-            onClick={() => setView('Information')}
-          >
-            Information
-          </p>
-          <div className="h-[40px] w-[2px] bg-gradient-to-b from-transparent via-red-700 to-transparent"></div>
-          <p
-            className={`${view === 'Verification' ? 'text-xl text-red-600 hover:text-red-400 cursor-default' : 'text-white hover:text-red-600 cursor-default'}`}
-            onClick={() => setView('Verification')}
-          >
-            Verification
-          </p>
-        </Flex>
-        <Flex
-          flexDirection="row"
-          className="gap-3 w-auto sm:absolute top-0 right-20 mt-10 sm:mt-0"
+          justifyContent="end"
+          className="gap-3 w-full mt-10"
         >
           <Link href="/convert">
             <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
@@ -159,15 +172,15 @@ const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
           </Button>
         </Flex>
       </div>
+
       <div className="px-2 sm:px-20">
         <MessageUpdate updateSuccess={updateSuccess} />
       </div>
-      {view === 'Information' ? (
-        <InformationList devices={devices} handleDelete={handleDelete} />
-      ) : (
-        <VerificationList devices={devices} handleDelete={handleDelete} />
-      )}
-
+      <OnboardDeviceList
+        devices={devices}
+        handleDelete={handleDelete}
+        handleChange={handleChange}
+      />
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
     </div>
   );

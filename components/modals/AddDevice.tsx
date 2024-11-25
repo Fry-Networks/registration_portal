@@ -45,7 +45,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
           </button>
         </div>
-        <Title className="mb-5">Convert your BYOD license to a Miner Key</Title>
+        <Title className="mb-5">Register a new device</Title>
 
         <TextInput
           type="text"
