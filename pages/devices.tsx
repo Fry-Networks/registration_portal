@@ -14,7 +14,7 @@ import OnboardDeviceList from '../components/OnboardDeviceList';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import Link from 'next/link';
-import MessageUpdate from '../components/MessageUpdate';
+import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
 import AddDeviceModal from '../components/modals/AddDevice';
 

@@ -5,7 +5,7 @@ import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import algosdk, { Account, Algodv2 } from 'algosdk';
-import MessageUpdate from './MessageUpdate';
+import MessageUpdate from './messageUpdate';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';

@@ -24,6 +24,7 @@ export default ({ products }: { products: Product[] }) => {
   const [product, setProduct] = useState<Product | undefined>(undefined);
 
   console.log(`MinerKey: ${minerKey}`);
+  console.log(`[KING]: ${products}`);
 
   useEffect(() => {
     if (!minerKey || typeof minerKey !== 'string') {
@@ -291,6 +292,8 @@ export async function getServerSideProps(context: any) {
     const db = client.db('main');
 
     const products = await db.collection('products').find({}).toArray();
+
+    console.log('[KING]', products.length);
 
     if (!products) {
       return {

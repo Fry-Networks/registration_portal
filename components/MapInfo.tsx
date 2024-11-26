@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from './MessageUpdate';
+import MessageUpdate from './messageUpdate';
 const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {
   ssr: false
 });
