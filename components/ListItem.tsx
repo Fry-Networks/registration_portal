@@ -1,5 +1,6 @@
 import { Flex, Title } from '@tremor/react';
 import { Device } from '../lib/types';
+import { Product } from '../pages/api/verify-stake';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
@@ -8,12 +9,12 @@ import StakeWithdrawModal from './StakeWithdraw';
 
 export default function ListItem({
   device,
-  type,
+  product,
   handleDelete,
   handleChange
 }: {
   device: Device;
-  type: number;
+  product: Product;
   handleDelete: (miner_key: string) => Promise<void>;
   handleChange: (miner_key: string) => Promise<void>;
 }) {
@@ -48,7 +49,7 @@ export default function ListItem({
     <>
       {
         <div
-          className={`w-full border-2 rounded-lg p-4 text-gray-400 shadow-lg ${isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
+          className={`w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
             <Title className="text-white font-bold text-2xl mb-2">
@@ -90,24 +91,19 @@ export default function ListItem({
               ? device.miner_key
               : 'None'}
           </p>
-          <div>
-            <button
-              type="button"
-              className={`right-0 flex items-center justify-self-end border-red-600 px-4 py-2 border mt-2 rounded-md text-white font-medium transition duration-300 'cursor-default'`}
-              onClick={handleStake}
-            >
-              {isStaked() ? 'Withdraw' : 'Stake'}
-            </button>
-
-            <StakeWithdrawModal
-              modalName="stake_withdraw"
-              status={isStaked()}
-              device={{ staked: false }}
-              product={{
-                reward: { stake: { stake_one: 100, stake_two: 500 } }
-              }}
-            />
-          </div>
+          <button
+            type="button"
+            className={`right-0 flex items-center justify-self-end border-red-600 px-4 py-2 border mt-2 rounded-md text-white font-medium transition duration-300 'cursor-default'`}
+            onClick={handleStake}
+          >
+            {isStaked() ? 'Withdraw' : 'Stake'}
+          </button>
+          <StakeWithdrawModal
+            modalName="stake_withdraw"
+            status={isStaked()}
+            device={{ staked: false }}
+            product={product}
+          />
         </div>
       }
     </>

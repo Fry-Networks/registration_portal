@@ -9,6 +9,7 @@ import { Button, Flex, Title } from '@tremor/react';
 import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Device } from '../lib/types';
+import { Product } from './api/verify-stake';
 import CopyAddress from '../components/CopyAddress';
 import OnboardDeviceList from '../components/OnboardDeviceList';
 import bgImg from '../assets/background.png';
@@ -18,7 +19,7 @@ import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
 import AddDeviceModal from '../components/modals/AddDevice';
 
-const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
+const DevicesPage = ({ devices = [], products = [] }: { devices: Device[], products: Product[] }) => {
   const router = useRouter();
   const { openModal } = useModal();
 
@@ -178,6 +179,7 @@ const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
       </div>
       <OnboardDeviceList
         devices={devices}
+        products={products}
         handleDelete={handleDelete}
         handleChange={handleChange}
       />
@@ -213,13 +215,61 @@ export async function getServerSideProps(context: any) {
       .find({ address: session.user.address, is_registered: true })
       .toArray();
 
+      const products = await db.collection('products').find({}).toArray();
+
     console.log(devices);
-    if (!devices) {
+    if (!devices && !products) {
       return {
         props: {
-          devices: []
+          devices: [],
+          products: []
         }
       };
+    } else if (!devices && products) {
+      return {
+        props: {
+          devices: [],
+          products: JSON.parse(
+            JSON.stringify(
+              products.map((product) => {
+                return {
+                  name: product.name,
+                  key: product.key,
+                  reward: product.reward
+                };
+              })
+            )
+          )
+        }
+      };
+    } else if (devices && !products) {
+      return {
+        props: {
+          devices: JSON.parse(
+            JSON.stringify(
+              devices.map((device) => {
+                return {
+                  address: device.address,
+                  byod: device.byod,
+                  is_registered: device.is_registered,
+                  miner_key: device.miner_key,
+                  name: device.name,
+                  nickname: device.nickname,
+                  position: device.position,
+                  reward_wallet: device.reward_wallet,
+                  staked: device.staked,
+                  stake_type: device.stake_type,
+                  verified: device.verified,
+                  hexId: device.hexId,
+                  created_at: device.created_at,
+                  email: device.email
+                };
+              })
+            )
+          ),
+          products:[]
+        }
+      }
     } else {
       return {
         props: {
@@ -241,6 +291,17 @@ export async function getServerSideProps(context: any) {
                   hexId: device.hexId,
                   created_at: device.created_at,
                   email: device.email
+                };
+              })
+            )
+          ),
+          products: JSON.parse(
+            JSON.stringify(
+              products.map((product) => {
+                return {
+                  name: product.name,
+                  key: product.key,
+                  reward: product.reward
                 };
               })
             )

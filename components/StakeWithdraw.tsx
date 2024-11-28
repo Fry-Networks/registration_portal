@@ -53,7 +53,7 @@ const StakeWithdrawModal = ({ modalName, status, device, product }) => {
   const handleSubmit = async () => {
     setIsProcessing(true);
 
-    if (!status) {
+    if (status) {
       openModal('withdraw_stakeVerification');
     } else {
       openModal('stakeVerification');
