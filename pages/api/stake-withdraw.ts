@@ -3,16 +3,30 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
-import algosdk from 'algosdk';
+import algosdk, { waitForConfirmation } from 'algosdk';
 import 'dotenv/config';
 import clientPromise from '../../lib/mongoclient';
 import { getFRYPrice } from '../../lib/price';
 import { Device } from '../../lib/types';
+import txnValidate, {
+  hasOptedInForAsset,
+  optInForAsset
+} from '../../lib/txnValidate';
+
+// Algorand client setup
+const token = '';
+const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
+const tokenToSend = { 'X-API-Key': token };
+const port = '';
+const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+  const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
@@ -80,6 +94,14 @@ export default async function handler(
       }
 
       console.log(result);
+    } else {
+      result = await withdrawTestMode(address, amount);
+      if (!result) {
+        res.status(500).json({ message: 'error' });
+        return;
+      }
+
+      console.log(result);
     }
 
     await collection.updateOne(
@@ -109,11 +131,7 @@ async function withdraw(address: string, amount: number) {
   if (!mnemonic) {
     throw new Error('No STAKE_MNEMONIC in env');
   }
-  const algodClient = new algosdk.Algodv2(
-    '',
-    'https://mainnet-api.algonode.cloud',
-    ''
-  );
+
   const account = algosdk.mnemonicToSecretKey(mnemonic);
   const params = await algodClient.getTransactionParams().do();
   const FRYIndex = 924268058;
@@ -136,4 +154,60 @@ async function withdraw(address: string, amount: number) {
   };
   const result = await algosdk.waitForConfirmation(algodClient, txId, 3);
   return result ? txId : '';
+}
+
+async function withdrawTestMode(address: string, amount: number) {
+  try {
+    // Convert mnemonic to secret key
+    const account = algosdk.mnemonicToSecretKey(
+      process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
+    );
+
+    const from = account.addr.toString();
+
+    const assetIndex: number = Number(process.env.NEXT_PUBLIC_ASSET_INDEX) || 0;
+
+    // Fetch transaction parameters from the Algorand network
+    const suggestedParams = await algodClient.getTransactionParams().do();
+
+    const note = new Uint8Array(
+      Buffer.from('Verification stake' + Math.floor(Math.random() * 1000))
+    );
+
+    if (
+      (await hasOptedInForAsset(account.addr.toString(), assetIndex)) === false
+    ) {
+      await optInForAsset(account, account.addr.toString(), assetIndex);
+    }
+
+    // Create a transaction to send FRY
+    const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+      from,
+      to: address,
+      amount: amount * 1_000_000,
+      assetIndex,
+      note,
+      suggestedParams
+    });
+
+    // Sign the transaction with the account secret key
+    const signedTxn = txn.signTxn(account.sk);
+
+    // Send the signed transaction to the network
+    const tx = await algodClient.sendRawTransaction(signedTxn).do();
+    const result = await waitForConfirmation(algodClient, tx.txid, 3);
+
+    console.log('Transaction ID: ' + tx);
+    if ((await txnValidate(from, note)) === false) {
+      return null;
+    }
+
+    return tx.txid;
+  } catch (error) {
+    console.error(
+      'An error occurred, please check your network/mnemonic/asset index'
+    );
+    console.error(error);
+    return null;
+  }
 }

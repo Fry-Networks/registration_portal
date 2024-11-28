@@ -187,7 +187,9 @@ const DevicesPage = ({ devices = [] }: { devices: Device[] }) => {
 };
 
 export async function getServerSideProps(context: any) {
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+  const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
   const session = await getSession(context);
 
   console.log(testMode);

@@ -5,7 +5,9 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+  const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
   const { miner_key } = req.query;
 
   if (!miner_key || typeof miner_key !== 'string') {
