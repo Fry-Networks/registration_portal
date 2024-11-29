@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import Sidebar from '../components/Sidebar';
 import DeviceInfo from '../components/DeviceInfo';
 import MapInfo from '../components/MapInfo';
-import Stake from '../components/Stake';
+import Stake from '../components/StakeWithdraw';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import WalletInfo from '../components/WalletInfo';
 import { Device } from '../lib/types';
@@ -261,15 +261,6 @@ export default ({ products }: { products: Product[] }) => {
               minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}
-              onNext={handleNext}
-              onSkip={handleSkip}
-            />
-          </div>
-          <div className="flex-shrink-0 w-full h-full">
-            <Stake
-              status={stakeStatus}
-              device={device}
-              product={product}
               onNext={handleNext}
               onSkip={handleSkip}
             />

@@ -75,7 +75,9 @@ export default () => {
     if (devMode) {
       if (devConnect && devAccount) {
         setAddress(
-          devAccount.addr.substring(0, 4) + '...' + devAccount.addr.slice(-4)
+          devAccount.addr.toString().substring(0, 4) +
+            '...' +
+            devAccount.addr.toString().slice(-4)
         );
       } else {
         setAddress('');

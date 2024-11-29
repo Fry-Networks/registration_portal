@@ -14,19 +14,22 @@ import { useEffect, useState } from 'react';
 import algosdk from 'algosdk';
 import { RiCloseLine } from '@remixicon/react';
 import { useWallet } from '@txnlab/use-wallet';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon } from '@heroicons/react/outline';
+
 import { useModal } from '../../app/modalcontext';
 import { getFRYPrice } from '../../lib/price';
 import { useRouter } from 'next/router';
 
-const algodClient = new algosdk.Algodv2(
-  '',
-  'https://mainnet-api.algonode.cloud',
-  ''
-);
 const STAKE_ADDRESS =
   'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 const FRYIndex = 924268058;
+
+// Algorand client setup
+const token = '';
+const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
+const tokenToSend = { 'X-API-Key': token };
+const port = '';
+const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 export default function StakeVerification({
   modalName,
@@ -34,7 +37,7 @@ export default function StakeVerification({
   byod
 }: {
   modalName: string;
-  miner?: string;
+  miner: string;
   byod: boolean;
 }) {
   const router = useRouter();
@@ -48,7 +51,9 @@ export default function StakeVerification({
     stake_two: number;
   }>({ stake_one: 0, stake_two: 0 });
 
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+  const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   useEffect(() => {
     const fetchMinerTypes = async () => {
@@ -130,17 +135,46 @@ export default function StakeVerification({
     try {
       const FRYPrice = await getFRYPrice();
 
-      if (!FRYPrice || !miner || !activeAddress) {
-        setUpdateSuccess('error');
-        setIsLoading(false);
-        return;
+      // if (!FRYPrice || !miner || !activeAddress) {
+      // if (!miner || !activeAddress) {
+      //   setUpdateSuccess('error');
+      //   setIsLoading(false);
+      //   return;
+      // }
+
+      const account = algosdk.mnemonicToSecretKey(
+        process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
+      );
+
+      const from = account.addr.toString();
+
+      let txId: any;
+      const amountToStake = FRYamount[`stake_${type}`];
+      if (testMode) {
+        const resp = await fetch('/api/stake-stake', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from,
+            to: STAKE_ADDRESS,
+            amount: amountToStake
+          })
+        });
+
+        const data = await resp.json();
+        console.log('[KING]', data);
+        txId = data.txId;
+      } else {
+        txId = await sendTransaction(
+          activeAddress!,
+          STAKE_ADDRESS,
+          amountToStake
+        );
       }
 
-      const amountToStake = FRYamount[`stake_${type}`];
-      const txId = testMode
-        ? 'success'
-        : await sendTransaction(activeAddress, STAKE_ADDRESS, amountToStake);
-
+      console.log('[KING]Transaction ID', txId);
       if (txId) {
         setUpdateSuccess(
           'Successfully sent transaction. Your miner will be verified soon.'
@@ -152,9 +186,15 @@ export default function StakeVerification({
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ txId, address: activeAddress, miner, type })
+          body: JSON.stringify({
+            txId,
+            address: testMode ? from : activeAddress,
+            miner,
+            type
+          })
         });
 
+        console.log('[KING]', response);
         if (response.ok) {
           setUpdateSuccess('Your miner has been verified.');
           setPaid(true);
@@ -231,7 +271,8 @@ export default function StakeVerification({
                 e.preventDefault();
                 await handleStake('one');
               }}
-              disabled={isLoading || paid || FRYamount.stake_one === 0}
+              disabled={isLoading || paid}
+              // disabled={isLoading || paid || FRYamount.stake_one === 0}
             >
               {isLoading
                 ? 'Processing...'
@@ -245,7 +286,8 @@ export default function StakeVerification({
                 e.preventDefault();
                 await handleStake('two');
               }}
-              disabled={isLoading || paid || FRYamount.stake_two === 0}
+              disabled={isLoading || paid}
+              // disabled={isLoading || paid || FRYamount.stake_two === 0}
             >
               {isLoading
                 ? 'Processing...'

@@ -1,19 +1,22 @@
 import { Flex, Title } from '@tremor/react';
 import { Device } from '../lib/types';
+import { Product } from '../pages/api/verify-stake';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
 
 export default function ListItem({
   device,
-  type,
+  product,
   handleDelete,
-  handleChange
+  handleChange,
+  handleStakeWithdraw
 }: {
   device: Device;
-  type: number;
+  product: Product;
   handleDelete: (miner_key: string) => Promise<void>;
   handleChange: (miner_key: string) => Promise<void>;
+  handleStakeWithdraw: (miner_key: string, isStaked: boolean) => Promise<void>;
 }) {
   const isDeviceStatusOkay = (device: Device) => {
     return (
@@ -24,11 +27,23 @@ export default function ListItem({
     );
   };
 
+  const isStaked = () => {
+    if (!device) {
+      return false;
+    }
+
+    if (!device.verified) {
+      return false;
+    }
+
+    return true;
+  };
+
   return (
     <>
       {
         <div
-          className={`w-full border-2 rounded-lg p-4 text-gray-400 shadow-lg ${isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
+          className={`w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
             <Title className="text-white font-bold text-2xl mb-2">
@@ -70,6 +85,13 @@ export default function ListItem({
               ? device.miner_key
               : 'None'}
           </p>
+          <button
+            type="button"
+            className={`right-0 flex items-center justify-self-end ${isDeviceStatusOkay(device) ? ` border-green-600` : `border-red-600`} px-4 py-2 border mt-2 rounded-md text-white font-medium transition duration-300 'cursor-default'`}
+            onClick={() => handleStakeWithdraw(device.miner_key, isStaked())}
+          >
+            {isStaked() ? 'Withdraw' : 'Stake'}
+          </button>
         </div>
       }
     </>

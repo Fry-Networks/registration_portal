@@ -10,7 +10,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/router';
 
 import bgImg from '../assets/background.png';
-import MessageUpdate from '../components/MessageUpdate';
+import MessageUpdate from '../components/messageUpdate';
 import { useEffect, useState } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
@@ -54,7 +54,9 @@ export default function Convert({ products }: { products: Product[] }) {
   }, [products]);
 
   const handleConvert = async () => {
-    const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+    const testMode =
+      process.env.NEXT_PUBLIC_TEST_MODE &&
+      process.env.NEXT_PUBLIC_TEST_MODE === 'true';
     const address = testMode ? devAccount?.addr : session?.user.address;
 
     console.log(

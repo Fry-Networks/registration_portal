@@ -10,7 +10,7 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../app/modalcontext';
-import MessageUpdate from '../MessageUpdate';
+import MessageUpdate from '../messageUpdate';
 
 interface ByodConvertModalProps {
   modalName: string;

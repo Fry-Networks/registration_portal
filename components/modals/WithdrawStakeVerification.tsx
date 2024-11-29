@@ -1,21 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogPanel, Button, Callout } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet';
 import { useRouter } from 'next/router';
-import algosdk from 'algosdk';
-
-const algodClient = new algosdk.Algodv2(
-  '',
-  'https://mainnet-api.algonode.cloud',
-  ''
-);
-
-const STAKE_ADDRESS =
-  'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
-const FRYIndex = 924268058;
 
 interface WithdrawStakeProps {
   modalName: string;
@@ -41,8 +30,6 @@ export default function WithdrawStakeVerification({
     available: false,
     availableIn: 0
   });
-
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
 
   // Fetch availability for withdrawal
   useEffect(() => {

@@ -4,11 +4,15 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
 import clientPromise from '../../../lib/mongoclient';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const testMode = process.env.TEST_MODE && process.env.TEST_MODE === 'true';
+  console.log('[FRY]', req.body);
+  const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated

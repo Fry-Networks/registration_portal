@@ -4,7 +4,7 @@ import Sidebar from './Sidebar'; // Ensure this component is properly imported
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from './MessageUpdate';
+import MessageUpdate from './messageUpdate';
 
 const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
   const router = useRouter();

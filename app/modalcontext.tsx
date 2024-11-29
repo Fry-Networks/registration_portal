@@ -19,7 +19,8 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     registration: false,
     byodConvert: false,
     changeName: false,
-    addDevice: false
+    addDevice: false,
+    stake_withdraw: false
     // Add other modals here as needed
   });
 
