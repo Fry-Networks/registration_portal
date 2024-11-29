@@ -43,11 +43,13 @@ export const hasOptedInForAsset = async (
 };
 
 export default async (address: string, note: Uint8Array) => {
+  console.log('[KING', address, note);
   const lastTxns = await indexer
     .lookupAccountTransactions(address)
     .limit(30)
     .do();
 
+  console.log('[KING]', lastTxns);
   const fiveSecAgo = new Date(Date.now() - 5 * 1000);
   let transaction: Transaction;
   for (transaction of lastTxns.transactions) {

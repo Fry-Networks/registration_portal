@@ -5,18 +5,6 @@ import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet';
 import { useRouter } from 'next/router';
-import algosdk from 'algosdk';
-
-// Algorand client setup
-const token = '';
-const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
-const tokenToSend = { 'X-API-Key': token };
-const port = '';
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
-
-const STAKE_ADDRESS =
-  'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
-const FRYIndex = 924268058;
 
 interface WithdrawStakeProps {
   modalName: string;

@@ -142,21 +142,39 @@ export default function StakeVerification({
       //   return;
       // }
 
-      const amountToStake = FRYamount[`stake_${type}`];
-      const txId = testMode
-        ? await fetch('/api/stake-transaction', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              from: activeAddress!,
-              to: STAKE_ADDRESS,
-              amount: amountToStake
-            })
-          })
-        : await sendTransaction(activeAddress!, STAKE_ADDRESS, amountToStake);
+      const account = algosdk.mnemonicToSecretKey(
+        process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
+      );
 
+      const from = account.addr.toString();
+
+      let txId: any;
+      const amountToStake = FRYamount[`stake_${type}`];
+      if (testMode) {
+        const resp = await fetch('/api/stake-stake', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            from,
+            to: STAKE_ADDRESS,
+            amount: amountToStake
+          })
+        });
+
+        const data = await resp.json();
+        console.log('[KING]', data);
+        txId = data.txId;
+      } else {
+        txId = await sendTransaction(
+          activeAddress!,
+          STAKE_ADDRESS,
+          amountToStake
+        );
+      }
+
+      console.log('[KING]Transaction ID', txId);
       if (txId) {
         setUpdateSuccess(
           'Successfully sent transaction. Your miner will be verified soon.'
@@ -168,9 +186,15 @@ export default function StakeVerification({
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ txId, address: activeAddress, miner, type })
+          body: JSON.stringify({
+            txId,
+            address: testMode ? from : activeAddress,
+            miner,
+            type
+          })
         });
 
+        console.log('[KING]', response);
         if (response.ok) {
           setUpdateSuccess('Your miner has been verified.');
           setPaid(true);

@@ -1,8 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import algosdk, { Account, waitForConfirmation } from 'algosdk';
+import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
-import txnValidate, { hasOptedInForAsset, optInForAsset } from '../../lib/txnValidate';
+import txnValidate, {
+  hasOptedInForAsset,
+  optInForAsset
+} from '../../lib/txnValidate';
 
 // Algorand client setup
 const token = '';
@@ -19,14 +22,11 @@ export default async function handler(
   // Check if user is authenticated
   if (!session || !session.user) {
     console.log(`no session`);
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json({ message: 'Unauthorized' });
     return;
   }
 
-  const data: {
-    to: string;
-    amount: number;
-  } = req.body;
+  const data: { to: string; amount: number } = req.body;
   const { to, amount } = data;
 
   try {
@@ -36,7 +36,6 @@ export default async function handler(
     );
 
     const from = account.addr.toString();
-
     const assetIndex: number = Number(process.env.NEXT_PUBLIC_ASSET_INDEX) || 0;
 
     // Fetch transaction parameters from the Algorand network
@@ -67,19 +66,15 @@ export default async function handler(
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    const result = await waitForConfirmation(algodClient, tx.txid, 3);
 
-    console.log('Transaction ID: ' + tx);
-    if ((await txnValidate(from, note)) === false) {
-      return null;
-    }
+    console.log('Transaction ID:', tx.txId);
+    // if ((await txnValidate(from, note)) === false) {
+    //   return res.status(500).json({ txId: null });
+    // }
 
-    return tx.txid;
+    return res.status(200).json({ txId: tx.txId });
   } catch (error) {
-    console.error(
-      'An error occurred, please check your network/mnemonic/asset index'
-    );
     console.error(error);
-    return null;
+    return res.status(500).json({ txId: null });
   }
 }

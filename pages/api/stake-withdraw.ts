@@ -49,6 +49,7 @@ export default async function handler(
     res.status(401).json({ message: 'Unauthorized 2' });
     return;
   }
+
   try {
     const client = await clientPromise;
     const db = client.db('main');
@@ -94,14 +95,6 @@ export default async function handler(
       }
 
       console.log(result);
-    } else {
-      result = await withdrawTestMode(address, amount);
-      if (!result) {
-        res.status(500).json({ message: 'error' });
-        return;
-      }
-
-      console.log(result);
     }
 
     await collection.updateOne(
@@ -127,41 +120,9 @@ export default async function handler(
 }
 
 async function withdraw(address: string, amount: number) {
-  const mnemonic = process.env.STAKE_MNEMONIC;
-  if (!mnemonic) {
-    throw new Error('No STAKE_MNEMONIC in env');
-  }
-
-  const account = algosdk.mnemonicToSecretKey(mnemonic);
-  const params = await algodClient.getTransactionParams().do();
-  const FRYIndex = 924268058;
-
-  const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject(
-    {
-      from: account.addr,
-      to: address,
-      amount: amount * 1_000_000,
-      note: new Uint8Array(
-        Buffer.from('Stake withdraw' + Math.floor(Math.random() * 1000))
-      ),
-      assetIndex: FRYIndex,
-      suggestedParams: params
-    }
-  );
-  const signedTxn = transaction.signTxn(account.sk);
-  const { txId } = (await algodClient.sendRawTransaction(signedTxn).do()) as {
-    txId: string;
-  };
-  const result = await algosdk.waitForConfirmation(algodClient, txId, 3);
-  return result ? txId : '';
-}
-
-async function withdrawTestMode(address: string, amount: number) {
   try {
     // Convert mnemonic to secret key
-    const account = algosdk.mnemonicToSecretKey(
-      process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
-    );
+    const account = algosdk.mnemonicToSecretKey(process.env.STAKE_MNEMONIC!);
 
     const from = account.addr.toString();
 

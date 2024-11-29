@@ -17,8 +17,6 @@ import WithdrawStakeVerification from './modals/WithdrawStakeVerification';
 
 const StakeWithdrawModal = ({ modalName, status, device, product }) => {
   const { modals, openModal, closeModal } = useModal();
-  const router = useRouter();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [stakeType, setStateType] = useState('one');
   const [stakeAmount, setStakeAmount] = useState(0);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
@@ -59,11 +57,8 @@ const StakeWithdrawModal = ({ modalName, status, device, product }) => {
       openModal('stakeVerification');
     }
 
+    closeModal(modalName);
     setIsProcessing(false);
-  };
-
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
   };
 
   return (
@@ -86,109 +81,60 @@ const StakeWithdrawModal = ({ modalName, status, device, product }) => {
             </button>
           </div>
           <Title className="mb-5">{status ? 'Withdraw' : 'Stake'}</Title>
-          {status ? (
-            <Flex
-              flexDirection="col"
-              justifyContent="start"
-              className="gap-3 w-full mt-5"
-            >
-              <div className="flex items-center space-x-2">
-                <label className="flex-row items-center space-x-2">
-                  <input
-                    type="radio"
-                    name="stakeOption"
-                    value="one"
-                    checked={stakeType === 'one'}
-                    onClick={() => setStateType('one')}
-                    className="form-radio border border-red-600 text-blue-600"
-                  />
-                  <span>24-Hour Staking</span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    name="stakeOption"
-                    value="two"
-                    checked={stakeType === 'two'}
-                    onClick={() => setStateType('two')}
-                    className="form-radio border border-red-600 text-blue-600"
-                  />
-                  <span>6-months Staking</span>
-                </label>
-              </div>
-              {errors.stakeType && (
-                <span className="text-red-500 text-sm">{errors.stakeType}</span>
-              )}
 
-              <div>
-                <label className="block mb-2">Amount to Stake:</label>
-                <input
-                  type="number"
-                  min="0"
-                  className="w-full p-2 border border-red-600 rounded"
-                  defaultValue={0}
-                  disabled={true}
-                />
-              </div>
-              {errors.amount && (
-                <span className="text-red-500 text-sm">{errors.amount}</span>
-              )}
-            </Flex>
-          ) : (
-            <Flex
-              flexDirection="col"
-              alignItems="stretch"
-              justifyContent="center"
-              className="gap-3 w-full mt-5"
-            >
-              <div className="flex gap-2">
-                <p>BYOD:</p>
-                <p>{device?.byod ? 'Yes' : 'No'}</p>
-              </div>
+          <Flex
+            flexDirection="col"
+            alignItems="stretch"
+            justifyContent="center"
+            className="gap-3 w-full mt-5"
+          >
+            <div className="flex gap-2">
+              <p>BYOD:</p>
+              <p>{device?.byod ? 'Yes' : 'No'}</p>
+            </div>
 
-              <div className="flex items-center space-x-2">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    name="stakeOption"
-                    value="one"
-                    checked={stakeType === 'one'}
-                    onClick={() => setStateType('one')}
-                    className="form-radio border border-red-600 text-red-600"
-                  />
-                  <span>24-Hour Staking</span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    name="stakeOption"
-                    value="two"
-                    checked={stakeType === 'two'}
-                    onClick={() => setStateType('two')}
-                    className="form-radio border border-red-600 text-red-600"
-                  />
-                  <span>6-months Staking</span>
-                </label>
-              </div>
-              <div className="flex items-center space-x-4">
-                <label
-                  htmlFor="stakeAmount"
-                  className="text-sm font-medium text-gray-700"
-                >
-                  Amount to Stake:
-                </label>
+            <div className="flex items-center space-x-2 gap-16">
+              <label className="flex items-center space-x-2">
                 <input
-                  id="stakeAmount"
-                  type="number"
-                  min="0"
-                  className="p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50"
-                  defaultValue={0}
-                  disabled={true}
-                  value={stakeAmount}
+                  type="radio"
+                  name="stakeOption"
+                  value="one"
+                  checked={stakeType === 'one'}
+                  onClick={() => setStateType('one')}
+                  className="form-radio border border-red-600 text-red-600"
                 />
-              </div>
-            </Flex>
-          )}
+                <span>24-Hour Staking</span>
+              </label>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  name="stakeOption"
+                  value="two"
+                  checked={stakeType === 'two'}
+                  onClick={() => setStateType('two')}
+                  className="form-radio border border-red-600 text-red-600"
+                />
+                <span>6-months Staking</span>
+              </label>
+            </div>
+            <div className="flex items-center w-full space-x-2">
+              <label
+                htmlFor="stakeAmount"
+                className="text-sm font-medium text-gray-700 text-nowrap"
+              >
+                Amount to Stake:
+              </label>
+              <input
+                id="stakeAmount"
+                type="number"
+                min="0"
+                className="p-2 w-full border ml-2 text-black border-gray-500 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50"
+                defaultValue={0}
+                disabled={true}
+                value={stakeAmount}
+              />
+            </div>
+          </Flex>
           <Flex
             flexDirection="row"
             justifyContent="center"
@@ -201,7 +147,7 @@ const StakeWithdrawModal = ({ modalName, status, device, product }) => {
               Skip
             </Button>
             <Button
-              className={`relative flex items-center justify-center border-red-600 px-4 py-2 border rounded-md text-white font-medium transition duration-300 ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
+              className={`bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
               onClick={handleSubmit}
             >
               {isProcessing ? (
@@ -247,12 +193,12 @@ const StakeWithdrawModal = ({ modalName, status, device, product }) => {
       </Dialog>
       <StakeVerification
         modalName="stakeVerification"
-        miner={`${device.miner_key}`}
+        miner={`${device?.miner_key}`}
         byod={device?.byod ? true : false}
       />
       <WithdrawStakeVerification
         modalName="withdraw_stakeVerification"
-        miner={`${device.miner_key}`}
+        miner={`${device?.miner_key}`}
         staked={stakeAmount}
       />
     </div>

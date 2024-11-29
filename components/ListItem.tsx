@@ -4,22 +4,20 @@ import { Product } from '../pages/api/verify-stake';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
-import { useModal } from '../app/modalcontext';
-import StakeWithdrawModal from './StakeWithdraw';
 
 export default function ListItem({
   device,
   product,
   handleDelete,
-  handleChange
+  handleChange,
+  handleStakeWithdraw
 }: {
   device: Device;
   product: Product;
   handleDelete: (miner_key: string) => Promise<void>;
   handleChange: (miner_key: string) => Promise<void>;
+  handleStakeWithdraw: (miner_key: string, isStaked: boolean) => Promise<void>;
 }) {
-  const { openModal } = useModal();
-
   const isDeviceStatusOkay = (device: Device) => {
     return (
       device.verified &&
@@ -39,10 +37,6 @@ export default function ListItem({
     }
 
     return true;
-  };
-
-  const handleStake = () => {
-    openModal('stake_withdraw');
   };
 
   return (
@@ -93,17 +87,11 @@ export default function ListItem({
           </p>
           <button
             type="button"
-            className={`right-0 flex items-center justify-self-end border-red-600 px-4 py-2 border mt-2 rounded-md text-white font-medium transition duration-300 'cursor-default'`}
-            onClick={handleStake}
+            className={`right-0 flex items-center justify-self-end ${isDeviceStatusOkay(device) ? ` border-green-600` : `border-red-600`} px-4 py-2 border mt-2 rounded-md text-white font-medium transition duration-300 'cursor-default'`}
+            onClick={() => handleStakeWithdraw(device.miner_key, isStaked())}
           >
             {isStaked() ? 'Withdraw' : 'Stake'}
           </button>
-          <StakeWithdrawModal
-            modalName="stake_withdraw"
-            status={isStaked()}
-            device={{ staked: false }}
-            product={product}
-          />
         </div>
       }
     </>

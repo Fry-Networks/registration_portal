@@ -18,8 +18,15 @@ import Link from 'next/link';
 import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
 import AddDeviceModal from '../components/modals/AddDevice';
+import StakeWithdrawModal from '../components/StakeWithdraw';
 
-const DevicesPage = ({ devices = [], products = [] }: { devices: Device[], products: Product[] }) => {
+const DevicesPage = ({
+  devices = [],
+  products = []
+}: {
+  devices: Device[];
+  products: Product[];
+}) => {
   const router = useRouter();
   const { openModal } = useModal();
 
@@ -27,6 +34,11 @@ const DevicesPage = ({ devices = [], products = [] }: { devices: Device[], produ
     status: 'success',
     message: ''
   });
+
+  const [modalDevice, setModalDevice] = useState<Device>();
+  const [modalProduct, setModalProduct] = useState<Product>();
+
+  const [status, setStatus] = useState(false);
 
   const handleAdd = () => {
     console.log('Add devices');
@@ -116,6 +128,26 @@ const DevicesPage = ({ devices = [], products = [] }: { devices: Device[], produ
     }
   };
 
+  const handleStakeWithdraw = async (
+    miner_key: string,
+    isStaked: boolean
+  ): Promise<void> => {
+    setModalDevice(
+      devices.find((device) => {
+        return device.miner_key === miner_key;
+      })
+    );
+    const key = miner_key.split('-')[0];
+    setModalProduct(
+      products.find((product) => {
+        return product.key === key;
+      })
+    );
+
+    setStatus(isStaked);
+    openModal('stake_withdraw');
+  };
+
   return (
     <div className="w-full">
       <div className="relative flex">
@@ -182,8 +214,15 @@ const DevicesPage = ({ devices = [], products = [] }: { devices: Device[], produ
         products={products}
         handleDelete={handleDelete}
         handleChange={handleChange}
+        handleStakeWithdraw={handleStakeWithdraw}
       />
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
+      <StakeWithdrawModal
+        modalName="stake_withdraw"
+        status={status}
+        device={modalDevice}
+        product={modalProduct}
+      />
     </div>
   );
 };
@@ -215,7 +254,7 @@ export async function getServerSideProps(context: any) {
       .find({ address: session.user.address, is_registered: true })
       .toArray();
 
-      const products = await db.collection('products').find({}).toArray();
+    const products = await db.collection('products').find({}).toArray();
 
     console.log(devices);
     if (!devices && !products) {
@@ -267,9 +306,9 @@ export async function getServerSideProps(context: any) {
               })
             )
           ),
-          products:[]
+          products: []
         }
-      }
+      };
     } else {
       return {
         props: {
