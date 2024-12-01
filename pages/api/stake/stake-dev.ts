@@ -1,18 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]';
-import txnValidate, {
-  hasOptedInForAsset,
-  optInForAsset
-} from '../../lib/txnValidate';
+import { authOptions } from '../auth/[...nextauth]';
 
 // Algorand client setup
 const token = '';
-const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
+const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
 const port = 443;
 const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 export default async function handler(
   req: NextApiRequest,
@@ -26,8 +26,15 @@ export default async function handler(
     return;
   }
 
-  const data: { to: string; amount: number } = req.body;
-  const { to, amount } = data;
+  const data: {
+    miner_key: string;
+    asset_id: string;
+    type: string;
+    from: string;
+    to: string;
+    amount: number;
+  } = req.body;
+  const { miner_key, asset_id, type, from, to, amount } = data;
 
   try {
     // Convert mnemonic to secret key
@@ -36,26 +43,31 @@ export default async function handler(
     );
 
     const from = account.addr.toString();
-    const assetIndex: number = Number(process.env.NEXT_PUBLIC_ASSET_INDEX) || 0;
+    const assetIndex: number = Number(asset_id);
 
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();
 
-    const note = new Uint8Array(
-      Buffer.from('Verification stake' + Math.floor(Math.random() * 1000))
-    );
+    const noteInfo = {
+      miner_key:
+        miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
+      asset_id: asset_id,
+      type: type,
+      from: from,
+      to: to,
+      amount: amount,
+      date: new Date(Date.now())
+    };
 
-    if (
-      (await hasOptedInForAsset(account.addr.toString(), assetIndex)) === false
-    ) {
-      await optInForAsset(account, account.addr.toString(), assetIndex);
-    }
+    console.log(noteInfo);
+    const enc = new TextEncoder();
+    const note = enc.encode(JSON.stringify(noteInfo));
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
       from,
       to,
-      amount: amount * 1_000_000,
+      amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
       suggestedParams
@@ -68,10 +80,6 @@ export default async function handler(
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
 
     console.log('Transaction ID:', tx.txId);
-    // if ((await txnValidate(from, note)) === false) {
-    //   return res.status(500).json({ txId: null });
-    // }
-
     return res.status(200).json({ txId: tx.txId });
   } catch (error) {
     console.error(error);

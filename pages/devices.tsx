@@ -9,22 +9,40 @@ import { Button, Flex, Title } from '@tremor/react';
 import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Device } from '../lib/types';
-import { Product } from './api/verify-stake';
+import { Product } from './api/stake/verify-stake';
 import CopyAddress from '../components/CopyAddress';
-import OnboardDeviceList from '../components/OnboardDeviceList';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import Link from 'next/link';
-import MessageUpdate from '../components/messageUpdate';
+import MessageUpdate from '../components/MessageUpdate';
 import { useModal } from '../app/modalcontext';
 import AddDeviceModal from '../components/modals/AddDevice';
-import StakeWithdrawModal from '../components/StakeWithdraw';
+import StakeWithdrawModal from '../components/modals/Stake';
+import ListItem from '../components/ListItem';
+import StakeModal from '../components/modals/Stake';
+import WithdrawModal from '../components/modals/Withdraw';
+
+export function isProductStakeAvailable(product: Product) {
+  let result = false;
+  if (product.reward.tokens && product.reward.tokens.stake !== 'none') {
+    result = true;
+  }
+
+  console.log(result);
+  return result;
+}
+
+export function findProductByMinerKey(miner_key: string, products: Product[]) {
+  const miner_type = miner_key.split('-')[0];
+
+  return products.find((product) => product.key === miner_type);
+}
 
 const DevicesPage = ({
-  devices = [],
+  initialDevices = [],
   products = []
 }: {
-  devices: Device[];
+  initialDevices: Device[];
   products: Product[];
 }) => {
   const router = useRouter();
@@ -35,10 +53,10 @@ const DevicesPage = ({
     message: ''
   });
 
-  const [modalDevice, setModalDevice] = useState<Device>();
-  const [modalProduct, setModalProduct] = useState<Product>();
-
-  const [status, setStatus] = useState(false);
+  const [devices, setDevices] = useState<Device[]>(initialDevices);
+  const [selectedDevice, setSelectedDevice] = useState<Device>(
+    initialDevices[0]
+  );
 
   const handleAdd = () => {
     console.log('Add devices');
@@ -79,19 +97,23 @@ const DevicesPage = ({
         if (data.result === 'ok') {
           setUpdateSuccess({ status: 'success', message: data.message });
           setTimeout(() => {
-            router.reload();
-          }, 15_000);
+            setUpdateSuccess({ status: 'success', message: '' });
+          }, 5_000);
+
+          setDevices((prevDevices) =>
+            prevDevices.filter((device) => device.miner_key !== miner_key)
+          );
         } else {
           setUpdateSuccess({ status: 'error', message: data.message });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 15_000);
+          }, 5_000);
         }
       } else {
         setUpdateSuccess({ status: 'error', message: data.message });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 15_000);
+        }, 5_000);
       }
     } catch (error) {
       console.error('Error deleting device:', error);
@@ -101,7 +123,7 @@ const DevicesPage = ({
       });
       setTimeout(() => {
         setUpdateSuccess({ status: 'error', message: '' });
-      }, 15_000);
+      }, 5_000);
     }
   };
 
@@ -128,24 +150,65 @@ const DevicesPage = ({
     }
   };
 
-  const handleStakeWithdraw = async (
-    miner_key: string,
-    isStaked: boolean
-  ): Promise<void> => {
-    setModalDevice(
-      devices.find((device) => {
-        return device.miner_key === miner_key;
-      })
-    );
-    const key = miner_key.split('-')[0];
-    setModalProduct(
-      products.find((product) => {
-        return product.key === key;
-      })
-    );
+  const handleWithdrawStake = (device: Device): void => {
+    console.log(device.verified);
+    setSelectedDevice(device);
 
-    setStatus(isStaked);
-    openModal('stake_withdraw');
+    if (!device.verified) {
+      openModal('stake');
+    } else {
+      openModal('withdraw');
+    }
+  };
+
+  const handleStakingUpdate = (device: Device): void => {
+    console.log('Staked device update');
+    const updateDevices = devices.map((element) => {
+      if (element.miner_key !== device.miner_key) {
+        return element;
+      } else {
+        return {
+          ...element,
+          verified: true
+        };
+      }
+    }) as Device[];
+
+    setUpdateSuccess({
+      status: 'success',
+      message: `Miner ${device.miner_key} verified successfully`
+    });
+
+    setTimeout(() => {
+      setUpdateSuccess({ status: 'success', message: '' });
+    }, 5_000);
+
+    setDevices(updateDevices);
+  };
+
+  const handleWithdrawUpdate = (device: Device): void => {
+    console.log('Withdraw device update');
+    const updateDevices = devices.map((element) => {
+      if (element.miner_key !== device.miner_key) {
+        return element;
+      } else {
+        return {
+          ...element,
+          verified: false
+        };
+      }
+    }) as Device[];
+
+    setUpdateSuccess({
+      status: 'success',
+      message: `Miner ${device.miner_key} unverified successfully`
+    });
+
+    setTimeout(() => {
+      setUpdateSuccess({ status: 'success', message: '' });
+    }, 5_000);
+
+    setDevices(updateDevices);
   };
 
   return (
@@ -172,12 +235,38 @@ const DevicesPage = ({
         className="flex-wrap px-20 mt-10"
       >
         <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] ">
-          <Title className="text-white">Your Miners</Title>
-          <p>{devices.length}</p>
+          <Title className="text-white">Unable Verify Miners</Title>
+          <p>
+            {
+              devices.filter((device) => {
+                const product = findProductByMinerKey(
+                  device.miner_key,
+                  products
+                );
+                if (
+                  (!product || isProductStakeAvailable(product) === false) &&
+                  !device.verified
+                ) {
+                  return true;
+                }
+                return false;
+              }).length
+            }
+          </p>
         </div>
         <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px] ">
           <Title className="text-white">Unverified Miners</Title>
-          <p>{devices.length}</p>
+          <p>
+            {
+              devices.filter(
+                (device) =>
+                  !device.verified &&
+                  isProductStakeAvailable(
+                    findProductByMinerKey(device.miner_key, products)!
+                  )
+              ).length
+            }
+          </p>
         </div>
         <div className="rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] ">
           <Title className="text-white">Verified Miners</Title>
@@ -205,23 +294,41 @@ const DevicesPage = ({
           </Button>
         </Flex>
       </div>
-
       <div className="px-2 sm:px-20">
         <MessageUpdate updateSuccess={updateSuccess} />
       </div>
-      <OnboardDeviceList
-        devices={devices}
-        products={products}
-        handleDelete={handleDelete}
-        handleChange={handleChange}
-        handleStakeWithdraw={handleStakeWithdraw}
-      />
+      <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
+        {devices.length > 0 ? (
+          devices.map((device, index) => {
+            const product = findProductByMinerKey(device.miner_key, products);
+            return (
+              <ListItem
+                key={`list item ${index}`}
+                initialDevice={device}
+                product={product!}
+                stakeable={isProductStakeAvailable(product!)}
+                handleDelete={handleDelete}
+                handleChange={handleChange}
+                handleWithdrawStake={handleWithdrawStake}
+              />
+            );
+          })
+        ) : (
+          <Title className="text-gray-700">No devices onboarded</Title>
+        )}
+      </Flex>
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
-      <StakeWithdrawModal
-        modalName="stake_withdraw"
-        status={status}
-        device={modalDevice}
-        product={modalProduct}
+      <StakeModal
+        modalName={'stake'}
+        device={selectedDevice}
+        product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+        handleStakingUpdate={handleStakingUpdate}
+      />
+      <WithdrawModal
+        modalName={'withdraw'}
+        device={selectedDevice}
+        product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+        handleWithdrawUpdate={handleWithdrawUpdate}
       />
     </div>
   );
@@ -267,7 +374,7 @@ export async function getServerSideProps(context: any) {
     } else if (!devices && products) {
       return {
         props: {
-          devices: [],
+          initialDevices: [],
           products: JSON.parse(
             JSON.stringify(
               products.map((product) => {
@@ -284,7 +391,7 @@ export async function getServerSideProps(context: any) {
     } else if (devices && !products) {
       return {
         props: {
-          devices: JSON.parse(
+          initialDevices: JSON.parse(
             JSON.stringify(
               devices.map((device) => {
                 return {
@@ -312,7 +419,7 @@ export async function getServerSideProps(context: any) {
     } else {
       return {
         props: {
-          devices: JSON.parse(
+          initialDevices: JSON.parse(
             JSON.stringify(
               devices.map((device) => {
                 return {

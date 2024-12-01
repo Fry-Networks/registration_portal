@@ -3,13 +3,13 @@ import { useRouter } from 'next/router';
 import Sidebar from '../components/Sidebar';
 import DeviceInfo from '../components/DeviceInfo';
 import MapInfo from '../components/MapInfo';
-import Stake from '../components/StakeWithdraw';
+import Stake from '../components/modals/Stake';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import WalletInfo from '../components/WalletInfo';
 import { Device } from '../lib/types';
 import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Product } from './api/verify-stake';
+import { Product } from './api/stake/verify-stake';
 
 export default ({ products }: { products: Product[] }) => {
   const router = useRouter();
@@ -165,8 +165,7 @@ export default ({ products }: { products: Product[] }) => {
   const sections = [
     { id: 0, title: 'Device Information' },
     { id: 1, title: 'Wallet Information' },
-    { id: 2, title: 'Map Information' },
-    { id: 3, title: 'Stake' }
+    { id: 2, title: 'Map Information' }
   ];
 
   const handleNext = () => {
@@ -179,9 +178,6 @@ export default ({ products }: { products: Product[] }) => {
         break;
       case 2:
         setLocationStatus(true);
-        break;
-      case 3:
-        setStakeStatus(true);
         break;
       default:
         break;
@@ -211,9 +207,9 @@ export default ({ products }: { products: Product[] }) => {
         completionStatus={{
           device: deviceStatus,
           wallet: walletStatus,
-          map: locationStatus,
-          stake: stakeStatus
+          map: locationStatus
         }}
+        isClickable={false}
         isOpen={isSidebarOpen}
         toggleSidebar={toggleSidebar}
         setCurrentSection={setCurrentSection} // Added to handle sidebar navigation

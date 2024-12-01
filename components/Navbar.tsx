@@ -190,8 +190,9 @@ export default () => {
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
-            {providers?.map((provider) => (
+            {providers?.map((provider, index) => (
               <div
+                key={`provider ${index}`}
                 className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
                 onClick={() => provider.connect()}
               >

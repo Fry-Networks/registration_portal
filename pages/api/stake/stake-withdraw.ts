@@ -2,32 +2,32 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]';
-import algosdk, { waitForConfirmation } from 'algosdk';
+import { authOptions } from '../auth/[...nextauth]';
+import algosdk, { Indexer, waitForConfirmation } from 'algosdk';
 import 'dotenv/config';
-import clientPromise from '../../lib/mongoclient';
-import { getFRYPrice } from '../../lib/price';
-import { Device } from '../../lib/types';
-import txnValidate, {
-  hasOptedInForAsset,
-  optInForAsset
-} from '../../lib/txnValidate';
+import clientPromise from '../../../lib/mongoclient';
+import { getFRYPrice } from '../../../lib/price';
+import { Device } from '../../../lib/types';
+import { Transaction, wait } from './verify-stake';
 
 // Algorand client setup
 const token = '';
-const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
+const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
-const port = '';
+const port = 443;
 const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+const indexServer = 'https://mainnet-idx.algonode.cloud/';
+const indexer = new Indexer(tokenToSend, indexServer, port);
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
@@ -42,6 +42,7 @@ export default async function handler(
   } = req.body;
 
   const { address, miner_key } = data;
+  console.log(address, miner_key, session.user.address);
   if (session.user.address !== address || !address) {
     console.log(
       `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
@@ -68,13 +69,14 @@ export default async function handler(
     }
     const type = device.staked.type;
     const check =
-      type == 'one'
+      device.staked.withdraw_boost ??
+      (type == 'one'
         ? (Date.now() - new Date(device.staked.time).getTime()) /
             (1000 * 60 * 60 * 24) >
           1
         : (Date.now() - new Date(device.staked.time).getTime()) /
             (1000 * 60 * 60 * 24) >
-          180;
+          180);
     if (!check) {
       res.status(401).json({ message: 'Unauthorized 4' });
       return;
@@ -87,15 +89,16 @@ export default async function handler(
 
     let result = 'success';
 
-    if (!testMode) {
-      result = await withdraw(address, amount);
-      if (!result) {
-        res.status(500).json({ message: 'error' });
-        return;
-      }
+    const asset_id = device.staked.asset_id;
+    console.log('AssetID: ' + asset_id);
 
-      console.log(result);
+    result = await withdraw(miner_key, address, amount, asset_id);
+    if (!result) {
+      res.status(500).json({ message: 'error' });
+      return;
     }
+
+    console.log(result);
 
     await collection.updateOne(
       { miner_key },
@@ -105,7 +108,8 @@ export default async function handler(
             amount: 0,
             txId: result,
             time: new Date(),
-            rewarded_time: new Date()
+            rewarded_time: new Date(),
+            withdraw_boost: false
           },
           verified: false
         }
@@ -119,33 +123,73 @@ export default async function handler(
   }
 }
 
-async function withdraw(address: string, amount: number) {
+export async function verifyTranasction(txId: string, address: string) {
+  let checking = false;
+  let checkingRetry = 0;
+  while (!checking) {
+    const lastTransactions = await indexer
+      .lookupAccountTransactions(address)
+      .limit(50)
+      .do();
+
+    if (lastTransactions !== undefined) {
+      const targetTx = lastTransactions.transactions.find(
+        (transaction: Transaction) => {
+          // console.log(transaction.id, txId);
+          return transaction.id === txId;
+        }
+      );
+
+      if (targetTx) {
+        checking = true;
+        break;
+      }
+    }
+
+    checkingRetry++;
+    if (checkingRetry >= 20) {
+      break;
+    }
+    await wait(1000);
+  }
+
+  return checking;
+}
+
+async function withdraw(
+  miner_key: string,
+  address: string,
+  amount: number,
+  asset_id: string
+) {
   try {
     // Convert mnemonic to secret key
     const account = algosdk.mnemonicToSecretKey(process.env.STAKE_MNEMONIC!);
 
     const from = account.addr.toString();
 
-    const assetIndex: number = Number(process.env.NEXT_PUBLIC_ASSET_INDEX) || 0;
+    const assetIndex: number = Number(asset_id);
 
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();
 
-    const note = new Uint8Array(
-      Buffer.from('Verification stake' + Math.floor(Math.random() * 1000))
-    );
+    const noteInformation = {
+      miner_key:
+        miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
+      asset_id: asset_id,
+      from: account.addr.toString(),
+      to: address,
+      amount: amount
+    };
 
-    if (
-      (await hasOptedInForAsset(account.addr.toString(), assetIndex)) === false
-    ) {
-      await optInForAsset(account, account.addr.toString(), assetIndex);
-    }
+    const enc = new TextEncoder();
+    const note = enc.encode(JSON.stringify(noteInformation));
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
       from,
       to: address,
-      amount: amount * 1_000_000,
+      amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
       suggestedParams
@@ -156,14 +200,12 @@ async function withdraw(address: string, amount: number) {
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    const result = await waitForConfirmation(algodClient, tx.txid, 3);
 
-    console.log('Transaction ID: ' + tx);
-    if ((await txnValidate(from, note)) === false) {
-      return null;
-    }
+    console.log(tx);
+    // const result = await waitForConfirmation(algodClient, tx.txid, 3);
 
-    return tx.txid;
+    const checking = await verifyTranasction(tx.txId, address);
+    return checking ? tx.txId : '';
   } catch (error) {
     console.error(
       'An error occurred, please check your network/mnemonic/asset index'

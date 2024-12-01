@@ -5,7 +5,7 @@ import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import algosdk, { Account, Algodv2 } from 'algosdk';
-import MessageUpdate from './messageUpdate';
+import MessageUpdate from './MessageUpdate';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -176,13 +176,13 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
             </div>
           </form>
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">
-            <button
+            {/* <button
               type="button"
               className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
               onClick={onSkip}
             >
               Skip
-            </button>
+            </button> */}
             <button
               type="button"
               className="px-4 py-2 border border-red-600 rounded  hover:bg-red-600"

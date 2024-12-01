@@ -29,7 +29,6 @@ const token = '';
 const server = process.env.NEXT_PUBLIC_ALGOD_SERVER || '';
 const tokenToSend = { 'X-API-Key': token };
 const port = '';
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 export default function StakeVerification({
   modalName,
@@ -100,6 +99,7 @@ export default function StakeVerification({
 
   const sendTransaction = async (from: string, to: string, amount: number) => {
     try {
+      const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
       const suggestedParams = await algodClient.getTransactionParams().do();
       const transaction =
         algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({

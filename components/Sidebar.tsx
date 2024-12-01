@@ -5,9 +5,9 @@ interface SidebarProps {
     device: boolean;
     wallet: boolean;
     map: boolean;
-    stake: boolean;
   };
   isOpen: boolean;
+  isClickable: boolean;
   toggleSidebar: () => void;
   setCurrentSection: (section: number) => void;
   currentSection: number; // Add currentSection prop to keep track of active section
@@ -16,6 +16,7 @@ interface SidebarProps {
 export default ({
   completionStatus,
   isOpen,
+  isClickable,
   toggleSidebar,
   setCurrentSection,
   currentSection
@@ -36,7 +37,7 @@ export default ({
       )}
       <div
         onClick={() => {
-          setCurrentSection(0);
+          isClickable && setCurrentSection(0);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 mt-16 ${currentSection === 0 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -52,7 +53,7 @@ export default ({
       </div>
       <div
         onClick={() => {
-          setCurrentSection(1);
+          isClickable && setCurrentSection(1);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 1 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -68,7 +69,7 @@ export default ({
       </div>
       <div
         onClick={() => {
-          setCurrentSection(2);
+          isClickable && setCurrentSection(2);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 2 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -81,22 +82,6 @@ export default ({
           )}
         </span>
         Map Information
-      </div>
-      <div
-        onClick={() => {
-          setCurrentSection(3);
-          toggleSidebar();
-        }}
-        className={`flex items-center cursor-pointer ${currentSection === 3 ? 'bg-gray-800 p-2 rounded' : ''}`}
-      >
-        <span className="mr-2">
-          {completionStatus.stake ? (
-            <CheckIcon className="h-5 w-5 text-green-500" /> // Display check icon if complete
-          ) : (
-            <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
-          )}
-        </span>
-        {completionStatus.stake ? 'Withdraw' : 'Stake'}
       </div>
     </div>
   );

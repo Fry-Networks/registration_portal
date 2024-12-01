@@ -14,13 +14,13 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
   const [modals, setModals] = useState<{ [key: string]: boolean }>({
     updateReward: false,
     positionVerification: false,
-    stakeVerification: false,
     withdraw_stakeVerification: false,
     registration: false,
     byodConvert: false,
     changeName: false,
     addDevice: false,
-    stake_withdraw: false
+    stake: false,
+    withdraw: false
     // Add other modals here as needed
   });
 

@@ -35,12 +35,12 @@ export default function CopyAddress({ address }) {
             width="13"
             height="16"
             stroke="var(--text-secondary)"
-            stroke-width="1.5"
+            strokeWidth="1.5"
           ></rect>
           <path
             d="M15 2H3V17"
             stroke="var(--text-secondary)"
-            stroke-width="1.5"
+            strokeWidth="1.5"
           ></path>
         </svg>
         <p>Copy</p>

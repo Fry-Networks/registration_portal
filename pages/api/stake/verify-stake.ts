@@ -1,17 +1,34 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]';
+import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
-import clientPromise from '../../lib/mongoclient';
-import { getFRYPrice } from '../../lib/price';
+import clientPromise from '../../../lib/mongoclient';
+import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
+import {
+  Algodv2,
+  Indexer,
+  makeAssetTransferTxnWithSuggestedParamsFromObject,
+  mnemonicToSecretKey,
+  Account
+} from 'algosdk';
+import { check } from 'prettier';
+
+const token = '';
+const port = 443;
+const tokenToSend = {
+  'X-API-Key': token
+};
 const algodClient = new algosdk.Algodv2(
   '',
   'https://mainnet-api.algonode.cloud',
   ''
 );
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const indexServer = 'https://mainnet-idx.algonode.cloud/';
+const indexer = new Indexer(tokenToSend, indexServer, port);
+export const wait = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(
   req: NextApiRequest,
@@ -33,8 +50,9 @@ export default async function handler(
     address: string;
     miner: string;
     type: string;
+    asset_id: string;
   } = req.body;
-  const { miner, txId, address, type } = data;
+  const { miner, txId, address, type, asset_id } = data;
   try {
     if (session.user.address !== address || !address) {
       console.log(
@@ -43,6 +61,7 @@ export default async function handler(
       res.status(401).json({ message: 'Unauthorized 2' });
       return;
     }
+    console.log('TxId: ' + txId);
     const client = await clientPromise;
     const db = client.db('main');
     const product = (await db
@@ -84,17 +103,38 @@ export default async function handler(
       return;
     }
 
-    if (!testMode) {
-      let price = FRYamount * 1_000_000;
-      const result = await confirmTransaction(txId, price);
-      console.log(result);
-      if (result.code !== 0) {
-        console.log(
-          `Transaction verification failed: ${result} for txId: ${txId} and miner: ${miner}`
+    let checking = false;
+    let checkingRetry = 0;
+    while (!checking) {
+      console.log(address);
+      const lastTransactions = await indexer
+        .lookupAccountTransactions(address)
+        .limit(50)
+        .do();
+
+      if (lastTransactions !== undefined) {
+        const targetTx = lastTransactions.transactions.find(
+          (transaction: Transaction) => {
+            return transaction.id === txId;
+          }
         );
-        res.status(400).json({ message: 'Transaction verification failed' });
-        return;
+
+        if (targetTx) {
+          checking = true;
+          break;
+        }
       }
+
+      checkingRetry++;
+      if (checkingRetry >= 20) {
+        break;
+      }
+      await wait(1000);
+    }
+
+    if (!checking) {
+      res.status(400).json({ message: 'Failed in trasaction verification' });
+      return;
     }
 
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
@@ -107,8 +147,10 @@ export default async function handler(
             type: type,
             amount: FRYamount,
             txId,
+            asset_id: asset_id,
             time: new Date(Date.now()),
-            rewarded_time: new Date(Date.now())
+            rewarded_time: new Date(Date.now()),
+            withdraw_boost: false
           }
         }
       }
@@ -141,6 +183,7 @@ async function confirmTransaction(
     const confirmedTxn = await algodClient
       .pendingTransactionInformation(txId)
       .do();
+
     console.log('Got transaction info');
     // Check if the receiver is correct
     const actualReceiverField = 'arcv';
@@ -161,6 +204,31 @@ async function confirmTransaction(
   return { code: 0, amount };
 }
 
+export interface Transaction {
+  'close-rewards': number;
+  'closing-amount': number;
+  'asset-transfer-transaction': {
+    amount: number;
+    'asset-id': number;
+  };
+  'confirmed-round': number;
+  fee: number;
+  'first-valid': number;
+  'genesis-hash': string;
+  'genesis-id': string;
+  id: string;
+  'intra-round-offset': number;
+  'last-valid': number;
+  note: string;
+  'payment-transaction': Object;
+  'receiver-rewards': number;
+  'round-time': number;
+  sender: string;
+  'sender-rewards': number;
+  signature: Object;
+  'tx-type': string;
+}
+
 export interface Product extends mongoose.Document {
   wix_id: string;
   name: string;
@@ -171,6 +239,10 @@ export interface Product extends mongoose.Document {
     stake?: {
       stake_one: number;
       stake_two: number;
+    };
+    tokens?: {
+      stake: string;
+      reward: string;
     };
   };
   created_at: Date;

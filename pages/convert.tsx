@@ -14,7 +14,7 @@ import MessageUpdate from '../components/messageUpdate';
 import { useEffect, useState } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Product } from './api/verify-stake';
+import { Product } from './api/stake/verify-stake';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import Link from 'next/link';
 

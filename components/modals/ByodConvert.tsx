@@ -10,7 +10,7 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../app/modalcontext';
-import MessageUpdate from '../messageUpdate';
+import MessageUpdate from '../MessageUpdate';
 
 interface ByodConvertModalProps {
   modalName: string;
@@ -67,6 +67,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
 
   useEffect(() => {
     const fetchProducts = async () => {
+      console.log('getminertype called');
       const response = await fetch('/api/get_miner_types', {
         method: 'PUT',
         headers: {

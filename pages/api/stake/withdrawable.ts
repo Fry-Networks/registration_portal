@@ -1,11 +1,11 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]';
+import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
-import clientPromise from '../../lib/mongoclient';
-import { getFRYPrice } from '../../lib/price';
-import { Device } from '../../lib/types';
+import clientPromise from '../../../lib/mongoclient';
+import { getFRYPrice } from '../../../lib/price';
+import { Device } from '../../../lib/types';
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -67,12 +67,8 @@ export default async function handler(
       available: device.staked.type == 'one' ? dayCheck : sixMonthsCheck,
       availableIn:
         device.staked.type == 'one'
-          ? 1 -
-            (Date.now() - new Date(device.staked.time).getTime()) /
-              (1000 * 60 * 60 * 24)
-          : 180 -
-            (Date.now() - new Date(device.staked.time).getTime()) /
-              (1000 * 60 * 60 * 24)
+          ? new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24
+          : new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24 * 180
     };
 
     res.status(200).json({ message: 'ok', data });

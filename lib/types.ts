@@ -21,6 +21,8 @@ export interface Device extends mongoose.Document {
     amount: number;
     time: Date;
     txId: string;
+    asset_id: string;
+    withdraw_boost: boolean;
     rewarded_time?: Date;
   };
   names?: {
@@ -32,4 +34,21 @@ export interface Device extends mongoose.Document {
   address: string;
   email: string;
   __v: number;
+}
+
+export interface Reward extends mongoose.Document {
+  miner_key: string;
+  status: string;
+  asset_id: string;
+  amount: number;
+  date: {
+    year: number;
+    month: number;
+    day: number;
+  };
+}
+
+export interface FryToken extends mongoose.Document {
+  name: string;
+  asset_id: string;
 }
