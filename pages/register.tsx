@@ -19,7 +19,7 @@ export default ({ products }: { products: Product[] }) => {
   const [locationStatus, setLocationStatus] = useState(false);
   const [stakeStatus, setStakeStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
-  const { minerKey } = router.query;
+  const { minerKey, clickable } = router.query;
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const [product, setProduct] = useState<Product | undefined>(undefined);
 
@@ -99,7 +99,7 @@ export default ({ products }: { products: Product[] }) => {
       return false;
     }
 
-    if (device.is_registered) {
+    if (device.names?.first_name && device.names.last_name && device.email) {
       return true;
     }
 
@@ -185,7 +185,7 @@ export default ({ products }: { products: Product[] }) => {
     if (currentSection < sections.length - 1) {
       setCurrentSection((prev) => prev + 1);
     } else {
-      router.push('/');
+      router.push('/devices');
     }
   };
 
@@ -209,7 +209,7 @@ export default ({ products }: { products: Product[] }) => {
           wallet: walletStatus,
           map: locationStatus
         }}
-        isClickable={false}
+        isClickable={clickable === 'true'}
         isOpen={isSidebarOpen}
         toggleSidebar={toggleSidebar}
         setCurrentSection={setCurrentSection} // Added to handle sidebar navigation
@@ -233,7 +233,7 @@ export default ({ products }: { products: Product[] }) => {
         >
           <div className="flex-shrink-0 w-full h-full">
             <DeviceInfo
-              status={deviceStatus}
+              status={clickable}
               minerKey={minerKey}
               data={deviceInfoData}
               setData={setDeviceInfoData}
@@ -243,7 +243,7 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <WalletInfo
-              status={walletStatus}
+              status={clickable}
               minerKey={minerKey}
               data={walletInfoData}
               setData={setWalletInfoData}
@@ -253,7 +253,7 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
-              status={locationStatus}
+              status={clickable}
               minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}

@@ -43,7 +43,6 @@ export default function CopyAddress({ address }) {
             strokeWidth="1.5"
           ></path>
         </svg>
-        <p>Copy</p>
       </Flex>
       {copied && (
         <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 text-white bg-gray-800 rounded-lg shadow-lg opacity-90 transition-opacity duration-300 p-2">

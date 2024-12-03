@@ -49,10 +49,10 @@ export default async function handler(
     txId: string;
     address: string;
     miner: string;
-    type: string;
+    amount: number;
     asset_id: string;
   } = req.body;
-  const { miner, txId, address, type, asset_id } = data;
+  const { miner, txId, address, asset_id, amount } = data;
   try {
     if (session.user.address !== address || !address) {
       console.log(
@@ -81,10 +81,7 @@ export default async function handler(
       res.status(404).json({ message: 'product stake empty' });
       return;
     }
-    const stake_amt =
-      (type === 'one'
-        ? product.reward.stake.stake_one
-        : product.reward.stake.stake_two) ?? 0;
+    const stake_amt = amount;
 
     const miner_data = await db
       .collection(testMode ? 'test-devices' : 'devices')
@@ -97,7 +94,7 @@ export default async function handler(
       res.status(400).json({ message: 'already verified' });
       return;
     }
-    const FRYamount = miner_data.byod ? stake_amt / 2 : stake_amt;
+    const FRYamount = stake_amt;
     if (FRYamount === 0) {
       res.status(404).json({ message: 'withdraw = 0' });
       return;
@@ -138,23 +135,41 @@ export default async function handler(
     }
 
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    await collection.updateOne(
-      { miner_key: miner, address: session.user.address },
-      {
-        $set: {
-          verified: true,
-          staked: {
-            type: type,
-            amount: FRYamount,
-            txId,
-            asset_id: asset_id,
-            time: new Date(Date.now()),
-            rewarded_time: new Date(Date.now()),
-            withdraw_boost: false
-          }
-        }
-      }
-    );
+    const result =
+      product.reward.tokens?.node &&
+      product.reward.tokens!.node !== 'none' &&
+      product.reward.stake &&
+      product.reward.stake.node === 0
+        ? await collection.updateOne(
+            { miner_key: miner },
+            {
+              $set: {
+                address: address,
+                is_registered: true,
+                'registration.amount': FRYamount,
+                'registration.txId': txId,
+                'registration.asset_id': asset_id,
+                'registration.time': new Date(Date.now())
+              }
+            }
+          )
+        : await collection.updateOne(
+            { miner_key: miner },
+            {
+              $set: {
+                'registration.amount': FRYamount,
+                'registration.txId': txId,
+                'registration.asset_id': asset_id,
+                'registration.time': new Date(Date.now())
+              }
+            }
+          );
+
+    if (result.matchedCount > 0) {
+      console.log('success');
+    } else {
+      console.log('failed');
+    }
 
     res.status(200).json({ message: 'ok' });
   } catch (error) {

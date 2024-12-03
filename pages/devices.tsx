@@ -75,10 +75,45 @@ const DevicesPage = ({
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
         }, 5_000);
+
+        return;
       }
 
-      router.push({ pathname: '/register', query: { minerKey } });
-    } catch (error) {}
+      const product = findProductByMinerKey(minerKey, products);
+      if (!product) {
+        setUpdateSuccess({
+          status: 'error',
+          message: 'Product for miner is not found'
+        });
+        setTimeout(() => {
+          setUpdateSuccess({ status: 'error', message: '' });
+        }, 5_000);
+        return;
+      }
+
+      console.log(product);
+
+      if (
+        product.reward.stake &&
+        product.reward.stake.register > 0 &&
+        product.reward.tokens?.register &&
+        product.reward.tokens.register !== 'none'
+      ) {
+        router.push({ pathname: '/pay-register', query: { minerKey } });
+      } else {
+        router.push({ pathname: '/register', query: { minerKey } });
+      }
+    } catch (error) {
+      setUpdateSuccess({
+        status: 'error',
+        message:
+          'There is an error occured for registering. Please contact us before you try again.'
+      });
+      setTimeout(() => {
+        setUpdateSuccess({ status: 'error', message: '' });
+      }, 5_000);
+      return;
+    }
   };
 
   const handleDelete = async (miner_key: string): Promise<void> => {
@@ -140,7 +175,10 @@ const DevicesPage = ({
         }, 5_000);
       }
 
-      router.push({ pathname: '/register', query: { minerKey: miner_key } });
+      router.push({
+        pathname: '/register',
+        query: { minerKey: miner_key, clickable: 'true' }
+      });
     } catch (error) {
       setUpdateSuccess({
         status: 'error',
@@ -297,33 +335,23 @@ const DevicesPage = ({
       <Flex
         flexDirection="row"
         justifyContent="evenly"
-        className="flex-wrap px-20 mt-10"
+        className="flex-wrap gap-6 px-2 sm:px-20 mt-10"
       >
-        <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] ">
+        <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] w-full sm:w-auto ">
           <Title className="text-white">Registered Miners</Title>
           <p>{devices.length}</p>
         </div>
-        <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px] ">
+        <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px]  w-full sm:w-auto ">
           <Title className="text-white">Unverified Miners</Title>
-          <p>
-            {
-              devices.filter(
-                (device) =>
-                  !device.verified &&
-                  isProductStakeAvailable(
-                    findProductByMinerKey(device.miner_key, products)!
-                  )
-              ).length
-            }
-          </p>
+          <p>{devices.filter((device) => !device.verified).length}</p>
         </div>
-        <div className="rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] ">
+        <div className="rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] w-full sm:w-auto ">
           <Title className="text-white">Verified Miners</Title>
           <p>{devices.filter((device) => device.verified).length}</p>
         </div>
       </Flex>
 
-      <div className="w-full mt-10 px-20">
+      <div className="w-full mt-10 px-2 sm:px-20">
         <Flex
           flexDirection="row"
           justifyContent="end"

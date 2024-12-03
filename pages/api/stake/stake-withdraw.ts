@@ -169,7 +169,7 @@ async function withdraw(
 
     const from = account.addr.toString();
 
-    const assetIndex: number = Number(asset_id);
+    const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id);
 
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();

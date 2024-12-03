@@ -17,6 +17,7 @@ const devMode =
 const fryAlgo = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
 import algosdk from 'algosdk';
 import { useWallet } from '@txnlab/use-wallet';
+import { getFRYPrice } from '../../lib/price';
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
@@ -84,12 +85,6 @@ export default function WithdrawModal({
     } catch (error) {}
   };
 
-  async function getFRYPrice(asset_id: string) {
-    const fryURL = `https://free-api.vestige.fi/asset/${asset_id}/price`;
-    const response = await axios.get(fryURL);
-    return response.data.USD;
-  }
-
   useEffect(() => {
     fetchWithdrawable(device);
   }, [device, product, modals]);
@@ -141,155 +136,164 @@ export default function WithdrawModal({
   };
 
   const handleBoostWithdraw = async () => {
-    setIsProcessing(true);
-    try {
-      const tokenPrice = await getFRYPrice(
-        device.staked?.asset_id ?? fry2AssetId
-      );
-
-      console.log(`TokenPrice: ${tokenPrice}`);
-
-      const amount = Math.floor(USDAmount / tokenPrice);
-      console.log(`Fee pay amount: ${amount}`);
-
-      const tokenAmountInWallet = await getTokenBalance(
-        session!.user.address,
-        Number(device.staked?.asset_id ?? fry2AssetId)
-      );
-
-      if (!tokenAmountInWallet || tokenAmountInWallet < amount) {
-        setUpdateSuccess({
-          status: 'error',
-          message: 'Not enough token amount is in the wallet'
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        });
-
-        setIsProcessing(false);
-        return;
-      }
-
-      if (devMode) {
-        const payResponse = await fetch('api/fee/pay-withdraw', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            asset_id: device.staked?.asset_id ?? fry2AssetId,
-            from: session?.user.address,
-            to: fryAlgo,
-            amount: amount
-          })
-        });
-
-        if (!payResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          });
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const payResult = await payResponse.json();
-
-        const verifyResponse = await fetch('api/fee/verify-pay', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            txId: payResult.txId,
-            address: session?.user.address
-          })
-        });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          });
-
-          setIsProcessing(false);
-          return;
-        }
-
-        await handleWithdraw();
-      } else {
-        if (!session || !session.user) {
-          console.log('Unauthorized');
-          return;
-        }
-
-        const txId = await sendTransaction(activeAddress!, fryAlgo, amount);
-
-        if (!txId) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          });
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const verifyResponse = await fetch('api/fee/verify-pay', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            txId: txId,
-            address: session?.user.address
-          })
-        });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          });
-
-          setIsProcessing(false);
-          return;
-        }
-
-        await handleWithdraw();
-      }
-    } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
-        message:
-          'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-      });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      });
-
-      setIsProcessing(false);
-    }
+    // setIsProcessing(true);
+    // try {
+    //   const tokenPrice = await getFRYPrice(
+    //     device.staked?.asset_id ?? fry2AssetId
+    //   );
+    //   console.log(`TokenPrice: ${tokenPrice}`);
+    //   const amount = Math.floor(USDAmount / tokenPrice);
+    //   console.log(`Fee pay amount: ${amount}`);
+    //   const balanceResponse = await fetch('api/stake/get-token-balance', {
+    //     method: 'POST',
+    //     headers: {
+    //       'Content-Type': 'application/json'
+    //     },
+    //     body: JSON.stringify({
+    //       address: account.addr,
+    //       asset_id: product.reward.tokens!.stake
+    //     })
+    //   });
+    //   if (!balanceResponse.ok) {
+    //     setUpdateSuccess({
+    //       status: 'error',
+    //       message: `Failed to get token balance from wallet. Check network status and try again`
+    //     });
+    //     setTimeout(() => {
+    //       setUpdateSuccess({ status: 'error', message: '' });
+    //     }, 3_000);
+    //     setIsProcessing(false);
+    //     return;
+    //   }
+    //   const balanceGet = await balanceResponse.json();
+    //   if (balanceGet.success == false) {
+    //     setUpdateSuccess({
+    //       status: 'error',
+    //       message: `There's no ${tokenName} token is in the wallet`
+    //     });
+    //     setTimeout(() => {
+    //       setUpdateSuccess({ status: 'error', message: '' });
+    //     }, 3_000);
+    //     setIsProcessing(false);
+    //     return;
+    //   }
+    //   const tokenAmountInWallet = balanceGet.balance;
+    //   if (!tokenAmountInWallet || tokenAmountInWallet < amount) {
+    //     setUpdateSuccess({
+    //       status: 'error',
+    //       message: 'Not enough token amount is in the wallet'
+    //     });
+    //     setTimeout(() => {
+    //       setUpdateSuccess({ status: 'error', message: '' });
+    //     });
+    //     setIsProcessing(false);
+    //     return;
+    //   }
+    //   if (devMode) {
+    //     const payResponse = await fetch('api/fee/pay-withdraw', {
+    //       method: 'POST',
+    //       headers: {
+    //         'Content-Type': 'application/json'
+    //       },
+    //       body: JSON.stringify({
+    //         miner_key: device.miner_key,
+    //         asset_id: device.staked?.asset_id ?? fry2AssetId,
+    //         from: session?.user.address,
+    //         to: fryAlgo,
+    //         amount: amount
+    //       })
+    //     });
+    //     if (!payResponse.ok) {
+    //       setUpdateSuccess({
+    //         status: 'error',
+    //         message:
+    //           'Failed in pay fee for boosting withdraw. Please contact us before you try again'
+    //       });
+    //       setTimeout(() => {
+    //         setUpdateSuccess({ status: 'error', message: '' });
+    //       });
+    //       setIsProcessing(false);
+    //       return;
+    //     }
+    //     const payResult = await payResponse.json();
+    //     const verifyResponse = await fetch('api/fee/verify-pay', {
+    //       method: 'POST',
+    //       headers: {
+    //         'Content-Type': 'application/json'
+    //       },
+    //       body: JSON.stringify({
+    //         miner_key: device.miner_key,
+    //         txId: payResult.txId,
+    //         address: session?.user.address
+    //       })
+    //     });
+    //     if (!verifyResponse.ok) {
+    //       setUpdateSuccess({
+    //         status: 'error',
+    //         message:
+    //           'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
+    //       });
+    //       setTimeout(() => {
+    //         setUpdateSuccess({ status: 'error', message: '' });
+    //       });
+    //       setIsProcessing(false);
+    //       return;
+    //     }
+    //     await handleWithdraw();
+    //   } else {
+    //     if (!session || !session.user) {
+    //       console.log('Unauthorized');
+    //       return;
+    //     }
+    //     const txId = await sendTransaction(activeAddress!, fryAlgo, amount);
+    //     if (!txId) {
+    //       setUpdateSuccess({
+    //         status: 'error',
+    //         message:
+    //           'Failed in pay fee for boosting withdraw. Please contact us before you try again'
+    //       });
+    //       setTimeout(() => {
+    //         setUpdateSuccess({ status: 'error', message: '' });
+    //       });
+    //       setIsProcessing(false);
+    //       return;
+    //     }
+    //     const verifyResponse = await fetch('api/fee/verify-pay', {
+    //       method: 'POST',
+    //       headers: {
+    //         'Content-Type': 'application/json'
+    //       },
+    //       body: JSON.stringify({
+    //         miner_key: device.miner_key,
+    //         txId: txId,
+    //         address: session?.user.address
+    //       })
+    //     });
+    //     if (!verifyResponse.ok) {
+    //       setUpdateSuccess({
+    //         status: 'error',
+    //         message:
+    //           'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
+    //       });
+    //       setTimeout(() => {
+    //         setUpdateSuccess({ status: 'error', message: '' });
+    //       });
+    //       setIsProcessing(false);
+    //       return;
+    //     }
+    //     await handleWithdraw();
+    //   }
+    // } catch (error) {
+    //   setUpdateSuccess({
+    //     status: 'error',
+    //     message:
+    //       'Failed in pay fee for boosting withdraw. Please contact us before you try again'
+    //   });
+    //   setTimeout(() => {
+    //     setUpdateSuccess({ status: 'error', message: '' });
+    //   });
+    //   setIsProcessing(false);
+    // }
   };
 
   const handleWithdraw = async () => {

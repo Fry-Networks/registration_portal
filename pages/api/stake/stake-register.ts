@@ -29,12 +29,11 @@ export default async function handler(
   const data: {
     miner_key: string;
     asset_id: string;
-    type: string;
     from: string;
     to: string;
     amount: number;
   } = req.body;
-  const { miner_key, asset_id, type, from, to, amount } = data;
+  const { miner_key, asset_id, from, to, amount } = data;
 
   try {
     // Convert mnemonic to secret key
@@ -52,7 +51,6 @@ export default async function handler(
       miner_key:
         miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
       asset_id: asset_id,
-      type: type,
       from: from,
       to: to,
       amount: amount,

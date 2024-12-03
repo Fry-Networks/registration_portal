@@ -17,25 +17,43 @@ const tokenToSend = {
   'X-API-Key': token
 };
 const client = new Algodv2(tokenToSend, server, port);
+const indexServer = 'https://mainnet-idx.algonode.cloud/';
+const indexer = new Indexer(tokenToSend, indexServer, port);
+
+// Function to fetch asset decimals
+const getAssetDecimals = async (assetId: number): Promise<number | null> => {
+  try {
+    const assetInfo = await indexer.lookupAssetByID(assetId).do();
+    const decimals = assetInfo.asset.params.decimals;
+    console.log(`Asset ID: ${assetId}, Decimals: ${decimals}`);
+    return decimals;
+  } catch (error) {
+    console.error(`Failed to fetch asset info for Asset ID ${assetId}:`, error);
+    return null;
+  }
+};
 
 export async function getTokenBalance(
   address: string,
-  assetId: number
+  assetId: string
 ): Promise<number | null> {
   try {
     // Fetch account information
     const accountInfo = await client.accountInformation(address).do();
+    const correctAssetId = assetId === 'none' ? 0 : Number(assetId);
 
     // Find the asset in the account's assets list
     const asset = accountInfo.assets.find((asset: any) => {
-      return asset['asset-id'] === assetId;
+      return asset['asset-id'] === correctAssetId;
     });
 
     if (asset) {
       // Return the asset balance (converted to base units, if needed)
-      return asset.amount / Math.pow(10, asset['decimals'] || 0); // Adjust for decimals
+      console.log(asset);
+      const decimals = await getAssetDecimals(asset['asset-id']);
+      return asset.amount / Math.pow(10, decimals || 0); // Adjust for decimals
     } else {
-      console.log(`Asset ID ${assetId} not found for this account.`);
+      console.log(`Asset ID ${correctAssetId} not found for this account.`);
       return null;
     }
   } catch (error) {
@@ -63,7 +81,8 @@ export default async function handler(
     return;
   }
 
-  const tokenAmountInWallet = await getTokenBalance(address, Number(asset_id));
+  const tokenAmountInWallet = await getTokenBalance(address, asset_id);
+  console.log(tokenAmountInWallet);
 
   if (!tokenAmountInWallet) {
     res

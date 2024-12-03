@@ -13,7 +13,7 @@ export default function BoostModal({
 }: {
   modalName: string;
   miner_key: string;
-  no?: string;
+  no?: number;
   handleBoost: (ret: boolean, message: string) => Promise<void>;
 }) {
   const { modals, closeModal } = useModal();

@@ -144,7 +144,7 @@ export default function DeviceListItem({
             <Title className="text-white font-bold text-2xl mb-2">
               {device.name}
             </Title>
-            <Flex flexDirection="row" className="gap-3 w-auto">
+            <Flex flexDirection="row" className="gap-5 w-auto">
               <div onClick={() => handleChange(device.miner_key)}>
                 <EditIcon />
               </div>
@@ -153,7 +153,8 @@ export default function DeviceListItem({
               </div>
             </Flex>
           </div>
-          <Flex flexDirection="row">
+          <hr className="border-gray-800 mt-2"></hr>
+          <Flex flexDirection="row" className="mt-4">
             {device.address && device.address.length > 0 ? (
               <>
                 <p className="hidden sm:block">
@@ -217,11 +218,14 @@ export default function DeviceListItem({
             <strong className="text-white">Claimable Reward Amount: </strong>
             {claimableAmount}
           </p>
-          <Flex justifyContent="start" className="gap-3 mt-3">
+          <Flex
+            justifyContent="start"
+            className="gap-3 mt-3 flex-wrap sm:flex-nowrap"
+          >
             <>
               {(isProductStakeAvailable(product) || device.verified) && (
                 <Button
-                  className={`bg-transparent ${isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                  className={`w-full sm:w-auto bg-transparent ${isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                   onClick={() => {
                     handleWithdrawStake(device);
                   }}
@@ -230,21 +234,21 @@ export default function DeviceListItem({
                 </Button>
               )}
               <Button
-                className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                 disabled={claimableAmount <= 0}
                 onClick={() => handleClaimButton(device)}
               >
                 Claim
               </Button>
               <Button
-                className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                 disabled={pendingAmount <= 0}
                 onClick={() => handleBoostButton(device)}
               >
                 Boost
               </Button>
               <Button
-                className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                 onClick={() => viewHistory()}
               >
                 Reward History

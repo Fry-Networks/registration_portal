@@ -25,6 +25,18 @@ export interface Device extends mongoose.Document {
     withdraw_boost: boolean;
     rewarded_time?: Date;
   };
+  registration?: {
+    amount: number;
+    time: Date;
+    txId: string;
+    asset_id: string;
+  };
+  node?: {
+    amount: number;
+    time: Date;
+    txId: string;
+    asset_id: string;
+  };
   names?: {
     first_name: string;
     last_name: string;
@@ -42,6 +54,7 @@ export interface Reward extends mongoose.Document {
   status: string;
   asset_id: string;
   amount: number;
+  txId?: string;
   createdAt: Date;
 }
 

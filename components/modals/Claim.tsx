@@ -13,7 +13,7 @@ export default function ClaimModal({
 }: {
   modalName: string;
   miner_key: string;
-  no?: string;
+  no?: number;
   handleClaim: (ret: boolean, message: string) => Promise<void>;
 }) {
   const { modals, closeModal } = useModal();
