@@ -18,9 +18,11 @@ import MessageUpdate from '../components/MessageUpdate';
 import { useModal } from '../app/modalcontext';
 import AddDeviceModal from '../components/modals/AddDevice';
 import StakeWithdrawModal from '../components/modals/Stake';
-import ListItem from '../components/ListItem';
+import DeviceListItem from '../components/DeviceListItem';
 import StakeModal from '../components/modals/Stake';
 import WithdrawModal from '../components/modals/Withdraw';
+import BoostModal from '../components/modals/Boost';
+import ClaimModal from '../components/modals/Claim';
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -161,6 +163,66 @@ const DevicesPage = ({
     }
   };
 
+  const handleClaimButton = (device: Device) => {
+    setSelectedDevice(device);
+    openModal('claim');
+  };
+
+  const handleBoostButton = async (device: Device): Promise<void> => {
+    setSelectedDevice(device);
+    openModal('boost');
+  };
+
+  const handleBoost = async (ret: boolean, message: string): Promise<void> => {
+    console.log('Boost function');
+
+    const updateDevices = devices.map((element) => {
+      if (element.miner_key !== selectedDevice.miner_key) {
+        return element;
+      } else {
+        return {
+          ...element
+        };
+      }
+    }) as Device[];
+
+    setUpdateSuccess({
+      status: 'success',
+      message: `Miner ${selectedDevice.miner_key} boosted successfully`
+    });
+
+    setTimeout(() => {
+      setUpdateSuccess({ status: 'success', message: '' });
+    }, 5_000);
+
+    setDevices(updateDevices);
+  };
+
+  const handleClaim = async (ret: boolean, message: string): Promise<void> => {
+    console.log('Boost function');
+
+    const updateDevices = devices.map((element) => {
+      if (element.miner_key !== selectedDevice.miner_key) {
+        return element;
+      } else {
+        return {
+          ...element
+        };
+      }
+    }) as Device[];
+
+    setUpdateSuccess({
+      status: 'success',
+      message: message
+    });
+
+    setTimeout(() => {
+      setUpdateSuccess({ status: 'success', message: '' });
+    }, 5_000);
+
+    setDevices(updateDevices);
+  };
+
   const handleStakingUpdate = (device: Device): void => {
     console.log('Staked device update');
     const updateDevices = devices.map((element) => {
@@ -226,7 +288,10 @@ const DevicesPage = ({
           <Title className="text-white text-5xl">
             Onboard your miners to Fry networks
           </Title>
-          <p className="text-lg">Explanation for about onboarding miners</p>
+          <p className="text-lg">
+            You can register your miners to onboard on Fry networks and can
+            verify and manage miner information here.
+          </p>
         </Flex>
       </div>
       <Flex
@@ -235,24 +300,8 @@ const DevicesPage = ({
         className="flex-wrap px-20 mt-10"
       >
         <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] ">
-          <Title className="text-white">Unable Verify Miners</Title>
-          <p>
-            {
-              devices.filter((device) => {
-                const product = findProductByMinerKey(
-                  device.miner_key,
-                  products
-                );
-                if (
-                  (!product || isProductStakeAvailable(product) === false) &&
-                  !device.verified
-                ) {
-                  return true;
-                }
-                return false;
-              }).length
-            }
-          </p>
+          <Title className="text-white">Registered Miners</Title>
+          <p>{devices.length}</p>
         </div>
         <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px] ">
           <Title className="text-white">Unverified Miners</Title>
@@ -302,13 +351,15 @@ const DevicesPage = ({
           devices.map((device, index) => {
             const product = findProductByMinerKey(device.miner_key, products);
             return (
-              <ListItem
+              <DeviceListItem
                 key={`list item ${index}`}
                 initialDevice={device}
                 product={product!}
                 stakeable={isProductStakeAvailable(product!)}
                 handleDelete={handleDelete}
                 handleChange={handleChange}
+                handleBoostButton={handleBoostButton}
+                handleClaimButton={handleClaimButton}
                 handleWithdrawStake={handleWithdrawStake}
               />
             );
@@ -329,6 +380,16 @@ const DevicesPage = ({
         device={selectedDevice}
         product={findProductByMinerKey(selectedDevice.miner_key, products)!}
         handleWithdrawUpdate={handleWithdrawUpdate}
+      />
+      <BoostModal
+        modalName="boost"
+        miner_key={selectedDevice.miner_key}
+        handleBoost={handleBoost}
+      />
+      <ClaimModal
+        modalName="claim"
+        miner_key={selectedDevice.miner_key}
+        handleClaim={handleClaim}
       />
     </div>
   );

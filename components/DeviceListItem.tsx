@@ -6,13 +6,16 @@ import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
 import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
+import { useRouter } from 'next/router';
 
-export default function ListItem({
+export default function DeviceListItem({
   initialDevice,
   product,
   stakeable,
   handleDelete,
   handleChange,
+  handleBoostButton,
+  handleClaimButton,
   handleWithdrawStake
 }: {
   initialDevice: Device;
@@ -20,6 +23,8 @@ export default function ListItem({
   stakeable: boolean;
   handleDelete: (miner_key: string) => Promise<void>;
   handleChange: (miner_key: string) => Promise<void>;
+  handleBoostButton: (device: Device) => Promise<void>;
+  handleClaimButton: (device: Device) => void;
   handleWithdrawStake: (device: Device) => void;
 }) {
   const [pendingAmount, setPendingAmount] = useState(0);
@@ -30,6 +35,7 @@ export default function ListItem({
     return device.verified && device.verified === true;
   };
 
+  const router = useRouter();
   const isStaked = () => {
     if (!device) {
       return false;
@@ -69,6 +75,8 @@ export default function ListItem({
 
         setPendingAmount(pendingTotalAmount);
       }
+
+      console.log(`${device.miner_key} get pending success`);
 
       const claimableResponse = await fetch('api/rewards/get-reward-records', {
         method: 'POST',
@@ -118,6 +126,13 @@ export default function ListItem({
   useEffect(() => {
     fetchRewardAmounts(device, product);
   }, [device]);
+
+  const viewHistory = async (): Promise<void> => {
+    router.push({
+      pathname: '/history',
+      query: { miner_key: device.miner_key }
+    });
+  };
 
   return (
     <>
@@ -217,14 +232,22 @@ export default function ListItem({
               <Button
                 className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                 disabled={claimableAmount <= 0}
+                onClick={() => handleClaimButton(device)}
               >
                 Claim
               </Button>
               <Button
                 className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                 disabled={pendingAmount <= 0}
+                onClick={() => handleBoostButton(device)}
               >
                 Boost
+              </Button>
+              <Button
+                className={`bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                onClick={() => viewHistory()}
+              >
+                Reward History
               </Button>
             </>
           </Flex>

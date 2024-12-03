@@ -10,7 +10,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/router';
 
 import bgImg from '../assets/background.png';
-import MessageUpdate from '../components/messageUpdate';
+import MessageUpdate from '../components/MessageUpdate';
 import { useEffect, useState } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';

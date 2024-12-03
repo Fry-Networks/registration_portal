@@ -20,7 +20,9 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     changeName: false,
     addDevice: false,
     stake: false,
-    withdraw: false
+    withdraw: false,
+    boost: false,
+    claim: false
     // Add other modals here as needed
   });
 

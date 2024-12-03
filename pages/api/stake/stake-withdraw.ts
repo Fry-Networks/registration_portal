@@ -24,6 +24,7 @@ const testMode =
 const indexServer = 'https://mainnet-idx.algonode.cloud/';
 const indexer = new Indexer(tokenToSend, indexServer, port);
 
+const fryCryptoAssetId = '924268058';
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -89,7 +90,7 @@ export default async function handler(
 
     let result = 'success';
 
-    const asset_id = device.staked.asset_id;
+    const asset_id = device.staked?.asset_id ?? fryCryptoAssetId;
     console.log('AssetID: ' + asset_id);
 
     result = await withdraw(miner_key, address, amount, asset_id);

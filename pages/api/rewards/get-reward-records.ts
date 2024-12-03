@@ -46,16 +46,14 @@ export default async function handler(
           .find({
             miner_key: miner_key,
             status: status,
-            'date.year': date.year,
-            'date.month': date.month,
-            'date.day': date.day
+            createdAt: date
           })
           .toArray()
       : await collection
           .find({ miner_key: miner_key, status: status })
           .toArray();
 
-    if (targetRecords.length > 0) {
+    if (targetRecords && targetRecords.length >= 0) {
       res.status(200).json({ success: true, records: targetRecords });
     } else {
       res.status(200).json({ success: false });

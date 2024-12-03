@@ -426,7 +426,7 @@ export default function WithdrawModal({
                 'Withdarw'
               )}
             </Button>
-            <Button
+            {/* <Button
               className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
@@ -466,7 +466,7 @@ export default function WithdrawModal({
               ) : (
                 'Withdarw with Boost'
               )}
-            </Button>
+            </Button> */}
           </Flex>
         </DialogPanel>
       </Dialog>

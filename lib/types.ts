@@ -37,15 +37,12 @@ export interface Device extends mongoose.Document {
 }
 
 export interface Reward extends mongoose.Document {
+  no: number;
   miner_key: string;
   status: string;
   asset_id: string;
   amount: number;
-  date: {
-    year: number;
-    month: number;
-    day: number;
-  };
+  createdAt: Date;
 }
 
 export interface FryToken extends mongoose.Document {
