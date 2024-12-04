@@ -274,8 +274,8 @@ export default function PayRegister({ products }: { products: Product[] }) {
       console.log('Wallet Balance: ' + Number(tokenAmountInWallet));
 
       if (
-        !testMode &&
-        (!tokenAmountInWallet || Number(tokenAmountInWallet) < Number(amount))
+        !tokenAmountInWallet ||
+        Number(tokenAmountInWallet) < Number(amount)
       ) {
         setUpdateSuccess({
           status: 'error',
