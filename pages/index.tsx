@@ -29,9 +29,14 @@ export default function IndexPage() {
           className="absolute w-full h-full justify-center gap-6"
         >
           <Title className="text-white text-4xl sm:text-5xl w-full text-center">
-            Onboard your miners to Fry networks
+            Register and Manage Your FRY Miners and Nodes with Fry Networks
           </Title>
-          <p className="text-lg">Explanation for about onboarding miners</p>
+          <p className="text-lg">
+            Welcome to the Fry Networks Dashboard. Use this platform to
+            seamlessly register, verify, and manage your miners and nodes. Stay
+            connected to the Fry ecosystem and unlock rewards while contributing
+            to the decentralized future.
+          </p>
         </Flex>
       </div>
       <Flex flexDirection="col" className="mt-10">
