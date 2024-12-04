@@ -22,6 +22,10 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
 const STAKE_ADDRESS =
   'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 
@@ -141,7 +145,7 @@ const StakeModal = ({
         algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
           from,
           to,
-          amount: amount * 1_000_000, // Amount in microAlgos
+          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
           assetIndex: Number(product.reward.tokens!.stake),
           suggestedParams

@@ -23,6 +23,10 @@ const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
 const port = '';
 
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
 export default function WithdrawModal({
   modalName,
   device,
@@ -113,7 +117,7 @@ export default function WithdrawModal({
         algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
           from,
           to,
-          amount: amount * 1_000_000, // Amount in microAlgos
+          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
           assetIndex: Number(product.reward.tokens!.stake),
           suggestedParams

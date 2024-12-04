@@ -20,6 +20,10 @@ const devMode =
 const STAKE_ADDRESS =
   'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
 
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
@@ -192,7 +196,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
         algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
           from,
           to,
-          amount: amount * 1_000_000, // Amount in microAlgos
+          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
           assetIndex: Number(product!.reward.tokens!.stake),
           suggestedParams
@@ -200,11 +204,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
-      const waitRoundsToConfirm = 4;
-      const { txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
+      const { txId } = await sendTransactions(signedTransactions);
 
       console.log('Successfully sent transaction. Transaction ID:', txId);
       return txId;

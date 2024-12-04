@@ -54,10 +54,7 @@ export default function Convert({ products }: { products: Product[] }) {
   }, [products]);
 
   const handleConvert = async () => {
-    const testMode =
-      process.env.NEXT_PUBLIC_TEST_MODE &&
-      process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-    const address = testMode ? devAccount?.addr : session?.user.address;
+    const address = session?.user.address;
 
     console.log(
       `Address: ${address} byod: ${byodLicense} key: ${selectedProduct}`
