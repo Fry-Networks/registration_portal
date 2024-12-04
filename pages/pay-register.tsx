@@ -208,7 +208,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
-      const { txId } = await sendTransactions(signedTransactions);
+      const waitRoundsToConfirm = 4;
+      const { txId } = await sendTransactions(
+        signedTransactions,
+        waitRoundsToConfirm
+      );
 
       console.log('Successfully sent transaction. Transaction ID:', txId);
       return txId;
