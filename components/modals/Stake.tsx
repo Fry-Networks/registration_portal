@@ -470,7 +470,7 @@ const StakeModal = ({
                   onClick={() => setStateType('one')}
                   className="border border-red-600 text-red-600"
                 />
-                <span>24-Hour Staking</span>
+                <span>24-Hour Staking(1.5x)</span>
               </label>
               <label className="flex items-center space-x-2">
                 <input
@@ -481,7 +481,7 @@ const StakeModal = ({
                   onClick={() => setStateType('two')}
                   className="border border-red-600 text-red-600"
                 />
-                <span>6-months Staking</span>
+                <span>6-months Staking(3x)</span>
               </label>
             </div>
             <div className="flex items-center w-full space-x-2">
