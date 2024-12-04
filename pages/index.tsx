@@ -28,7 +28,7 @@ export default function IndexPage() {
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl">
+          <Title className="text-white text-4xl sm:text-5xl w-full text-center">
             Onboard your miners to Fry networks
           </Title>
           <p className="text-lg">Explanation for about onboarding miners</p>
@@ -36,7 +36,7 @@ export default function IndexPage() {
       </div>
       <Flex flexDirection="col" className="mt-10">
         {!((devMode && devConnect) || activeAccount) ? (
-          <Title className="text-white">
+          <Title className="text-white text-center px-2">
             Please connect your wallet to onboard your devices to FRY NETWORKS
           </Title>
         ) : (

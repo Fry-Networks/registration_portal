@@ -261,7 +261,7 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
-              status={isMapinfoInputed}
+              status={isMapinfoInputed()}
               minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}

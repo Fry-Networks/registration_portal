@@ -107,7 +107,7 @@ export default () => {
     <div>
       <Flex
         flexDirection="row"
-        className="w-full px-20 border-b h-24 border-white/10 max-sm:px-0"
+        className="w-full px-2 border-b h-24 border-white/10 sm:px-20"
       >
         <div className="flex" key="logo">
           <Link

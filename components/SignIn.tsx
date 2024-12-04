@@ -122,7 +122,7 @@ export default function SignIn({ signed }: SignInProps) {
   ) : (
     <div className="w-full">
       <Flex flexDirection="col" className="w-full">
-        <Title className="text-white">
+        <Title className="text-white px-2 text-center">
           {!session
             ? 'Please click signIn button to signin with your wallet address'
             : 'You are signed successfully, click go to Dashboard to onboard your devices'}

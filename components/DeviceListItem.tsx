@@ -157,11 +157,11 @@ export default function DeviceListItem({
           <Flex flexDirection="row" className="mt-4">
             {device.address && device.address.length > 0 ? (
               <>
-                <p className="hidden sm:block">
+                <p className="hidden md:block">
                   <strong className="text-white">Address: </strong>
                   {device.address}
                 </p>
-                <p className="block sm:hidden">
+                <p className="block md:hidden">
                   <strong className="text-white">Address: </strong>
                   {device.address.slice(0, 6)}...
                   {device.address.slice(
@@ -190,11 +190,11 @@ export default function DeviceListItem({
           <Flex flexDirection="row">
             {device.reward_wallet && device.reward_wallet.length > 0 ? (
               <>
-                <p className="hidden sm:block">
+                <p className="hidden md:block">
                   <strong className="text-white">Reward Wallet: </strong>
                   {device.reward_wallet}
                 </p>
-                <p className="block sm:hidden">
+                <p className="block md:hidden">
                   <strong className="text-white">Reward Wallet: </strong>
                   {device.reward_wallet.slice(0, 6)}...
                   {device.reward_wallet.slice(

@@ -120,43 +120,49 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full p-4">
-        <div className="flex flex-col md:flex-row items-center gap-4 mt-2">
-          <div className="w-1/2">
-            <MapboxAutocomplete
-              //@ts-ignore
-              publicKey={mapboxgl.accessToken!}
-              inputClass="form-control search rounded border border-red-600 w-full md:w-1/4 p-2"
-              onSuggestionSelect={handleLocationSearch}
-              resetSearch={true}
-              placeholder="Search location..."
-            />
-          </div>
+        <div className="flex flex-row flex-wrap md:flex-nowrap items-center md:gap-4 mt-2 justify-between">
+          <MapboxAutocomplete
+            //@ts-ignore
+            publicKey={mapboxgl.accessToken!}
+            inputClass="form-control search rounded border border-red-600 p-2 !mb-1"
+            onSuggestionSelect={handleLocationSearch}
+            resetSearch={true}
+            placeholder="Search location..."
+          />
           <div className="px-16 md:px-24">
             <MessageUpdate updateSuccess={updateSuccess} />
           </div>
-          <input
-            type="text"
-            className="p-2 rounded border border-red-600 w-full md:w-1/4 mb-6"
-            placeholder="Latitude"
-            value={lat}
-            onChange={(e) => setLat(Number(e.target.value))}
-          />
-          {errors.latitude && (
-            <span className="text-red-500">{errors.latitude}</span>
-          )}
-          <input
-            type="text"
-            className="p-2 rounded border border-red-600 w-full md:w-1/4 mb-6"
-            placeholder="Longitude"
-            value={lng}
-            onChange={(e) => setLng(Number(e.target.value))}
-          />
-          {errors.longitude && (
-            <span className="text-red-500">{errors.longitude}</span>
-          )}
+          <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
+            <label className="mr-2">Latitude</label>
+            <input
+              type="text"
+              className="p-2 rounded border border-red-600 w-full "
+              placeholder="Latitude"
+              value={lat}
+              onChange={(e) => setLat(Number(e.target.value))}
+            />
+            {errors.latitude && (
+              <span className="text-red-500">{errors.latitude}</span>
+            )}
+          </div>
+
+          <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
+            <label className="mr-2">Longitude</label>
+            <input
+              type="text"
+              className="p-2 rounded border border-red-600 w-full"
+              placeholder="Longitude"
+              value={lng}
+              onChange={(e) => setLng(Number(e.target.value))}
+            />
+            {errors.longitude && (
+              <span className="text-red-500">{errors.longitude}</span>
+            )}
+          </div>
+
           <button
             onClick={handleConfirmLocation}
-            className="px-4 py-2 text-white border border-red-600 rounded mb-6 hover:bg-red-600"
+            className="px-4 py-2 text-white border border-red-600 rounded mb-1 hover:bg-red-600"
           >
             Confirm
           </button>

@@ -93,7 +93,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
         <div className="px-16 md:px-24">
           <MessageUpdate updateSuccess={updateSuccess} />
         </div>
-        <div className="py-8 px-16 md:px-24 h-full relative">
+        <div className="py-8 pl-8 pr-24 md:px-24 h-full relative">
           <form className="w-full">
             <div>
               <label className="block mb-2 text-white">

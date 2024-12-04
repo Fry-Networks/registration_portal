@@ -97,8 +97,10 @@ export default function History({
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl">Reward History</Title>
-          <p className="text-lg">
+          <Title className="text-white text-4xl sm:text-5xl">
+            Reward History
+          </Title>
+          <p className="text-lg text-center">
             You can explore the rewards history and manage each reward for
             miners on here.
           </p>

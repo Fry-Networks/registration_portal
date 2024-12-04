@@ -100,13 +100,16 @@ export default function Convert({ products }: { products: Product[] }) {
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl" key="title">
+          <Title
+            className="text-white text-4xl sm:text-5xl text-center"
+            key="title"
+          >
             Convert BYOD License to Miner Key
           </Title>
         </Flex>
       </div>
 
-      <Flex flexDirection="col" className="px-20 ">
+      <Flex flexDirection="col" className="px-4 sm:px-20 ">
         <MessageUpdate updateSuccess={updateSuccess} />
         <div className="w-full mt-5" key={`input`}>
           <TextInput
