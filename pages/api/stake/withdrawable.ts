@@ -64,7 +64,11 @@ export default async function handler(
       180;
 
     const data = {
-      available: device.staked.type == 'one' ? dayCheck : sixMonthsCheck,
+      available: !device.staked.asset_id
+        ? true
+        : device.staked.type == 'one'
+          ? dayCheck
+          : sixMonthsCheck,
       availableIn:
         device.staked.type == 'one'
           ? new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24

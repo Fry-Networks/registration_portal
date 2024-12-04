@@ -441,7 +441,7 @@ export default function WithdrawModal({
                   />
                 </svg>
               ) : (
-                'Withdarw'
+                'Withdraw'
               )}
             </Button>
             {/* <Button
