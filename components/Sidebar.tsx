@@ -37,7 +37,7 @@ export default ({
       )}
       <div
         onClick={() => {
-          isClickable && setCurrentSection(0);
+          setCurrentSection(0);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 mt-16 ${currentSection === 0 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -53,7 +53,7 @@ export default ({
       </div>
       <div
         onClick={() => {
-          isClickable && setCurrentSection(1);
+          setCurrentSection(1);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 1 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -69,7 +69,7 @@ export default ({
       </div>
       <div
         onClick={() => {
-          isClickable && setCurrentSection(2);
+          setCurrentSection(2);
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 2 ? 'bg-gray-800 p-2 rounded' : ''}`}
