@@ -191,7 +191,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
           setIsProcessing(false);
           return;
         }
@@ -204,7 +204,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
           setIsProcessing(false);
           return;
         }
@@ -218,7 +218,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
           setIsProcessing(false);
           return;
         }
@@ -246,7 +246,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -277,7 +277,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -300,7 +300,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
           return;
         }
 
@@ -311,7 +311,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
           setIsProcessing(false);
           return;
         }
@@ -330,7 +330,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -358,7 +358,7 @@ const StakeModal = ({
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -372,7 +372,7 @@ const StakeModal = ({
       });
       setTimeout(() => {
         setUpdateSuccess({ status: 'error', message: '' });
-      }, 3_000);
+      }, 5_000);
       setIsProcessing(false);
       return;
     }

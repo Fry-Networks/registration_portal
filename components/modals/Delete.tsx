@@ -65,7 +65,7 @@ export default function DeleteModal({
       });
       setTimeout(() => {
         setUpdateSuccess({ status: 'error', message: '' });
-      }, 3_000);
+      }, 5_000);
 
       setIsProcessing(false);
       return;

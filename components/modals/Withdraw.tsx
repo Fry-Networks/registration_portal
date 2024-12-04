@@ -73,7 +73,7 @@ export default function WithdrawModal({
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 3_000);
+        }, 5_000);
 
         return;
       }
@@ -161,7 +161,7 @@ export default function WithdrawModal({
     //     });
     //     setTimeout(() => {
     //       setUpdateSuccess({ status: 'error', message: '' });
-    //     }, 3_000);
+    //     }, 5_000);
     //     setIsProcessing(false);
     //     return;
     //   }
@@ -173,7 +173,7 @@ export default function WithdrawModal({
     //     });
     //     setTimeout(() => {
     //       setUpdateSuccess({ status: 'error', message: '' });
-    //     }, 3_000);
+    //     }, 5_000);
     //     setIsProcessing(false);
     //     return;
     //   }
@@ -318,7 +318,7 @@ export default function WithdrawModal({
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        });
+        }, 5_000);
 
         setIsProcessing(false);
         return;
@@ -336,7 +336,7 @@ export default function WithdrawModal({
       });
       setTimeout(() => {
         setUpdateSuccess({ status: 'error', message: '' });
-      });
+      }, 5_000);
 
       setIsProcessing(false);
       return;

@@ -11,6 +11,7 @@ import { getFRYPrice } from '../lib/price';
 import { getTokenBalance } from './api/stake/get-token-balance';
 import algosdk from 'algosdk';
 import { useWallet } from '@txnlab/use-wallet';
+import MessageUpdate from '../components/messageUpdate';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -246,7 +247,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 3_000);
+        }, 5_000);
         setIsProcessing(false);
         return;
       }
@@ -259,14 +260,14 @@ export default function PayRegister({ products }: { products: Product[] }) {
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 3_000);
+        }, 5_000);
         setIsProcessing(false);
         return;
       }
 
       const tokenAmountInWallet = balanceGet.balance;
 
-      console.log('Wallet Balance: ' + tokenAmountInWallet);
+      console.log('Wallet Balance: ' + Number(tokenAmountInWallet));
 
       if (
         !tokenAmountInWallet ||
@@ -278,7 +279,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        });
+        }, 5_000);
 
         setIsProcessing(false);
         return;
@@ -307,7 +308,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -338,7 +339,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -363,7 +364,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -391,7 +392,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -427,6 +428,8 @@ export default function PayRegister({ products }: { products: Product[] }) {
       const price = await getFRYPrice(asset_id);
       const amount = Math.floor(USDAmount / price);
 
+      console.log('Staking Amount: ' + Number(amount));
+
       const balanceResponse = await fetch('api/stake/get-token-balance', {
         method: 'POST',
         headers: {
@@ -445,7 +448,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 3_000);
+        }, 5_000);
         setIsProcessing(false);
         return;
       }
@@ -458,7 +461,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        }, 3_000);
+        }, 5_000);
         setIsProcessing(false);
         return;
       }
@@ -467,14 +470,17 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
       console.log('Wallet Balance: ' + tokenAmountInWallet);
 
-      if (!tokenAmountInWallet || tokenAmountInWallet < amount) {
+      if (
+        !tokenAmountInWallet ||
+        Number(tokenAmountInWallet) < Number(amount)
+      ) {
         setUpdateSuccess({
           status: 'error',
           message: 'Not enough token amount is in the wallet'
         });
         setTimeout(() => {
           setUpdateSuccess({ status: 'error', message: '' });
-        });
+        }, 5_000);
 
         setIsProcessing(false);
         return;
@@ -503,7 +509,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -534,7 +540,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -559,7 +565,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -587,7 +593,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           });
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
-          }, 3_000);
+          }, 5_000);
 
           setIsProcessing(false);
           return;
@@ -631,6 +637,10 @@ export default function PayRegister({ products }: { products: Product[] }) {
             be withdrawed automatically when you un-register the devices.
           </p>
         </Flex>
+      </div>
+
+      <div className="px-2 sm:px-20">
+        <MessageUpdate updateSuccess={updateSuccess} />
       </div>
       <Flex
         justifyContent="center"
