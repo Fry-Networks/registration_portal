@@ -95,7 +95,11 @@ export default function WithdrawModal({
 
   const sendTransaction = async (from: string, to: string, amount: number) => {
     try {
-      const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+      const algodClient = new algosdk.Algodv2(
+        '',
+        'https://mainnet-api.algonode.cloud',
+        ''
+      );
       const suggestedParams = await algodClient.getTransactionParams().do();
       const noteInfo = {
         miner_key:

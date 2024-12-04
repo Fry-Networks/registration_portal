@@ -27,7 +27,7 @@ const testMode =
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
-const port = '';
+const port = 443;
 
 export default function PayRegister({ products }: { products: Product[] }) {
   const router = useRouter();
@@ -174,7 +174,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
   const sendTransaction = async (from: string, to: string, amount: number) => {
     try {
-      const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+      const algodClient = new algosdk.Algodv2(
+        '',
+        'https://mainnet-api.algonode.cloud',
+        ''
+      );
       const suggestedParams = await algodClient.getTransactionParams().do();
       const noteInfo = {
         miner_key:
