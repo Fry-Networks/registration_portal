@@ -309,6 +309,7 @@ const StakeModal = ({
           setTimeout(() => {
             setUpdateSuccess({ status: 'error', message: '' });
           }, 5_000);
+          setIsProcessing(false);
           return;
         }
 
