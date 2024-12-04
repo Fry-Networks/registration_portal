@@ -133,7 +133,7 @@ const StakeModal = ({
           device.miner_key.split('-')[0] +
           '-' +
           device.miner_key.split('-')[1].slice(0, 6),
-        asset_id: product.reward.tokens!.stake,
+        asset_id: product.reward.tokens!.stake ?? 'none',
         type: stakeType,
         from: from,
         to: to,
@@ -151,7 +151,7 @@ const StakeModal = ({
           to,
           amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
-          assetIndex: Number(product.reward.tokens!.stake),
+          assetIndex: Number(product.reward.tokens!.stake ?? 'none'),
           suggestedParams
         });
 

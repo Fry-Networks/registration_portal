@@ -172,7 +172,12 @@ export default function PayRegister({ products }: { products: Product[] }) {
     );
   };
 
-  const sendTransaction = async (from: string, to: string, amount: number) => {
+  const sendTransaction = async (
+    from: string,
+    to: string,
+    amount: number,
+    asset_id: string
+  ) => {
     try {
       const algodClient = new algosdk.Algodv2(
         '',
@@ -185,7 +190,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           device!.miner_key.split('-')[0] +
           '-' +
           device!.miner_key.split('-')[1].slice(0, 6),
-        asset_id: product!.reward.tokens!.stake,
+        asset_id: asset_id,
         from: from,
         to: to,
         amount: amount,
@@ -202,7 +207,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           to,
           amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
-          assetIndex: Number(product!.reward.tokens!.stake),
+          assetIndex: Number(asset_id),
           suggestedParams
         });
 
@@ -361,7 +366,8 @@ export default function PayRegister({ products }: { products: Product[] }) {
         const txId = await sendTransaction(
           activeAddress!,
           STAKE_ADDRESS,
-          amount
+          amount,
+          product.reward.tokens?.register ?? 'none'
         );
 
         if (!txId) {
@@ -562,7 +568,8 @@ export default function PayRegister({ products }: { products: Product[] }) {
         const txId = await sendTransaction(
           activeAddress!,
           STAKE_ADDRESS,
-          amount
+          amount,
+          product.reward.tokens?.node ?? 'none'
         );
 
         if (!txId) {
