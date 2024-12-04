@@ -384,7 +384,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           return;
         }
 
-        const verifyResponse = await fetch('api/stake/verify-regisger', {
+        const verifyResponse = await fetch('api/stake/verify-register', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
