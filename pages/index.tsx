@@ -28,10 +28,10 @@ export default function IndexPage() {
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-4xl sm:text-5xl w-full text-center">
+          <Title className="text-white text-3xl sm:text-5xl w-full text-center px-2">
             Register and Manage Your FRY Miners and Nodes with Fry Networks
           </Title>
-          <p className="text-lg">
+          <p className="text-lg px-2">
             Welcome to the Fry Networks Dashboard. Use this platform to
             seamlessly register, verify, and manage your miners and nodes. Stay
             connected to the Fry ecosystem and unlock rewards while contributing
