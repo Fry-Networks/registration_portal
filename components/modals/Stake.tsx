@@ -290,7 +290,7 @@ const StakeModal = ({
 
         const tokenAmountInWallet = await getTokenBalance(
           session.user.address,
-          Number(product.reward.tokens!.stake)
+          product.reward.tokens!.stake
         );
 
         if (tokenAmountInWallet === null) {

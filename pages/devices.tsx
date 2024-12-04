@@ -23,6 +23,7 @@ import StakeModal from '../components/modals/Stake';
 import WithdrawModal from '../components/modals/Withdraw';
 import BoostModal from '../components/modals/Boost';
 import ClaimModal from '../components/modals/Claim';
+import DeleteModal from '../components/modals/Delete';
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -116,52 +117,24 @@ const DevicesPage = ({
     }
   };
 
+  const handleDeleteButton = (device: Device) => {
+    setSelectedDevice(device);
+    openModal('delete');
+  };
+
   const handleDelete = async (miner_key: string): Promise<void> => {
     // Send a request to delete the device from the backend
-    try {
-      console.log(`Delete ${miner_key}`);
-      const response = await fetch(`/api/devices/delete`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ miner_key: miner_key })
-      });
+    setUpdateSuccess({
+      status: 'success',
+      message: 'Un-Registered devices succesfully'
+    });
+    setTimeout(() => {
+      setUpdateSuccess({ status: 'success', message: '' });
+    }, 5_000);
 
-      const data = await response.json();
-      console.log(data);
-      if (response.ok) {
-        if (data.result === 'ok') {
-          setUpdateSuccess({ status: 'success', message: data.message });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'success', message: '' });
-          }, 5_000);
-
-          setDevices((prevDevices) =>
-            prevDevices.filter((device) => device.miner_key !== miner_key)
-          );
-        } else {
-          setUpdateSuccess({ status: 'error', message: data.message });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-        }
-      } else {
-        setUpdateSuccess({ status: 'error', message: data.message });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-      }
-    } catch (error) {
-      console.error('Error deleting device:', error);
-      setUpdateSuccess({
-        status: 'error',
-        message: 'Error occured during deleting.'
-      });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
-    }
+    setDevices((prevDevices) =>
+      prevDevices.filter((device) => device.miner_key !== miner_key)
+    );
   };
 
   const handleChange = async (miner_key: string): Promise<void> => {
@@ -384,7 +357,7 @@ const DevicesPage = ({
                 initialDevice={device}
                 product={product!}
                 stakeable={isProductStakeAvailable(product!)}
-                handleDelete={handleDelete}
+                handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
                 handleBoostButton={handleBoostButton}
                 handleClaimButton={handleClaimButton}
@@ -418,6 +391,11 @@ const DevicesPage = ({
         modalName="claim"
         miner_key={selectedDevice.miner_key}
         handleClaim={handleClaim}
+      />
+      <DeleteModal
+        modalName="delete"
+        miner_key={selectedDevice.miner_key}
+        handleDelete={handleDelete}
       />
     </div>
   );

@@ -11,7 +11,7 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../app/modalcontext';
-import MessageUpdate from '../messageUpdate';
+import MessageUpdate from '../MessageUpdate';
 
 interface AddDeviceModalProps {
   modalName: string;

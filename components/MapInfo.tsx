@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from './messageUpdate';
+import MessageUpdate from './MessageUpdate';
 const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {
   ssr: false
 });
@@ -123,6 +123,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
         <div className="flex flex-col md:flex-row items-center gap-4 mt-2">
           <div className="w-1/2">
             <MapboxAutocomplete
+              //@ts-ignore
               publicKey={mapboxgl.accessToken!}
               inputClass="form-control search rounded border border-red-600 w-full md:w-1/4 p-2"
               onSuggestionSelect={handleLocationSearch}

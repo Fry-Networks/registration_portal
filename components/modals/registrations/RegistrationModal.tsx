@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button, Dialog, DialogPanel, TextInput, Title } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../../app/modalcontext';
-import MessageUpdate from '../../messageUpdate';
+import MessageUpdate from '../../MessageUpdate';
 import Link from 'next/link';
 
 interface REGModalProps {

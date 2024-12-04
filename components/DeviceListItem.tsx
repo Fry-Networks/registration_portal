@@ -12,7 +12,7 @@ export default function DeviceListItem({
   initialDevice,
   product,
   stakeable,
-  handleDelete,
+  handleDeleteButton,
   handleChange,
   handleBoostButton,
   handleClaimButton,
@@ -21,7 +21,7 @@ export default function DeviceListItem({
   initialDevice: Device;
   product: Product;
   stakeable: boolean;
-  handleDelete: (miner_key: string) => Promise<void>;
+  handleDeleteButton: (device: Device) => void;
   handleChange: (miner_key: string) => Promise<void>;
   handleBoostButton: (device: Device) => Promise<void>;
   handleClaimButton: (device: Device) => void;
@@ -148,7 +148,7 @@ export default function DeviceListItem({
               <div onClick={() => handleChange(device.miner_key)}>
                 <EditIcon />
               </div>
-              <div onClick={() => handleDelete(device.miner_key)}>
+              <div onClick={() => handleDeleteButton(device)}>
                 <DeleteIcon />
               </div>
             </Flex>

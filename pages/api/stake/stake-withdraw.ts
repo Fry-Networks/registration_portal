@@ -70,7 +70,7 @@ export default async function handler(
     }
     const type = device.staked.type;
     const check =
-      device.staked.withdraw_boost ??
+      (device.staked.withdraw_boost || device.staked.asset_id === undefined) ??
       (type == 'one'
         ? (Date.now() - new Date(device.staked.time).getTime()) /
             (1000 * 60 * 60 * 24) >
@@ -157,7 +157,7 @@ export async function verifyTranasction(txId: string, address: string) {
   return checking;
 }
 
-async function withdraw(
+export async function withdraw(
   miner_key: string,
   address: string,
   amount: number,
@@ -186,6 +186,8 @@ async function withdraw(
     const enc = new TextEncoder();
     const note = enc.encode(JSON.stringify(noteInformation));
 
+    console.log(note);
+
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
       from,
@@ -195,6 +197,8 @@ async function withdraw(
       note,
       suggestedParams
     });
+
+    console.log(txn);
 
     // Sign the transaction with the account secret key
     const signedTxn = txn.signTxn(account.sk);
@@ -208,9 +212,6 @@ async function withdraw(
     const checking = await verifyTranasction(tx.txId, address);
     return checking ? tx.txId : '';
   } catch (error) {
-    console.error(
-      'An error occurred, please check your network/mnemonic/asset index'
-    );
     console.error(error);
     return null;
   }

@@ -95,6 +95,7 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
         miner_key: minerKey,
         reward_wallet: data.reward_wallet,
         connectivity_wallet: data.connectivity_wallet,
+        note: data.note,
         address: session?.user.address
       };
       const response = await fetch('/api/registrations/save-wallet-info', {
@@ -173,6 +174,16 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
                   {errors.connectivity_wallet}
                 </span>
               )}
+            </div>
+            <div>
+              <label className="block mb-2 mt-2 text-white">Note</label>
+              <input
+                type="text"
+                className="w-full p-2 border border-red-600 rounded"
+                placeholder="Enter Nickname"
+                value={data.note}
+                onChange={(e) => setData({ ...data, note: e.target.value })}
+              />
             </div>
           </form>
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">

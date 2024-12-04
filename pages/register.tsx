@@ -85,7 +85,8 @@ export default ({ products }: { products: Product[] }) => {
       reward_wallet: device.reward_wallet ? device.reward_wallet : '',
       connectivity_wallet: device.connectivity_wallet
         ? device.connectivity_wallet
-        : ''
+        : '',
+      note: device.note ?? ''
     });
 
     setMapInfoData({
@@ -154,7 +155,8 @@ export default ({ products }: { products: Product[] }) => {
   });
   const [walletInfoData, setWalletInfoData] = useState({
     reward_wallet: '',
-    connectivity_wallet: ''
+    connectivity_wallet: '',
+    note: ''
   });
 
   const [mapInfoData, setMapInfoData] = useState({

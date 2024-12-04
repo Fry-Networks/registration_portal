@@ -26,10 +26,11 @@ export default async function handler(
     miner_key: string;
     reward_wallet: string;
     connectivity_wallet: string;
+    note: string;
     address: string;
   } = req.body;
 
-  const { miner_key, reward_wallet, connectivity_wallet, address } = data;
+  const { miner_key, reward_wallet, connectivity_wallet, address, note } = data;
   if (session.user.address !== address || !address) {
     console.log(
       `session.user.address: ${session.user.address}, address: ${address} SPOOF`
@@ -54,7 +55,8 @@ export default async function handler(
       {
         $set: {
           reward_wallet: reward_wallet,
-          connectivity_wallet: connectivity_wallet
+          connectivity_wallet: connectivity_wallet,
+          note: note
         }
       }
     );

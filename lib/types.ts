@@ -15,6 +15,7 @@ export interface Device extends mongoose.Document {
   };
   verified: boolean;
   reward_wallet?: string;
+  note?: string;
   is_registered: boolean;
   staked?: {
     type: string;
