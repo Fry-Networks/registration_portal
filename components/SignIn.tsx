@@ -125,7 +125,7 @@ export default function SignIn({ signed }: SignInProps) {
         <Title className="text-white">
           {!session
             ? 'Please click signIn button to signin with your wallet address'
-            : 'You are signed successfully, click goto Dashboard to onboard your devices'}
+            : 'You are signed successfully, click go to Dashboard to onboard your devices'}
         </Title>
         <div className="mt-10">
           {!session ? (
@@ -139,7 +139,7 @@ export default function SignIn({ signed }: SignInProps) {
           ) : (
             <Link href="/devices">
               <Button className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
-                Goto Dashboard
+                Go to Dashboard
               </Button>
             </Link>
           )}

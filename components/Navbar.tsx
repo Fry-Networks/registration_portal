@@ -202,7 +202,10 @@ export default () => {
               <div
                 key={`provider ${index}`}
                 className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
-                onClick={() => provider.connect()}
+                onClick={() => {
+                  provider.connect();
+                  setIsWalletModalOpen(false);
+                }}
               >
                 <Image
                   src={provider.metadata.icon}
