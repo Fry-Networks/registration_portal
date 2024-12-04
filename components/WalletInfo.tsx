@@ -15,7 +15,11 @@ const tokenToSend = {
   'X-API-Key': token
 };
 
-const client = new Algodv2(tokenToSend, server, port);
+const algodClient = new algosdk.Algodv2(
+  '',
+  'https://mainnet-api.algonode.cloud',
+  ''
+);
 
 const assetIndex = 924268058;
 
@@ -46,7 +50,7 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
     try {
       console.log(address);
       console.log(assetId);
-      const accountInfo = await client.accountInformation(address).do();
+      const accountInfo = await algodClient.accountInformation(address).do();
       const assets = accountInfo['assets'] || [];
       return assets.some((asset: any) => asset['asset-id'] === assetId);
     } catch (error) {
