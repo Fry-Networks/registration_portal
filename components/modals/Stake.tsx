@@ -296,10 +296,43 @@ const StakeModal = ({
           return;
         }
 
-        const tokenAmountInWallet = await getTokenBalance(
-          session.user.address,
-          product.reward.tokens!.stake
-        );
+        const balanceResponse = await fetch('api/stake/get-token-balance', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            address: account.addr,
+            asset_id: product.reward.tokens!.stake
+          })
+        });
+
+        if (!balanceResponse.ok) {
+          setUpdateSuccess({
+            status: 'error',
+            message: `Failed to get token balance from wallet. Check network status and try again`
+          });
+          setTimeout(() => {
+            setUpdateSuccess({ status: 'error', message: '' });
+          }, 5_000);
+          setIsProcessing(false);
+          return;
+        }
+
+        const balanceGet = await balanceResponse.json();
+        if (balanceGet.success == false) {
+          setUpdateSuccess({
+            status: 'error',
+            message: `There's no ${tokenName} token is in the wallet`
+          });
+          setTimeout(() => {
+            setUpdateSuccess({ status: 'error', message: '' });
+          }, 5_000);
+          setIsProcessing(false);
+          return;
+        }
+
+        const tokenAmountInWallet = balanceGet.balance;
 
         if (tokenAmountInWallet === null) {
           setUpdateSuccess({
