@@ -380,12 +380,12 @@ export default function WithdrawModal({
               : `You can withdraw at ${withdrawableTime}`}
           </p>
 
-          {!isWithdrawable && (
+          {/* {!isWithdrawable && (
             <p className="text-red-500 mt-4">
               Note: You can click 'Withdarw with Boost' button to pay 50USD to
               withdraw the token immediately.
             </p>
-          )}
+          )} */}
           <Flex
             flexDirection="row"
             justifyContent="center"
