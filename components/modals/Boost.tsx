@@ -113,10 +113,7 @@ export default function BoostModal({
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
-            <p>
-              Do you want to boost pending rewards? If you boost then 30% will
-              be reduced.
-            </p>
+            <p>Claim Rewards Now (30% Fee Applies)</p>
           </Flex>
           <Flex
             flexDirection="row"

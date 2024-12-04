@@ -52,7 +52,13 @@ export default function WithdrawModal({
   const { data: session } = useSession();
 
   const fetchWithdrawable = async (device: Device) => {
+    console.log;
+    if (modals[modalName] === false) {
+      return;
+    }
+
     console.log('fetchWithdrawable');
+
     if (!session || !session.user) {
       console.log('Session invalid');
       return;

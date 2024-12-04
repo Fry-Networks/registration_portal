@@ -72,18 +72,25 @@ export default async function handler(
       res.status(400).json({ message: 'Already registered' });
       return;
     }
-    await collection.updateOne(
-      { miner_key },
+
+    const result = await collection.updateOne(
+      { miner_key: miner_key },
       {
         $set: {
+          address: address,
           is_registered: true,
           names: names,
           email: email,
-          address: address,
           nickname: nickname
         }
       }
     );
+
+    if (result.matchedCount <= 0) {
+      res.status(400).json({ message: 'Failed to registered' });
+      return;
+    }
+
     console.log(`Registered ${miner_key}`);
 
     res.status(200).json({ message: 'ok' });

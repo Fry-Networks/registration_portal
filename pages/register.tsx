@@ -235,7 +235,7 @@ export default ({ products }: { products: Product[] }) => {
         >
           <div className="flex-shrink-0 w-full h-full">
             <DeviceInfo
-              status={clickable}
+              status={isDeviceInfoInputed()}
               minerKey={minerKey}
               data={deviceInfoData}
               setData={setDeviceInfoData}
@@ -245,17 +245,18 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <WalletInfo
-              status={clickable}
+              status={isWalletInfoInputed()}
               minerKey={minerKey}
               data={walletInfoData}
               setData={setWalletInfoData}
               onNext={handleNext}
               onSkip={handleSkip}
+              asset_id={product?.reward.tokens?.reward}
             />
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
-              status={clickable}
+              status={isMapinfoInputed}
               minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}

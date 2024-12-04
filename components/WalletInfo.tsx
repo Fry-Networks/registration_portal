@@ -21,9 +21,15 @@ const algodClient = new algosdk.Algodv2(
   ''
 );
 
-const assetIndex = 924268058;
-
-const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
+const WalletInfo = ({
+  minerKey,
+  data,
+  setData,
+  onNext,
+  onSkip,
+  status,
+  asset_id
+}) => {
   const router = useRouter();
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isComplete, setIsComplete] = useState(false);
@@ -43,10 +49,6 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
       process.env.NEXT_PUBLIC_DEV_MODE &&
       process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-    if (devMode) {
-      return true;
-    }
-
     try {
       console.log(address);
       console.log(assetId);
@@ -65,9 +67,18 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
     if (!data.reward_wallet) {
       newErrors.reward_wallet = 'Reward wallet address is required';
     } else if (
-      (await hasOptedInForAsset(data.reward_wallet, assetIndex)) == false
+      (await hasOptedInForAsset(data.reward_wallet, Number(asset_id))) == false
     ) {
-      newErrors.reward_wallet = '$FRY must be optined in reward wallet.';
+      const response = await fetch('/api/tokens/get-one', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ asset_id: asset_id })
+      });
+
+      const result = await response.json();
+      newErrors.reward_wallet = `$${result.token.name} must be optined in reward wallet.`;
     }
 
     if (!data.connectivity_wallet) {
@@ -165,7 +176,7 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
               <input
                 type={!connectivityFocus ? 'password' : 'text'}
                 className="w-full p-2 border border-red-600 rounded"
-                placeholder="Enter private key of wallet"
+                placeholder="Enter 25 word seed phrase of wallet"
                 value={data.connectivity_wallet}
                 onChange={(e) =>
                   setData({ ...data, connectivity_wallet: e.target.value })
@@ -184,7 +195,7 @@ const WalletInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
               <input
                 type="text"
                 className="w-full p-2 border border-red-600 rounded"
-                placeholder="Enter Nickname"
+                placeholder="Enter note for Tx"
                 value={data.note}
                 onChange={(e) => setData({ ...data, note: e.target.value })}
               />
