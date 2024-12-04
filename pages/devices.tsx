@@ -370,33 +370,37 @@ const DevicesPage = ({
         )}
       </Flex>
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
-      <StakeModal
-        modalName={'stake'}
-        device={selectedDevice}
-        product={findProductByMinerKey(selectedDevice.miner_key, products)!}
-        handleStakingUpdate={handleStakingUpdate}
-      />
-      <WithdrawModal
-        modalName={'withdraw'}
-        device={selectedDevice}
-        product={findProductByMinerKey(selectedDevice.miner_key, products)!}
-        handleWithdrawUpdate={handleWithdrawUpdate}
-      />
-      <BoostModal
-        modalName="boost"
-        miner_key={selectedDevice.miner_key}
-        handleBoost={handleBoost}
-      />
-      <ClaimModal
-        modalName="claim"
-        miner_key={selectedDevice.miner_key}
-        handleClaim={handleClaim}
-      />
-      <DeleteModal
-        modalName="delete"
-        miner_key={selectedDevice.miner_key}
-        handleDelete={handleDelete}
-      />
+      {selectedDevice && (
+        <>
+          <StakeModal
+            modalName={'stake'}
+            device={selectedDevice}
+            product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+            handleStakingUpdate={handleStakingUpdate}
+          />
+          <WithdrawModal
+            modalName={'withdraw'}
+            device={selectedDevice}
+            product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+            handleWithdrawUpdate={handleWithdrawUpdate}
+          />
+          <BoostModal
+            modalName="boost"
+            miner_key={selectedDevice.miner_key}
+            handleBoost={handleBoost}
+          />
+          <ClaimModal
+            modalName="claim"
+            miner_key={selectedDevice.miner_key}
+            handleClaim={handleClaim}
+          />
+          <DeleteModal
+            modalName="delete"
+            miner_key={selectedDevice.miner_key}
+            handleDelete={handleDelete}
+          />
+        </>
+      )}
     </div>
   );
 };

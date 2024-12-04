@@ -12,6 +12,7 @@ import Link from 'next/link';
 import fryLogo from '../assets/Logo.png';
 import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
+import { useRouter } from 'next/router';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -35,6 +36,7 @@ export default () => {
   const [address, setAddress] = useState('');
   const [algoBalance, setAlgoBalance] = useState('0.00');
   const [fryBalance, setFryBalance] = useState('0.00');
+  const router = useRouter();
 
   useEffect(() => {
     if (address && address.length > 0) {
@@ -70,6 +72,12 @@ export default () => {
       }
     }
   }, [address]);
+
+  useEffect(() => {
+    if ((router.pathname !== '/' && !session) || !session?.user) {
+      router.push('/');
+    }
+  }, [router.pathname, session, activeAccount]);
 
   useEffect(() => {
     if (devMode) {

@@ -24,7 +24,7 @@ export default function History({
   const [rewards, setRewards] = useState<Reward[]>(initialRewards);
   const [page, setPage] = useState(1); // Current page
   const [totalPages, setTotalPages] = useState(0); // Total pages
-  const [selReward, setSelReward] = useState<Reward>(rewards[0]);
+  const [selReward, setSelReward] = useState<Reward | undefined>(undefined);
   const { openModal } = useModal();
   const router = useRouter();
 
@@ -116,15 +116,16 @@ export default function History({
           className="w-full h-[700px] overflow-y-auto overflow-x-hidden"
           flexDirection="col"
         >
-          {rewards.map((reward) => {
-            return (
-              <RewardListItem
-                reward={reward}
-                handleClaimButton={handleClaimButton}
-                handleBoostButton={handleBoostButton}
-              />
-            );
-          })}
+          {rewards &&
+            rewards.map((reward) => {
+              return (
+                <RewardListItem
+                  reward={reward}
+                  handleClaimButton={handleClaimButton}
+                  handleBoostButton={handleBoostButton}
+                />
+              );
+            })}
         </Flex>
       </div>
       <Flex className="mt-4 gap-3" justifyContent="center">
@@ -147,20 +148,22 @@ export default function History({
         </Button>
       </Flex>
 
-      <>
-        <ClaimModal
-          modalName="claim"
-          miner_key={selReward.miner_key}
-          no={selReward.no}
-          handleClaim={handleClaim}
-        />
-        <BoostModal
-          modalName="boost"
-          miner_key={selReward.miner_key}
-          no={selReward.no}
-          handleBoost={handleBoost}
-        />
-      </>
+      {selReward && (
+        <>
+          <ClaimModal
+            modalName="claim"
+            miner_key={selReward.miner_key}
+            no={selReward.no}
+            handleClaim={handleClaim}
+          />
+          <BoostModal
+            modalName="boost"
+            miner_key={selReward.miner_key}
+            no={selReward.no}
+            handleBoost={handleBoost}
+          />
+        </>
+      )}
     </div>
   );
 }
