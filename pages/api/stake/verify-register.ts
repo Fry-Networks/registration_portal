@@ -135,11 +135,10 @@ export default async function handler(
     }
 
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
+    console.log(product);
     const result =
-      product.reward.tokens?.node &&
-      product.reward.tokens!.node !== 'none' &&
-      product.reward.stake &&
-      product.reward.stake.node === 0
+      (product.reward.tokens?.node && product.reward.tokens!.node === 'none') ||
+      (product.reward.stake && product.reward.stake.node === 0)
         ? await collection.updateOne(
             { miner_key: miner },
             {

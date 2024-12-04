@@ -268,7 +268,10 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
       console.log('Wallet Balance: ' + tokenAmountInWallet);
 
-      if (!tokenAmountInWallet || tokenAmountInWallet < amount) {
+      if (
+        !tokenAmountInWallet ||
+        Number(tokenAmountInWallet) < Number(amount)
+      ) {
         setUpdateSuccess({
           status: 'error',
           message: 'Not enough token amount is in the wallet'
@@ -681,9 +684,9 @@ export default function PayRegister({ products }: { products: Product[] }) {
                     />
                   </svg>
                 ) : isAlreadyRegister() ? (
-                  'Paid'
+                  'Staked'
                 ) : (
-                  'Pay'
+                  'Stake'
                 )}
               </Button>
             </Flex>
@@ -702,7 +705,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
                   isProcessing ? 'cursor-not-allowed' : 'cursor-default'
                 }`}
                 onClick={() => handleNodeStaking()}
-                disabled={isAlreadyRegister() === true}
+                disabled={isAlreadyNode() === true}
               >
                 {isProcessing ? (
                   <svg
@@ -734,10 +737,10 @@ export default function PayRegister({ products }: { products: Product[] }) {
                       strokeLinecap="round"
                     />
                   </svg>
-                ) : isAlreadyRegister() ? (
-                  'Paid'
+                ) : isAlreadyNode() ? (
+                  'Staked'
                 ) : (
-                  'Pay'
+                  'Stake'
                 )}
               </Button>
             </Flex>
