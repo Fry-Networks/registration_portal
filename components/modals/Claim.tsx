@@ -3,7 +3,7 @@ import { useModal } from '../../app/modalcontext';
 import { useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
-import MessageUpdate from '../MessageUpdate';
+import MessageUpdate from '../messageUpdate';
 
 export default function ClaimModal({
   modalName,

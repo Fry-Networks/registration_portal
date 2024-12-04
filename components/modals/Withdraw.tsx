@@ -5,7 +5,7 @@ import { useModal } from '../../app/modalcontext';
 import { useEffect, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from '../MessageUpdate';
+import MessageUpdate from '../messageUpdate';
 import axios from 'axios';
 import { getTokenBalance } from '../../pages/api/stake/get-token-balance';
 

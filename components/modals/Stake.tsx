@@ -15,7 +15,7 @@ import { RiCloseLine } from '@remixicon/react';
 import algosdk from 'algosdk';
 import { getTokenBalance } from '../../pages/api/stake/get-token-balance';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from '../MessageUpdate';
+import MessageUpdate from '../messageUpdate';
 import { useWallet } from '@txnlab/use-wallet';
 
 const devMode =
