@@ -100,7 +100,12 @@ export default ({ products }: { products: Product[] }) => {
       return false;
     }
 
-    if (device.names?.first_name && device.names.last_name && device.email) {
+    if (
+      device.is_registered &&
+      device.names?.first_name &&
+      device.names.last_name &&
+      device.email
+    ) {
       return true;
     }
 
