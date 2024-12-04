@@ -302,7 +302,7 @@ const StakeModal = ({
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            address: account.addr,
+            address: session.user.address,
             asset_id: product.reward.tokens!.stake
           })
         });
