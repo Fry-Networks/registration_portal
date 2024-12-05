@@ -68,10 +68,10 @@ export default async function handler(
       res.status(400).json({ message: 'Not found' });
       return;
     }
-    if (exists.is_registered) {
-      res.status(400).json({ message: 'Already registered' });
-      return;
-    }
+    // if (exists.is_registered) {
+    //   res.status(400).json({ message: 'Already registered' });
+    //   return;
+    // }
 
     const result = await collection.updateOne(
       { miner_key: miner_key },

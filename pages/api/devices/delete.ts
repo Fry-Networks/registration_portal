@@ -116,15 +116,15 @@ export default async function handler(
           is_registered: false
         },
         $unset: {
-          'staked.type': '',
-          'staked.amount': '',
-          'staked.time': '',
-          'staked.txid': '',
+          staked: '',
           verified: '',
           reward_wallet: '',
+          connectivity_wallet: '',
           names: '',
           position: '',
-          address: ''
+          address: '',
+          email: '',
+          nickname: ''
         }
       }
     );

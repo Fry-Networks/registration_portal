@@ -80,6 +80,16 @@ const DevicesPage = ({
         return;
       }
 
+      const result = await response.json();
+      if (result.device.is_registered) {
+        setUpdateSuccess({ status: 'error', message: 'Already registered' });
+        setTimeout(() => {
+          setUpdateSuccess({ status: 'error', message: '' });
+        }, 5_000);
+
+        return;
+      }
+
       const product = findProductByMinerKey(minerKey, products);
       if (!product) {
         setUpdateSuccess({
