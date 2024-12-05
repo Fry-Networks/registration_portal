@@ -160,7 +160,7 @@ export default function GenerateWallet({
                   closeModal(modalName);
                 }}
               >
-                save
+                Save
               </Button>
             )}
           </Flex>
