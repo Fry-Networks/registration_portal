@@ -31,7 +31,7 @@ export default function IndexPage() {
           <Title className="text-white text-3xl sm:text-5xl w-full text-center px-2">
             Register and Manage Your FRY Miners and Nodes with Fry Networks
           </Title>
-          <p className="text-lg px-2">
+          <p className="text-lg px-2 sm:px-20">
             Welcome to the Fry Networks Dashboard. Use this platform to
             seamlessly register, verify, and manage your miners and nodes. Stay
             connected to the Fry ecosystem and unlock rewards while contributing

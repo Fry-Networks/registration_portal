@@ -56,14 +56,14 @@ export default function RewardListItem({
                   }
                   onClick={() => handleClaimButton(reward)}
                 >
-                  Claim
+                  Claim Later (No Fee)
                 </Button>
                 <Button
                   className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
                   disabled={reward.status !== 'pending'}
                   onClick={() => handleBoostButton(reward)}
                 >
-                  Boost
+                  Claim Now (-30%)
                 </Button>
               </>
             </Flex>

@@ -15,11 +15,12 @@ mapboxgl.accessToken =
 const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
   const router = useRouter();
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const marker = useRef<mapboxgl.Marker | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isComplete, setIsComplete] = useState(false);
-  const [lng, setLng] = useState(0);
-  const [lat, setLat] = useState(0);
+  const [lng, setLng] = useState(0.0);
+  const [lat, setLat] = useState(0.0);
   const { data: session } = useSession();
   const [updateSuccess, setUpdateSuccess] = useState({
     status: 'success',
@@ -44,6 +45,18 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
         center: [lngLat.lng, lngLat.lat],
         zoom: mapRef.current.getZoom()
       });
+
+      if (!marker.current) {
+        const newMarker = new mapboxgl.Marker({
+          color: `#FF0000` // Specify the color here using a hex code, RGB, RGBA, or HSLA value
+        })
+          .setLngLat(lngLat)
+          .addTo(initializedMap);
+        marker.current = newMarker;
+      } else {
+        // Marker exists, move it to the new location
+        marker.current.setLngLat(lngLat);
+      }
     });
 
     return () => mapRef.current?.remove();
@@ -138,8 +151,14 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
               type="text"
               className="p-2 rounded border border-red-600 w-full "
               placeholder="Latitude"
-              value={lat}
-              onChange={(e) => setLat(Number(e.target.value))}
+              value={lat.toString()}
+              onChange={(e) => {
+                const input = e.target.value;
+
+                if (/^-?\d*\.?\d*$/.test(input)) {
+                  setLat(Number(input)); // Store the string value in state
+                }
+              }}
             />
             {errors.latitude && (
               <span className="text-red-500">{errors.latitude}</span>
@@ -152,8 +171,14 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
               type="text"
               className="p-2 rounded border border-red-600 w-full"
               placeholder="Longitude"
-              value={lng}
-              onChange={(e) => setLng(Number(e.target.value))}
+              value={lng.toString()}
+              onChange={(e) => {
+                const input = e.target.value;
+
+                if (/^-?\d*\.?\d*$/.test(input)) {
+                  setLat(Number(input)); // Store the string value in state
+                }
+              }}
             />
             {errors.longitude && (
               <span className="text-red-500">{errors.longitude}</span>

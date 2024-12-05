@@ -6,6 +6,11 @@ import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import algosdk, { Account, Algodv2 } from 'algosdk';
 import MessageUpdate from './messageUpdate';
+import { Button, Flex } from '@tremor/react';
+import PasteAddress from './PasteAddress';
+import WalletIcon from './WalletIcon';
+import { useModal } from '../app/modalcontext';
+import GenerateWallet from './modals/GenerateWallet';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -40,6 +45,7 @@ const WalletInfo = ({
     message: ''
   });
   const [connectivityFocus, setConnectivityFocus] = useState(false);
+  const { openModal } = useModal();
 
   async function hasOptedInForAsset(
     address: string,
@@ -133,6 +139,19 @@ const WalletInfo = ({
     }
   };
 
+  const handlePaste = () => {
+    setData({ ...data, reward_wallet: session?.user.address });
+  };
+
+  const handleGenWallet = () => {
+    console.log('Generate new wallet');
+    openModal('generate_wallet');
+  };
+
+  const saveGenerateWallet = (mnemonic: string) => {
+    setData({ ...data, connectivity_wallet: mnemonic });
+  };
+
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
@@ -150,40 +169,48 @@ const WalletInfo = ({
         </div>
         <div className="py-8 pl-6 pr-24 md:px-24 h-full relative">
           <form className="w-full">
-            <div>
+            <div className="w-full">
               <label className="block mb-2 text-white">
                 Reward Wallet Address <span className="text-red-500">*</span>
               </label>
-              <input
-                type="text"
-                className="w-full p-2 border border-red-600 rounded"
-                placeholder="Enter reward wallet address"
-                value={data.reward_wallet}
-                onChange={(e) =>
-                  setData({ ...data, reward_wallet: e.target.value })
-                }
-              />
+              <Flex flexDirection="row" className="gap-3">
+                <input
+                  type="text"
+                  className="w-full p-2 border border-red-600 rounded"
+                  placeholder="Enter reward wallet address"
+                  value={data.reward_wallet}
+                  onChange={(e) =>
+                    setData({ ...data, reward_wallet: e.target.value })
+                  }
+                />
+                <PasteAddress handlePaste={handlePaste} />
+              </Flex>
               {errors.reward_wallet && (
                 <span className="text-red-500 text-sm">
                   {errors.reward_wallet}
                 </span>
               )}
             </div>
+
             <div>
               <label className="block mb-2 mt-2 text-white">
-                Connectivity Private Key <span className="text-red-500">*</span>
+                PoC Wallet Secret Phrase <span className="text-red-500">*</span>
               </label>
-              <input
-                type={!connectivityFocus ? 'password' : 'text'}
-                className="w-full p-2 border border-red-600 rounded"
-                placeholder="Enter 25 word seed phrase of wallet"
-                value={data.connectivity_wallet}
-                onChange={(e) =>
-                  setData({ ...data, connectivity_wallet: e.target.value })
-                }
-                onFocus={() => setConnectivityFocus(true)}
-                onBlur={() => setConnectivityFocus(false)}
-              />
+              <Flex flexDirection="row" className="gap-3">
+                <input
+                  type={!connectivityFocus ? 'password' : 'text'}
+                  className="w-full p-2 border border-red-600 rounded"
+                  placeholder="Enter 25 word seed phrase of wallet"
+                  value={data.connectivity_wallet}
+                  onChange={(e) =>
+                    setData({ ...data, connectivity_wallet: e.target.value })
+                  }
+                  onFocus={() => setConnectivityFocus(true)}
+                  onBlur={() => setConnectivityFocus(false)}
+                  disabled={true}
+                />
+                <WalletIcon handleOnclick={handleGenWallet} />
+              </Flex>
               {errors.connectivity_wallet && (
                 <span className="text-red-500 text-sm">
                   {errors.connectivity_wallet}
@@ -219,6 +246,10 @@ const WalletInfo = ({
           </div>
         </div>
       </div>
+      <GenerateWallet
+        modalName="generate_wallet"
+        saveGenerateWallet={saveGenerateWallet}
+      />
     </div>
   );
 };
