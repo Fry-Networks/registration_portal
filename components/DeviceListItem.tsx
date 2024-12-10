@@ -7,7 +7,9 @@ import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
 import {
+  getAlgoBalance,
   getDeviceStatus,
+  getWalletAddress,
   isNodeProduct,
   isNodeStaked,
   isRegistartionStaked,
@@ -47,8 +49,9 @@ export default function DeviceListItem({
   const [deviceStatus, setDeviceStatus] = useState<{ [key: string]: string }>(
     {}
   );
-
   const [device, setDevice] = useState<Device>(initialDevice);
+  const [algoAmount, setAlgoAmount] = useState(0);
+
   const isDeviceStatusOkay = (device: Device) => {
     return device.verified && device.verified === true;
   };
@@ -138,6 +141,7 @@ export default function DeviceListItem({
 
   const checkDeviceStatus = async (device: Device) => {
     const deviceStatus = await getDeviceStatus(device);
+    console.log(deviceStatus);
 
     if (deviceStatus === undefined) {
       setAlertShow(false);
@@ -149,6 +153,17 @@ export default function DeviceListItem({
     setAlertShow(true);
   };
 
+  const fetchAlgoAmount = async (device: Device) => {
+    if (!device.connectivity_wallet) {
+      return;
+    }
+
+    const algoAmount = await getAlgoBalance(
+      getWalletAddress(device.connectivity_wallet)
+    );
+    setAlgoAmount(algoAmount);
+  };
+
   useEffect(() => {
     console.log('Device Fetch: ' + initialDevice.miner_key);
     fetchDeviceInfo(initialDevice.miner_key);
@@ -157,6 +172,7 @@ export default function DeviceListItem({
   useEffect(() => {
     fetchRewardAmounts(device, product);
     checkDeviceStatus(device);
+    fetchAlgoAmount(device);
   }, [device]);
 
   const viewHistory = async (): Promise<void> => {
@@ -249,6 +265,36 @@ export default function DeviceListItem({
                   )}
                 </p>
                 <CopyAddress address={device.reward_wallet} />
+              </>
+            ) : (
+              <p>
+                <strong className="text-white">Reward Wallet: </strong> None
+              </p>
+            )}
+          </Flex>
+          <Flex flexDirection="row">
+            {device.connectivity_wallet &&
+            device.connectivity_wallet.length > 0 ? (
+              <>
+                <p className="hidden md:block">
+                  <strong className="text-white">PoC Wallet: </strong>
+                  {`${getWalletAddress(device.connectivity_wallet)} (Algo: ${algoAmount})`}
+                </p>
+                <p className="block md:hidden">
+                  <strong className="text-white">PoC Wallet: </strong>
+                  {getWalletAddress(device.connectivity_wallet).slice(
+                    0,
+                    6
+                  )}...
+                  {getWalletAddress(device.connectivity_wallet).slice(
+                    getWalletAddress(device.connectivity_wallet).length - 6,
+                    getWalletAddress(device.connectivity_wallet).length
+                  )}
+                  {` (Algo: ${algoAmount})`}
+                </p>
+                <CopyAddress
+                  address={getWalletAddress(device.connectivity_wallet)}
+                />
               </>
             ) : (
               <p>

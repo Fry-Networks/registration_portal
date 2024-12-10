@@ -11,6 +11,7 @@ import PasteAddress from './PasteAddress';
 import WalletIcon from './WalletIcon';
 import { useModal } from '../app/modalcontext';
 import GenerateWallet from './modals/GenerateWallet';
+import { getWalletAddress } from '../lib/utils';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -146,15 +147,6 @@ const WalletInfo = ({
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
-  };
-
-  const getWalletAddress = (mnemonic: string) => {
-    if (mnemonic.length > 0) {
-      const account = algosdk.mnemonicToSecretKey(mnemonic);
-
-      return account.addr;
-    }
-    return '';
   };
 
   return (

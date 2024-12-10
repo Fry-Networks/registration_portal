@@ -1,4 +1,5 @@
 import { Device, Product } from './types';
+import algosdk from 'algosdk';
 
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
@@ -37,6 +38,41 @@ export const isNodeStaked = (device: Device) => {
   }
 
   return false;
+};
+
+export const getWalletAddress = (mnemonic: string) => {
+  if (mnemonic.length > 0) {
+    const account = algosdk.mnemonicToSecretKey(mnemonic);
+
+    return account.addr;
+  }
+  return '';
+};
+
+export const getAlgoBalance = async (address: string) => {
+  try {
+    const response = await fetch('api/algorand/get-algo-balance', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ address: address })
+    });
+
+    if (!response.ok) {
+      return 0;
+    }
+
+    const result = await response.json();
+    if (result.success) {
+      return result.balance;
+    } else {
+      return 0;
+    }
+  } catch (error) {
+    console.error(error);
+    return 0;
+  }
 };
 
 export const getDeviceStatus = async (
