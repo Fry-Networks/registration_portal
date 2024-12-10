@@ -75,7 +75,7 @@ export default async function handler(
       res.status(404).json({ message: 'not found' });
       return;
     }
-    if (!device.staked) {
+    if (!device.registration) {
       res.status(401).json({ message: 'Unauthorized 3' });
       return;
     }
@@ -84,23 +84,7 @@ export default async function handler(
       res.status(404).json({ message: 'Product not found' });
       return;
     }
-
-    const type = device.staked.type;
-    const check =
-      devMode ||
-      device.staked.asset_id !== product.reward.tokens?.stake ||
-      (type == 'one'
-        ? (Date.now() - new Date(device.staked.time).getTime()) /
-            (1000 * 60 * 60 * 24) >
-          1
-        : (Date.now() - new Date(device.staked.time).getTime()) /
-            (1000 * 60 * 60 * 24) >
-          180);
-    if (!check) {
-      res.status(401).json({ message: 'Unauthorized 4' });
-      return;
-    }
-    const amount = device.staked.amount;
+    const amount = device.registration.amount;
     if (!amount) {
       res.status(401).json({ message: 'Unauthorized 5' });
       return;
@@ -108,7 +92,7 @@ export default async function handler(
 
     let result = 'success';
 
-    const asset_id = device.staked?.asset_id ?? fryCryptoAssetId;
+    const asset_id = device.registration?.asset_id ?? fryCryptoAssetId;
     console.log('AssetID: ' + asset_id);
 
     result = await withdraw(miner_key, address, amount, asset_id);
@@ -123,13 +107,12 @@ export default async function handler(
       { miner_key },
       {
         $set: {
-          staked: {
+          registration: {
             amount: 0,
             txId: result,
             time: new Date(),
-            rewarded_time: new Date()
-          },
-          verified: false
+            asset_id: asset_id
+          }
         }
       }
     );

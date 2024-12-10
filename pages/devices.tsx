@@ -8,8 +8,7 @@ import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
 import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Device } from '../lib/types';
-import { Product } from './api/stake/verify-stake';
+import { Device, Product } from '../lib/types';
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
@@ -24,6 +23,9 @@ import WithdrawModal from '../components/modals/Withdraw';
 import BoostModal from '../components/modals/Boost';
 import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
+import { useToastContext } from '../hooks/ToastContext';
+import WithdrawAllModal from '../components/modals/WithdarwAll';
+import { isNodeStaked, isRegistartionStaked } from '../lib/utils';
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -31,7 +33,6 @@ export function isProductStakeAvailable(product: Product) {
     result = true;
   }
 
-  console.log(result);
   return result;
 }
 
@@ -51,15 +52,12 @@ const DevicesPage = ({
   const router = useRouter();
   const { openModal } = useModal();
 
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
-
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
+
+  const toast = useToastContext();
 
   const handleAdd = () => {
     console.log('Add devices');
@@ -67,84 +65,72 @@ const DevicesPage = ({
   };
 
   const handleRegister = async (minerKey: string): Promise<void> => {
-    console.log(minerKey);
-
     try {
       const response = await fetch(`/api/devices/${minerKey}`);
       if (!response.ok) {
-        setUpdateSuccess({ status: 'error', message: 'Device not found' });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({ heading: 'Error', message: 'Device not found' });
 
         return;
       }
 
       const result = await response.json();
       if (result.device.is_registered) {
-        setUpdateSuccess({ status: 'error', message: 'Already registered' });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({ heading: 'Error', message: 'Already registered' });
 
         return;
       }
 
-      const product = findProductByMinerKey(minerKey, products);
-      if (!product) {
-        setUpdateSuccess({
-          status: 'error',
-          message: 'Product for miner is not found'
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-        return;
-      }
-
-      console.log(product);
-
-      if (
-        product.reward.stake &&
-        product.reward.stake.register > 0 &&
-        product.reward.tokens?.register &&
-        product.reward.tokens.register !== 'none'
-      ) {
-        router.push({ pathname: '/pay-register', query: { minerKey } });
-      } else {
-        router.push({ pathname: '/register', query: { minerKey } });
-      }
+      router.push({ pathname: '/register', query: { minerKey } });
     } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
+      toast.error({
+        heading: 'Error',
         message:
-          'There is an error occured for registering. Please contact us before you try again.'
+          'There is an error occured for registering. Please contact us before you try again'
       });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
       return;
     }
   };
 
   const handleDeleteButton = (device: Device) => {
     setSelectedDevice(device);
+
+    console.log('Verification: ' + device.verified);
+    if (isRegistartionStaked(device) || isNodeStaked(device)) {
+      toast.warning({
+        heading: 'Warning',
+        message:
+          "Please withdraw registration or node staked amount with 'Withdraw All' first"
+      });
+      return;
+    }
     openModal('delete');
   };
 
   const handleDelete = async (miner_key: string): Promise<void> => {
     // Send a request to delete the device from the backend
-    setUpdateSuccess({
-      status: 'success',
-      message: 'Un-Registered devices succesfully'
-    });
-    setTimeout(() => {
-      setUpdateSuccess({ status: 'success', message: '' });
-    }, 5_000);
-
     setDevices((prevDevices) =>
       prevDevices.filter((device) => device.miner_key !== miner_key)
     );
+  };
+
+  const handleWithdrawAll = async (device: Device): Promise<void> => {
+    const updatedMiners = devices.map((value) => {
+      if (value.miner_key !== device.miner_key) {
+        return value;
+      } else {
+        let returnDevice = { ...value };
+        if (returnDevice.registration) {
+          returnDevice.registration = undefined;
+        }
+
+        if (returnDevice.node) {
+          returnDevice.node = undefined;
+        }
+
+        return returnDevice;
+      }
+    }) as Device[];
+    setDevices(updatedMiners);
   };
 
   const handleChange = async (miner_key: string): Promise<void> => {
@@ -152,10 +138,10 @@ const DevicesPage = ({
     try {
       const response = await fetch(`/api/devices/${miner_key}`);
       if (!response.ok) {
-        setUpdateSuccess({ status: 'error', message: 'Device not found.' });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({
+          heading: 'Error',
+          message: `Device not found.`
+        });
       }
 
       router.push({
@@ -163,14 +149,16 @@ const DevicesPage = ({
         query: { minerKey: miner_key, clickable: 'true' }
       });
     } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
-        message: 'Failed to fetch device information.'
+      toast.error({
+        heading: 'Error',
+        message: `Failed to fetch device information.`
       });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
     }
+  };
+
+  const handleStaking = async (miner_key: string): Promise<void> => {
+    // Redirect to an edit page where the device details can be modified
+    router.push({ pathname: '/pay-register', query: { minerKey: miner_key } });
   };
 
   const handleWithdrawStake = (device: Device): void => {
@@ -182,6 +170,12 @@ const DevicesPage = ({
     } else {
       openModal('withdraw');
     }
+  };
+
+  const handleWithdrawAllButton = (device: Device): void => {
+    setSelectedDevice(device);
+
+    openModal('withdraw_all');
   };
 
   const handleClaimButton = (device: Device) => {
@@ -207,15 +201,6 @@ const DevicesPage = ({
       }
     }) as Device[];
 
-    setUpdateSuccess({
-      status: 'success',
-      message: `Miner ${selectedDevice.miner_key} boosted successfully`
-    });
-
-    setTimeout(() => {
-      setUpdateSuccess({ status: 'success', message: '' });
-    }, 5_000);
-
     setDevices(updateDevices);
   };
 
@@ -231,15 +216,6 @@ const DevicesPage = ({
         };
       }
     }) as Device[];
-
-    setUpdateSuccess({
-      status: 'success',
-      message: message
-    });
-
-    setTimeout(() => {
-      setUpdateSuccess({ status: 'success', message: '' });
-    }, 5_000);
 
     setDevices(updateDevices);
   };
@@ -257,15 +233,6 @@ const DevicesPage = ({
       }
     }) as Device[];
 
-    setUpdateSuccess({
-      status: 'success',
-      message: `Miner ${device.miner_key} verified successfully`
-    });
-
-    setTimeout(() => {
-      setUpdateSuccess({ status: 'success', message: '' });
-    }, 5_000);
-
     setDevices(updateDevices);
   };
 
@@ -281,15 +248,6 @@ const DevicesPage = ({
         };
       }
     }) as Device[];
-
-    setUpdateSuccess({
-      status: 'success',
-      message: `Miner ${device.miner_key} unverified successfully`
-    });
-
-    setTimeout(() => {
-      setUpdateSuccess({ status: 'success', message: '' });
-    }, 5_000);
 
     setDevices(updateDevices);
   };
@@ -309,7 +267,7 @@ const DevicesPage = ({
           <Title className="text-white text-4xl sm:text-5xl w-full text-center">
             Onboard your miners to Fry networks
           </Title>
-          <p className="text-lg text-center">
+          <p className="text-lg text-center px-2">
             You can register your miners to onboard on Fry networks and can
             verify and manage miner information here.
           </p>
@@ -354,9 +312,6 @@ const DevicesPage = ({
           </Button>
         </Flex>
       </div>
-      <div className="px-2 sm:px-20">
-        <MessageUpdate updateSuccess={updateSuccess} />
-      </div>
       <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
         {devices.length > 0 ? (
           devices.map((device, index) => {
@@ -367,11 +322,13 @@ const DevicesPage = ({
                 initialDevice={device}
                 product={product!}
                 stakeable={isProductStakeAvailable(product!)}
+                handleStaking={handleStaking}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
                 handleBoostButton={handleBoostButton}
                 handleClaimButton={handleClaimButton}
                 handleWithdrawStake={handleWithdrawStake}
+                handleWithdrawAllButton={handleWithdrawAllButton}
               />
             );
           })
@@ -408,6 +365,11 @@ const DevicesPage = ({
             modalName="delete"
             miner_key={selectedDevice.miner_key}
             handleDelete={handleDelete}
+          />
+          <WithdrawAllModal
+            modalName="withdraw_all"
+            device={selectedDevice}
+            handleWithdrawAll={handleWithdrawAll}
           />
         </>
       )}

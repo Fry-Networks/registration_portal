@@ -3,9 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
-import { Product } from '../stake/verify-stake';
-import { getTokenBalance } from '../stake/get-token-balance';
+import { getTokenBalance } from '../algorand/get-token-balance';
 import { withdraw } from '../stake/stake-withdraw';
+import { Product } from '../../../lib/types';
 
 export default async function handler(
   req: NextApiRequest,
@@ -49,66 +49,6 @@ export default async function handler(
       return;
     }
 
-    if (exists.registration !== undefined) {
-      const asset_id = exists.registration.asset_id;
-      const amount = exists.registration.amount;
-
-      const result = await withdraw(miner_key, address, amount, asset_id);
-      if (!result) {
-        res.status(500).json({ message: 'error' });
-        return;
-      }
-
-      console.log(result);
-
-      const updateResult = await collection.updateOne(
-        { miner_key },
-        {
-          $unset: {
-            registration: ''
-          }
-        }
-      );
-
-      if (updateResult.matchedCount <= 0) {
-        res.status(200).json({
-          result: 'fail',
-          message:
-            'Failed to delete registration staking information. Please check miner key and try again. If failed again please contact us.'
-        });
-      }
-    }
-
-    if (exists.node !== undefined) {
-      const asset_id = exists.node.asset_id;
-      const amount = exists.node.amount;
-
-      const result = await withdraw(miner_key, address, amount, asset_id);
-      if (!result) {
-        res.status(500).json({ message: 'error' });
-        return;
-      }
-
-      console.log(result);
-
-      const updateResult = await collection.updateOne(
-        { miner_key },
-        {
-          $unset: {
-            node: ''
-          }
-        }
-      );
-
-      if (updateResult.matchedCount <= 0) {
-        res.status(200).json({
-          result: 'fail',
-          message:
-            'Failed to delete node staking information. Please check miner key and try again. If failed again please contact us.'
-        });
-      }
-    }
-
     const result = await collection.updateOne(
       { miner_key: miner_key },
       {
@@ -124,7 +64,10 @@ export default async function handler(
           position: '',
           address: '',
           email: '',
-          nickname: ''
+          nickname: '',
+          registration: '',
+          node: '',
+          note: ''
         }
       }
     );

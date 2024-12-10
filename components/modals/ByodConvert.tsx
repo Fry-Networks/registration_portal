@@ -11,6 +11,7 @@ import {
 import { RiCloseLine } from '@remixicon/react';
 import { useModal } from '../../app/modalcontext';
 import MessageUpdate from '../messageUpdate';
+import { useToastContext } from '../../hooks/ToastContext';
 
 interface ByodConvertModalProps {
   modalName: string;
@@ -30,11 +31,8 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
   ]);
   const [selectedProduct, setSelectedProduct] = useState('');
   const [byodLicense, setByodLicense] = useState('');
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
   const [miner_key, setMinerKey] = useState('');
+  const toast = useToastContext();
 
   const handleConvert = async () => {
     const response = await fetch('/api/convert-byod', {
@@ -46,22 +44,14 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
     });
     const data = await response.json();
     if (response.ok) {
-      setUpdateSuccess({
-        status: 'success',
+      toast.success({
+        heading: 'Byod Convert Success',
         message: 'Successfully converted your byod license'
       });
-      setTimeout(
-        () => setUpdateSuccess({ status: 'success', message: '' }),
-        15_000
-      );
       setMinerKey(data.miner_key);
     } else {
       setByodLicense('');
-      setUpdateSuccess({ status: 'error', message: data.message });
-      setTimeout(
-        () => setUpdateSuccess({ status: 'error', message: '' }),
-        15_000
-      );
+      toast.success({ heading: 'Byod Convert Error', message: data.message });
     }
   };
 
@@ -107,7 +97,6 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
           </button>
         </div>
         <Title className="mb-5">Convert your BYOD license to a Miner Key</Title>
-        <MessageUpdate updateSuccess={updateSuccess} />
 
         <TextInput
           type="text"

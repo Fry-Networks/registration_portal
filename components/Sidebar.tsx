@@ -7,7 +7,6 @@ interface SidebarProps {
     map: boolean;
   };
   isOpen: boolean;
-  isClickable: boolean;
   toggleSidebar: () => void;
   setCurrentSection: (section: number) => void;
   currentSection: number; // Add currentSection prop to keep track of active section
@@ -16,7 +15,6 @@ interface SidebarProps {
 export default ({
   completionStatus,
   isOpen,
-  isClickable,
   toggleSidebar,
   setCurrentSection,
   currentSection
@@ -37,7 +35,9 @@ export default ({
       )}
       <div
         onClick={() => {
-          setCurrentSection(0);
+          if (completionStatus.device) {
+            setCurrentSection(0);
+          }
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 mt-16 ${currentSection === 0 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -53,7 +53,10 @@ export default ({
       </div>
       <div
         onClick={() => {
-          setCurrentSection(1);
+          if (completionStatus.wallet || completionStatus.device) {
+            setCurrentSection(1);
+          }
+
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 1 ? 'bg-gray-800 p-2 rounded' : ''}`}
@@ -69,7 +72,13 @@ export default ({
       </div>
       <div
         onClick={() => {
-          setCurrentSection(2);
+          if (
+            completionStatus.map ||
+            (completionStatus.device && completionStatus.wallet)
+          ) {
+            setCurrentSection(2);
+          }
+
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 2 ? 'bg-gray-800 p-2 rounded' : ''}`}

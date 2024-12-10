@@ -5,6 +5,7 @@ import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
+import { useToastContext } from '../../hooks/ToastContext';
 
 export default function DeleteModal({
   modalName,
@@ -17,11 +18,8 @@ export default function DeleteModal({
 }) {
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
   const { data: session } = useSession();
+  const toast = useToastContext();
 
   const unRegisterDevice = async () => {
     console.log('Deleting');
@@ -42,30 +40,25 @@ export default function DeleteModal({
       console.log(data);
       if (response.ok) {
         if (data.result === 'ok') {
+          toast.success({
+            heading: 'Unregister Success',
+            message: `Device ${miner_key} unregistered successfully`
+          });
           closeModal(modalName);
           handleDelete(miner_key);
         } else {
-          setUpdateSuccess({ status: 'error', message: data.message });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
+          toast.error({ heading: 'Unregister Error', message: data.message });
         }
       } else {
-        setUpdateSuccess({ status: 'error', message: data.message });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({ heading: 'Unregister Error', message: data.message });
       }
       setIsProcessing(false);
       return;
     } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
+      toast.error({
+        heading: 'Unregister Error',
         message: 'Error on server side'
       });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
 
       setIsProcessing(false);
       return;
@@ -94,9 +87,6 @@ export default function DeleteModal({
             </button>
           </div>
           <Title className="mb-5">Un-Register Device</Title>
-          <div className="px-2 sm:px-20">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <Flex
             flexDirection="col"
             alignItems="stretch"

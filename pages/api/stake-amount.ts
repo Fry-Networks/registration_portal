@@ -41,7 +41,6 @@ export default async function handler(
       res.status(404).json({ message: 'not found' });
       return;
     }
-    console.log(product);
     /*let price = await getFRYPrice();
         if (!price) return 1;
         const USD = product.reward.stake ?? 0;

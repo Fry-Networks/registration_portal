@@ -27,18 +27,21 @@ export default async function handler(
   }
 
   const data: {
-    miner_key: string;
     asset_id: string;
     from: string;
     to: string;
     amount: number;
+    note: string;
+    staking?: boolean;
   } = req.body;
-  const { miner_key, asset_id, from, to, amount } = data;
+  const { asset_id, from, to, amount, note, staking } = data;
 
   try {
     // Convert mnemonic to secret key
     const account = algosdk.mnemonicToSecretKey(
-      process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
+      staking
+        ? process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
+        : process.env.STAKE_MNEMONIC!
     );
 
     const from = account.addr.toString();
@@ -47,19 +50,9 @@ export default async function handler(
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();
 
-    const noteInfo = {
-      miner_key:
-        miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
-      asset_id: asset_id,
-      from: from,
-      to: to,
-      amount: amount,
-      date: new Date(Date.now())
-    };
-
-    console.log(noteInfo);
+    console.log(note);
     const enc = new TextEncoder();
-    const note = enc.encode(JSON.stringify(noteInfo));
+    const encodedNote = enc.encode(note);
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -67,7 +60,7 @@ export default async function handler(
       to,
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
-      note,
+      note: encodedNote,
       suggestedParams
     });
 

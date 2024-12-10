@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
+import { useToastContext } from '../../hooks/ToastContext';
 
 export default function ClaimModal({
   modalName,
@@ -18,10 +19,7 @@ export default function ClaimModal({
 }) {
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+  const toast = useToastContext();
 
   const claimRewards = async () => {
     console.log('Boosting');
@@ -39,13 +37,7 @@ export default function ClaimModal({
 
       const result = await response.json();
       if (!response.ok) {
-        setUpdateSuccess({
-          status: 'error',
-          message: result.message
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({ heading: 'Claim Error', message: result.message });
 
         setIsProcessing(false);
         return;
@@ -56,29 +48,17 @@ export default function ClaimModal({
         result.result.map((value: any) => value.txId).join(',');
 
       if (result.success) {
+        toast.error({ heading: 'Claim Success', message: `Txs: ${theMsg}` });
         setIsProcessing(false);
         closeModal(modalName);
         handleClaim(true, theMsg);
       } else {
-        setUpdateSuccess({
-          status: 'error',
-          message: result.message
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-
+        toast.error({ heading: 'Claim Error', message: result.message });
         setIsProcessing(false);
         return;
       }
     } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
-        message: 'Error on server side'
-      });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
+      toast.error({ heading: 'Claim Error', message: 'Error on server side' });
 
       setIsProcessing(false);
       return;
@@ -108,9 +88,6 @@ export default function ClaimModal({
             </button>
           </div>
           <Title className="mb-5">Claim Rewards</Title>
-          <div className="px-2 sm:px-20">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <Flex
             flexDirection="col"
             alignItems="stretch"

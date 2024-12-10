@@ -1,44 +1,103 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
-import algosdk, { Account } from 'algosdk';
+import { useToastContext } from '../../hooks/ToastContext';
+import { isNodeStaked, isRegistartionStaked } from '../../lib/utils';
 
-export default function GenerateWallet({
+export default function WithdrawAllModal({
   modalName,
-  saveGenerateWallet
+  device,
+  handleWithdrawAll
 }: {
   modalName: string;
-  saveGenerateWallet: (mnemonic: string) => void;
+  device: Device;
+  handleWithdrawAll: (device: Device) => Promise<void>;
 }) {
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [account, setAccount] = useState<Account | undefined>(undefined);
-  const [mnemonic, setMnemonic] = useState('');
   const { data: session } = useSession();
+  const toast = useToastContext();
 
-  const handleGenerate = () => {
-    const account = algosdk.generateAccount();
-    setAccount(account);
-  };
+  const withdrawAll = async () => {
+    setIsProcessing(true);
+    try {
+      if (isRegistartionStaked(device)) {
+        const response = await fetch('/api/stake/r-withdraw', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            address: session?.user.address,
+            miner_key: device.miner_key
+          })
+        });
 
-  useEffect(() => {
-    if (account === undefined) {
-      setMnemonic('');
+        if (!response.ok) {
+          toast.error({
+            heading: 'Withdraw Error',
+            message: 'Failed to withdraw registration staking'
+          });
+
+          setIsProcessing(false);
+          return;
+        }
+
+        const result = await response.json();
+        toast.success({
+          heading: 'Withdarw Registraion Success',
+          message: `Tx: ${result.txId}`
+        });
+      }
+
+      if (isNodeStaked(device)) {
+        const response = await fetch('/api/stake/n-withdraw', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            address: session?.user.address,
+            miner_key: device.miner_key
+          })
+        });
+
+        if (!response.ok) {
+          toast.error({
+            heading: 'Withdraw Error',
+            message: 'Failed to withdraw node staking'
+          });
+
+          setIsProcessing(false);
+          return;
+        }
+
+        const result = await response.json();
+        toast.success({
+          heading: 'Withdarw Node Success',
+          message: `Tx: ${result.txId}`
+        });
+      }
+
+      setIsProcessing(false);
+      closeModal(modalName);
+      handleWithdrawAll(device);
+    } catch (error) {
+      console.error(error);
+
+      toast.error({
+        heading: 'Withdraw Error',
+        message:
+          'Failed to withdraw the token. Please contact us before you try again'
+      });
+      setIsProcessing(false);
       return;
     }
-
-    const privateKey = account.sk;
-    const address = account.addr;
-
-    const mnemonic = algosdk.secretKeyToMnemonic(privateKey);
-
-    console.log(mnemonic);
-    setMnemonic(mnemonic);
-  }, [account]);
+  };
 
   return (
     <div>
@@ -55,33 +114,21 @@ export default function GenerateWallet({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              onClick={() => {
-                if (!isProcessing) {
-                  setAccount(undefined);
-                  closeModal(modalName);
-                }
-              }}
+              onClick={() => !isProcessing && closeModal(modalName)}
               aria-label="Close"
             >
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-3">Generate New Wallet</Title>
+          <Title className="mb-5">Withdraw All</Title>
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-2 "
+            className="gap-3 w-full mt-5"
           >
-            <p>Genreate new wallet that you can use for PoC wallet</p>
+            <p>Do you want to withdraw registration and node staking?</p>
           </Flex>
-          {mnemonic && (
-            <div className="mt-1">
-              <strong>Generated Wallet Address: </strong>
-              <p className="sm:text-sm hidden sm:block">{account?.addr}</p>
-              <p className="sm:text-sm block sm:hidden">{`${account?.addr.slice(0, 14)} ... ${account?.addr.slice(account?.addr.length - 15, account?.addr.length - 1)}`}</p>
-            </div>
-          )}
           <Flex
             flexDirection="row"
             justifyContent="center"
@@ -89,12 +136,7 @@ export default function GenerateWallet({
           >
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
-              onClick={() => {
-                if (!isProcessing) {
-                  setAccount(undefined);
-                  closeModal(modalName);
-                }
-              }}
+              onClick={() => !isProcessing && closeModal(modalName)}
             >
               Close
             </Button>
@@ -102,7 +144,7 @@ export default function GenerateWallet({
               className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
-              onClick={() => handleGenerate()}
+              onClick={() => withdrawAll()}
             >
               {isProcessing ? (
                 <svg
@@ -134,26 +176,10 @@ export default function GenerateWallet({
                     strokeLinecap="round"
                   />
                 </svg>
-              ) : !account ? (
-                'Generate'
               ) : (
-                'Regenerate'
+                'Yes'
               )}
             </Button>
-            {account && (
-              <Button
-                className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
-                  isProcessing ? 'cursor-not-allowed' : 'cursor-default'
-                }`}
-                onClick={() => {
-                  saveGenerateWallet(mnemonic);
-                  setAccount(undefined);
-                  closeModal(modalName);
-                }}
-              >
-                Save
-              </Button>
-            )}
           </Flex>
         </DialogPanel>
       </Dialog>

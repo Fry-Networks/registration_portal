@@ -14,9 +14,10 @@ import MessageUpdate from '../components/messageUpdate';
 import { useEffect, useState } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Product } from './api/stake/verify-stake';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import Link from 'next/link';
+import { Product } from '../lib/types';
+import { useToastContext } from '../hooks/ToastContext';
 
 export default function Convert({ products }: { products: Product[] }) {
   const [byodLicense, setByodLicense] = useState('');
@@ -25,10 +26,7 @@ export default function Convert({ products }: { products: Product[] }) {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const { devAccount } = useDevWallet();
   const { data: session } = useSession();
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+  const toast = useToastContext();
 
   const isAllowed = (key: string) => {
     if (['OLWQM', 'OHWQM', 'EM', 'RDN', 'IRM', 'SVN', 'CN'].includes(key)) {
@@ -69,22 +67,17 @@ export default function Convert({ products }: { products: Product[] }) {
 
     const data = await response.json();
     if (response.ok) {
-      setUpdateSuccess({
-        status: 'success',
-        message: 'Successfully covnerted your byod license'
+      toast.success({
+        heading: 'Convert Success',
+        message: 'Converted your byod license to miner key'
       });
-      setTimeout(
-        () => setUpdateSuccess({ status: 'success', message: '' }),
-        15_000
-      );
       setMinerKey(data.miner_key);
     } else {
       setByodLicense('');
-      setUpdateSuccess({ status: 'error', message: '' });
-      setTimeout(
-        () => setUpdateSuccess({ status: 'error', message: '' }),
-        15_000
-      );
+      toast.error({
+        heading: 'Convert Error',
+        message: 'Failed to convert byod license to miner key'
+      });
     }
   };
 
@@ -110,7 +103,6 @@ export default function Convert({ products }: { products: Product[] }) {
       </div>
 
       <Flex flexDirection="col" className="px-4 sm:px-20 ">
-        <MessageUpdate updateSuccess={updateSuccess} />
         <div className="w-full mt-5" key={`input`}>
           <TextInput
             type="text"
@@ -142,7 +134,7 @@ export default function Convert({ products }: { products: Product[] }) {
         <Flex flexDirection="row" justifyContent="center" className="gap-3">
           <Link href="/devices">
             <Button className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
-              Back
+              {`< Back`}
             </Button>
           </Link>
 

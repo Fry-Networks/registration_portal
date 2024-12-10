@@ -6,10 +6,12 @@ import MapInfo from '../components/MapInfo';
 import Stake from '../components/modals/Stake';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import WalletInfo from '../components/WalletInfo';
-import { Device } from '../lib/types';
-import { getSession } from 'next-auth/react';
+import { Device, Product } from '../lib/types';
+import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Product } from './api/stake/verify-stake';
+import { useToastContext } from '../hooks/ToastContext';
+import { isNodeStakingNeeded, isRegistrationNeeded } from '../lib/utils';
+import { findProductByMinerKey } from './devices';
 
 export default ({ products }: { products: Product[] }) => {
   const router = useRouter();
@@ -22,6 +24,8 @@ export default ({ products }: { products: Product[] }) => {
   const { minerKey, clickable } = router.query;
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const [product, setProduct] = useState<Product | undefined>(undefined);
+  const toast = useToastContext();
+  const { data: session } = useSession();
 
   console.log(`MinerKey: ${minerKey}`);
 
@@ -30,10 +34,7 @@ export default ({ products }: { products: Product[] }) => {
       return;
     }
 
-    console.log(minerKey);
-
     const fetchDeviceInfo = async (minerKey: string) => {
-      console.log(minerKey);
       try {
         const response = await fetch(`/api/devices/${minerKey}`);
         if (response.ok) {
@@ -49,7 +50,7 @@ export default ({ products }: { products: Product[] }) => {
     };
 
     fetchDeviceInfo(minerKey);
-  }, [minerKey, currentSection]);
+  }, [minerKey]);
 
   const findProduct = (minerKey: string) => {
     const key = minerKey.split('-')[0];
@@ -62,6 +63,10 @@ export default ({ products }: { products: Product[] }) => {
     return specificProduct;
   };
 
+  const isDeviceInfoOk = () => {
+    deviceInfoData;
+  };
+
   useEffect(() => {
     if (device === undefined) {
       return;
@@ -69,88 +74,31 @@ export default ({ products }: { products: Product[] }) => {
 
     setProduct(findProduct(device.miner_key));
 
-    setDeviceStatus(isDeviceInfoInputed());
-    setWalletStatus(isWalletInfoInputed());
-    setLocationStatus(isMapinfoInputed());
-    setStakeStatus(isStaked());
+    if (clickable) {
+      setDeviceInfoData({
+        email: device.email,
+        firstName: device.names?.first_name ?? '',
+        lastName: device.names?.last_name ?? '',
+        nickname: device.nickname ?? ''
+      });
 
-    setDeviceInfoData({
-      email: device.email,
-      firstName: device.names ? device.names.first_name : '',
-      lastName: device.names ? device.names.last_name : '',
-      nickname: device.nickname ? device.nickname : ''
-    });
+      setWalletInfoData({
+        reward_wallet: device.reward_wallet ?? '',
+        connectivity_wallet: device.connectivity_wallet ?? '',
+        note: device.note ?? ''
+      });
 
-    setWalletInfoData({
-      reward_wallet: device.reward_wallet ? device.reward_wallet : '',
-      connectivity_wallet: device.connectivity_wallet
-        ? device.connectivity_wallet
-        : '',
-      note: device.note ?? ''
-    });
+      setMapInfoData({
+        latitude: device.position?.lat.toString() ?? '',
+        longitude: device.position?.lng.toString() ?? ''
+      });
 
-    setMapInfoData({
-      latitude: device.position ? device.position.lat.toString() : '0',
-      longitude: device.position ? device.position.lng.toString() : '0'
-    });
+      setDeviceStatus(true);
+      setWalletStatus(true);
+      setLocationStatus(true);
+    }
   }, [device]);
 
-  const isDeviceInfoInputed = () => {
-    if (!device) {
-      return false;
-    }
-
-    if (
-      device.is_registered &&
-      device.names?.first_name &&
-      device.names.last_name &&
-      device.email
-    ) {
-      return true;
-    }
-
-    return false;
-  };
-
-  const isMapinfoInputed = () => {
-    if (!device) {
-      return false;
-    }
-
-    if (!device.position) {
-      return false;
-    }
-
-    return true;
-  };
-
-  const isWalletInfoInputed = () => {
-    if (!device) {
-      return false;
-    }
-
-    if (!device.reward_wallet || device.reward_wallet.length <= 0) {
-      return false;
-    }
-
-    if (!device.connectivity_wallet || device.connectivity_wallet.length <= 0) {
-      return false;
-    }
-
-    return true;
-  };
-
-  const isStaked = () => {
-    if (!device) {
-      return false;
-    }
-
-    if (!device.verified) {
-      return false;
-    }
-
-    return true;
-  };
   // State for each form's data
   const [deviceInfoData, setDeviceInfoData] = useState({
     email: '',
@@ -175,6 +123,166 @@ export default ({ products }: { products: Product[] }) => {
     { id: 2, title: 'Map Information' }
   ];
 
+  const saveDeviceInformation = async (): Promise<boolean> => {
+    const saveData = {
+      miner_key: minerKey,
+      email: deviceInfoData.email,
+      names: {
+        first_name: deviceInfoData.firstName,
+        last_name: deviceInfoData.lastName
+      },
+      nickname: deviceInfoData.nickname,
+      address: session?.user.address
+    };
+
+    console.log(saveData);
+
+    const response = await fetch('/api/devices/save-device-info', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(saveData)
+    });
+
+    if (response.ok) {
+      toast.success({
+        heading: 'Success',
+        message: 'Device information saved successfully'
+      });
+      return true;
+    } else {
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save device information'
+      });
+
+      return false;
+    }
+  };
+
+  const saveWalletInformation = async (): Promise<boolean> => {
+    try {
+      const saveData = {
+        miner_key: minerKey,
+        reward_wallet: walletInfoData.reward_wallet,
+        connectivity_wallet: walletInfoData.connectivity_wallet,
+        note: walletInfoData.note,
+        address: session?.user.address
+      };
+      const response = await fetch('/api/devices/save-wallet-info', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(saveData)
+      });
+
+      if (response.ok) {
+        toast.success({
+          heading: 'Success',
+          message: 'Save wallet information successfully'
+        });
+        return true;
+      } else {
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to save wallet information'
+        });
+
+        return false;
+      }
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save wallet information'
+      });
+
+      return false;
+    }
+  };
+
+  const saveMapInformation = async (): Promise<boolean> => {
+    try {
+      const saveData = {
+        miner_key: minerKey,
+        position: {
+          lat: mapInfoData.latitude,
+          lng: mapInfoData.longitude
+        },
+        address: session?.user.address
+      };
+      // Optionally send to backend
+      const response = await fetch('/api/devices/save-map-info', {
+        method: 'POST',
+        body: JSON.stringify(saveData),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (response.ok) {
+        toast.success({
+          heading: 'Success',
+          message: 'Save map information successfully'
+        });
+      } else {
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to save wallet information'
+        });
+
+        return false;
+      }
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save wallet information'
+      });
+      return false;
+    }
+
+    return true;
+  };
+
+  const registerDevice = async () => {
+    let result = true;
+    result = await saveDeviceInformation();
+    result = result && (await saveWalletInformation());
+    result = result && (await saveMapInformation());
+
+    console.log('Saving information result: ' + result);
+
+    if (result) {
+      const response = await fetch('api/registrations/register', {
+        method: 'POST',
+        body: JSON.stringify({
+          miner_key: minerKey,
+          address: session?.user.address
+        }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to register device'
+        });
+
+        return;
+      }
+
+      const product = findProductByMinerKey(device!.miner_key, products);
+      if (
+        product &&
+        isRegistrationNeeded(product) &&
+        isNodeStakingNeeded(product)
+      ) {
+        router.push({ pathname: '/pay-register', query: { minerKey } });
+      } else {
+        router.push('/devices');
+      }
+    }
+  };
+
   const handleNext = () => {
     switch (currentSection) {
       case 0:
@@ -192,7 +300,7 @@ export default ({ products }: { products: Product[] }) => {
     if (currentSection < sections.length - 1) {
       setCurrentSection((prev) => prev + 1);
     } else {
-      router.push('/devices');
+      registerDevice();
     }
   };
 
@@ -216,7 +324,6 @@ export default ({ products }: { products: Product[] }) => {
           wallet: walletStatus,
           map: locationStatus
         }}
-        isClickable={clickable === 'true'}
         isOpen={isSidebarOpen}
         toggleSidebar={toggleSidebar}
         setCurrentSection={setCurrentSection} // Added to handle sidebar navigation
@@ -240,7 +347,7 @@ export default ({ products }: { products: Product[] }) => {
         >
           <div className="flex-shrink-0 w-full h-full">
             <DeviceInfo
-              status={isDeviceInfoInputed()}
+              status={deviceStatus}
               minerKey={minerKey}
               data={deviceInfoData}
               setData={setDeviceInfoData}
@@ -250,7 +357,7 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <WalletInfo
-              status={isWalletInfoInputed()}
+              status={walletStatus}
               minerKey={minerKey}
               data={walletInfoData}
               setData={setWalletInfoData}
@@ -261,7 +368,7 @@ export default ({ products }: { products: Product[] }) => {
           </div>
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
-              status={isMapinfoInputed()}
+              status={locationStatus}
               minerKey={minerKey}
               data={mapInfoData}
               setData={setMapInfoData}

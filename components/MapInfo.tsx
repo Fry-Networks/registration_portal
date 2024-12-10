@@ -22,10 +22,6 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
   const [lng, setLng] = useState(0.0);
   const [lat, setLat] = useState(0.0);
   const { data: session } = useSession();
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
 
   useEffect(() => {
     const initializedMap = new mapboxgl.Map({
@@ -34,12 +30,16 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
       center: [data.longitude, data.latitude],
       zoom: 3
     });
+
+    setLng(data.longitude);
+    setLat(data.latitude);
     mapRef.current = initializedMap;
 
     mapRef.current?.on('click', (e: any) => {
       const lngLat = e.lngLat;
       setLng(lngLat.lng);
       setLat(lngLat.lat);
+      setData({ latitude: lngLat.lat, longitude: lngLat.lng });
 
       mapRef.current?.flyTo({
         center: [lngLat.lng, lngLat.lat],
@@ -62,27 +62,17 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
     return () => mapRef.current?.remove();
   }, []);
 
-  useEffect(() => {
-    setLat(data.latitude);
-    setLng(data.longitude);
-    mapRef.current?.flyTo({
-      center: [lng, lat],
-      zoom: mapRef.current.getZoom()
-    });
-  }, [data]);
-
   const handleLocationSearch = (result: string, lat: number, long: number) => {
     mapRef.current?.flyTo({ center: [long, lat], zoom: 8 });
     setLng(long);
     setLat(lat);
+    setData({ latitude: lat, longitude: long });
   };
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-    if (!data.latitude || isNaN(Number(data.latitude)))
-      newErrors.latitude = 'Invalid latitude';
-    if (!data.longitude || isNaN(Number(data.longitude)))
-      newErrors.longitude = 'Invalid longitude';
+    if (!lat || isNaN(Number(lat))) newErrors.latitude = 'Invalid latitude';
+    if (!lng || isNaN(Number(lng))) newErrors.longitude = 'Invalid longitude';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -92,6 +82,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
       const latitude = lat;
       const longitude = lng;
       mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 8 });
+      setData({ latitude: lat, longitude: longitude });
     }
   };
 
@@ -100,31 +91,29 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
       const latitude = lat;
       const longitude = lng;
       mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 8 });
+      setData({ latitude: latitude, longitude: longitude });
 
-      const saveData = {
-        miner_key: minerKey,
-        position: {
-          lat: lat,
-          lng: lng
-        },
-        address: session?.user.address
-      };
-      // Optionally send to backend
-      const response = await fetch('/api/registrations/save-map-info', {
-        method: 'POST',
-        body: JSON.stringify(saveData),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      // const saveData = {
+      //   miner_key: minerKey,
+      //   position: {
+      //     lat: lat,
+      //     lng: lng
+      //   },
+      //   address: session?.user.address
+      // };
+      // // Optionally send to backend
+      // const response = await fetch('/api/registrations/save-map-info', {
+      //   method: 'POST',
+      //   body: JSON.stringify(saveData),
+      //   headers: { 'Content-Type': 'application/json' }
+      // });
 
-      if (response.ok) {
-        onNext();
-      } else {
-        const data = await response.json();
-        setUpdateSuccess({ status: 'error', message: data.message });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-      }
+      // if (response.ok) {
+      onNext();
+      // } else {
+      //   const data = await response.json();
+
+      // }
     }
   };
 
@@ -142,9 +131,6 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
             resetSearch={true}
             placeholder="Search location..."
           />
-          <div className="px-16 md:px-24">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
             <label className="mr-2">Latitude</label>
             <input
@@ -210,7 +196,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
             className="px-4 py-2 border border-red-600 rounded hover:bg-red-600"
             onClick={handleNext}
           >
-            {status ? 'Edit' : 'Next'}
+            Save
           </button>
         </div>
       </div>

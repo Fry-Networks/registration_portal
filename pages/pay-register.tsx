@@ -4,14 +4,26 @@ import bgImg from '../assets/background.png';
 import { useRouter } from 'next/router';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Product } from './api/stake/verify-stake';
 import { useEffect, useState } from 'react';
-import { Device } from '../lib/types';
+import { Device, Product } from '../lib/types';
 import { getFRYPrice } from '../lib/price';
-import { getTokenBalance } from './api/stake/get-token-balance';
+import { getTokenBalance } from './api/algorand/get-token-balance';
 import algosdk from 'algosdk';
 import { useWallet } from '@txnlab/use-wallet';
 import MessageUpdate from '../components/messageUpdate';
+import {
+  isNodeStaked,
+  isNodeStakingNeeded,
+  isRegistrationNeeded
+} from '../lib/utils';
+import {
+  confirmTransaction,
+  SEND_TXN_RESULT,
+  sendAlgoTransaction,
+  VERIFY_RESULT
+} from '../lib/txn';
+import { useToastContext } from '../hooks/ToastContext';
+import Link from 'next/link';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -37,14 +49,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const { minerKey } = router.query;
   const { data: session } = useSession();
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+
   const [isProcessing, setIsProcessing] = useState(false);
   const { activeAddress, signTransactions, sendTransactions } = useWallet();
 
-  console.log(minerKey);
+  const toast = useToastContext();
 
   const fetchDeviceInfo = async (minerKey: string) => {
     console.log('Device Miner Key: ' + minerKey);
@@ -140,93 +149,6 @@ export default function PayRegister({ products }: { products: Product[] }) {
     fetchNodeTokenInformation(product.reward.tokens?.node);
   }, [product]);
 
-  const needStakeRegister = () => {
-    if (product === undefined) {
-      return false;
-    }
-
-    const result =
-      product &&
-      product.reward.stake?.register &&
-      product.reward.stake.register > 0 &&
-      product.reward.tokens?.register &&
-      product.reward.tokens.register !== 'none'
-        ? true
-        : false;
-
-    return result;
-    console.log('Registration: ' + result);
-  };
-
-  const needNodeStake = () => {
-    if (product === undefined) {
-      return false;
-    }
-
-    return (
-      product &&
-      product.reward.stake?.node &&
-      product.reward.stake.node > 0 &&
-      product.reward.tokens?.node &&
-      product.reward.tokens.node !== 'none'
-    );
-  };
-
-  const sendTransaction = async (
-    from: string,
-    to: string,
-    amount: number,
-    asset_id: string
-  ) => {
-    try {
-      const algodClient = new algosdk.Algodv2(
-        '',
-        'https://mainnet-api.algonode.cloud',
-        ''
-      );
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const noteInfo = {
-        miner_key:
-          device!.miner_key.split('-')[0] +
-          '-' +
-          device!.miner_key.split('-')[1].slice(0, 6),
-        asset_id: asset_id,
-        from: from,
-        to: to,
-        amount: amount,
-        date: new Date(Date.now())
-      };
-
-      console.log(noteInfo);
-      const enc = new TextEncoder();
-      const note = enc.encode(JSON.stringify(noteInfo));
-
-      const transaction =
-        algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-          from,
-          to,
-          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
-          note: note,
-          assetIndex: Number(asset_id),
-          suggestedParams
-        });
-
-      const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
-      const signedTransactions = await signTransactions([encodedTransaction]);
-      const waitRoundsToConfirm = 4;
-      const { txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
-
-      console.log('Successfully sent transaction. Transaction ID:', txId);
-      return txId;
-    } catch (error) {
-      console.error('Transaction failed:', error);
-      return null;
-    }
-  };
-
   const handleRegisterStaking = async () => {
     if (!product || !device) {
       console.log('Requirement error for handleRegistrationStaking');
@@ -235,192 +157,139 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
     setIsProcessing(true);
 
-    const asset_id = product.reward.tokens?.register ?? 'none';
-    const USDAmount = product.reward.stake?.register ?? 0;
-
     try {
+      const asset_id = product.reward.tokens?.register ?? 'none';
+      const USDAmount = product.reward.stake?.register ?? 0;
+
       const price = await getFRYPrice(asset_id);
       const amount = Math.floor(USDAmount / price);
 
-      const balanceResponse = await fetch('api/stake/get-token-balance', {
+      console.log('Registration Staking Amount: ' + amount);
+
+      const note = {
+        action: 'Registration Staking',
+        miner_key:
+          device.miner_key.split('-')[0] +
+          '-' +
+          device.miner_key.split('-')[1].slice(0, 6),
+        from: session?.user.address,
+        to: STAKE_ADDRESS,
+        asset_id: asset_id,
+        amount: amount,
+        created_at: new Date(Date.now())
+      };
+
+      const sendResult = devMode
+        ? await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            amount,
+            JSON.stringify(note),
+            null,
+            null,
+            true
+          )
+        : await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            amount,
+            JSON.stringify(note),
+            signTransactions,
+            sendTransactions,
+            false
+          );
+
+      if (sendResult.result != SEND_TXN_RESULT.OK) {
+        let message = '';
+        switch (sendResult.result) {
+          case SEND_TXN_RESULT.INVALID_PARAM:
+            {
+              message = 'Invalid transaction parameters.';
+            }
+            break;
+          case SEND_TXN_RESULT.NO_ASSET:
+            {
+              message = 'No asset is opted-in in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INSUFFICIENT_AMOUNT:
+            {
+              message = 'Insufficient amount in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INTERNAL_ERROR:
+            {
+              message = 'Error occured during sending transaction.';
+            }
+            break;
+        }
+        toast.error({ heading: 'Error', message: message });
+        setIsProcessing(false);
+        return;
+      }
+
+      const txId = sendResult.txId!;
+      const verifyResult = await confirmTransaction(
+        session?.user.address!,
+        txId
+      );
+
+      if (verifyResult != VERIFY_RESULT.OK) {
+        toast.error({ heading: 'Error', message: `Confirm ${txId} failed` });
+        setIsProcessing(false);
+        return;
+      }
+
+      const dataResponse = await fetch('api/stake/registration', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          miner_key: device.miner_key,
           address: session?.user.address,
-          asset_id: product.reward.tokens!.register
+          txId: txId,
+          amount: amount,
+          asset_id: asset_id
         })
       });
 
-      if (!balanceResponse.ok) {
-        setUpdateSuccess({
-          status: 'error',
-          message: `Failed to get token balance from wallet. Check network status and try again`
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+      const dataResult = await dataResponse.json();
+      if (!dataResponse.ok) {
+        toast.error({ heading: 'Error', message: dataResult.message });
         setIsProcessing(false);
         return;
       }
 
-      const balanceGet = await balanceResponse.json();
-      if (balanceGet.success == false) {
-        setUpdateSuccess({
-          status: 'error',
-          message: `There's no ${tokenName} token is in the wallet`
+      if (dataResult.success) {
+        toast.success({
+          heading: 'Success',
+          message: `Tx: ${txId}`
         });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-        setIsProcessing(false);
-        return;
-      }
-
-      const tokenAmountInWallet = balanceGet.balance;
-
-      console.log('Wallet Balance: ' + Number(tokenAmountInWallet));
-
-      if (
-        !tokenAmountInWallet ||
-        Number(tokenAmountInWallet) < Number(amount)
-      ) {
-        setUpdateSuccess({
-          status: 'error',
-          message: 'Not enough token amount is in the wallet'
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-
-        setIsProcessing(false);
-        return;
-      }
-
-      if (devMode) {
-        const stakeReponse = await fetch('api/stake/stake-register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            asset_id: product.reward.tokens!.register,
-            from: session?.user.address,
-            to: STAKE_ADDRESS,
-            amount: amount
-          })
-        });
-
-        if (!stakeReponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const stakeResult = await stakeReponse.json();
-        const txId = stakeResult.txId;
-        console.log(txId);
-        const verifyResponse = await fetch('api/stake/verify-register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            asset_id: product.reward.tokens?.register,
-            address: session?.user.address,
-            amount: amount
-          })
-        });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
       } else {
-        if (!session || !session.user) {
-          console.log('Unauthorized');
-          return;
-        }
-
-        const txId = await sendTransaction(
-          activeAddress!,
-          STAKE_ADDRESS,
-          amount,
-          product.reward.tokens?.register ?? 'none'
-        );
-
-        if (!txId) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const verifyResponse = await fetch('api/stake/verify-register', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            address: session?.user.address,
-            amount: amount,
-            asset_id: product.reward.tokens?.register
-          })
+        toast.error({
+          heading: 'Error',
+          message: 'Registration staking is failed'
         });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
+        setIsProcessing(false);
+        return;
       }
-    } catch (error) {}
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message: 'Error occured during registration staking.'
+      });
+      return;
+    }
 
     fetchDeviceInfo(device.miner_key);
     setIsProcessing(false);
   };
 
   const isAlreadyRegister = () => {
-    console.log(device);
-    if (device?.is_registered === true || device?.registration) {
+    if (product && isRegistrationNeeded(product!) && device?.registration) {
       return true;
     }
 
@@ -435,193 +304,142 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
     setIsProcessing(true);
 
-    const asset_id = product.reward.tokens?.node ?? 'none';
-    const USDAmount = product.reward.stake?.node ?? 0;
-
     try {
+      const asset_id = product.reward.tokens?.node ?? 'none';
+      const USDAmount = product.reward.stake?.node ?? 0;
+
       const price = await getFRYPrice(asset_id);
       const amount = Math.floor(USDAmount / price);
 
-      console.log('Staking Amount: ' + Number(amount));
+      console.log('Node Staking Amount: ' + amount);
 
-      const balanceResponse = await fetch('api/stake/get-token-balance', {
+      if (amount <= 0) {
+        return;
+      }
+
+      const note = {
+        action: 'Node Staking',
+        miner_key:
+          device.miner_key.split('-')[0] +
+          '-' +
+          device.miner_key.split('-')[1].slice(0, 6),
+        from: session?.user.address,
+        to: STAKE_ADDRESS,
+        asset_id: asset_id,
+        amount: amount,
+        created_at: new Date(Date.now())
+      };
+
+      const sendResult = devMode
+        ? await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            amount,
+            JSON.stringify(note),
+            null,
+            null,
+            true
+          )
+        : await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            amount,
+            JSON.stringify(note),
+            signTransactions,
+            sendTransactions,
+            false
+          );
+
+      if (sendResult.result != SEND_TXN_RESULT.OK) {
+        let message = '';
+        switch (sendResult.result) {
+          case SEND_TXN_RESULT.INVALID_PARAM:
+            {
+              message = 'Invalid transaction parameters.';
+            }
+            break;
+          case SEND_TXN_RESULT.NO_ASSET:
+            {
+              message = 'No asset is opted-in in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INSUFFICIENT_AMOUNT:
+            {
+              message = 'Insufficient amount in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INTERNAL_ERROR:
+            {
+              message = 'Error occured during sending transaction.';
+            }
+            break;
+        }
+        toast.error({ heading: 'Error', message: message });
+        setIsProcessing(false);
+        return;
+      }
+
+      const txId = sendResult.txId!;
+      const verifyResult = await confirmTransaction(
+        session?.user.address!,
+        txId
+      );
+
+      if (verifyResult != VERIFY_RESULT.OK) {
+        toast.error({ heading: 'Error', message: `Confirm ${txId} failed` });
+        setIsProcessing(false);
+        return;
+      }
+
+      const dataResponse = await fetch('api/stake/node-staking', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          miner_key: device.miner_key,
           address: session?.user.address,
-          asset_id: product.reward.tokens!.register
+          txId: txId,
+          amount: amount,
+          asset_id: asset_id
         })
       });
 
-      if (!balanceResponse.ok) {
-        setUpdateSuccess({
-          status: 'error',
-          message: `Failed to get token balance from wallet. Check network status and try again`
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+      const dataResult = await dataResponse.json();
+      if (!dataResponse.ok) {
+        toast.error({ heading: 'Error', message: dataResult.message });
         setIsProcessing(false);
         return;
       }
 
-      const balanceGet = await balanceResponse.json();
-      if (balanceGet.success == false) {
-        setUpdateSuccess({
-          status: 'error',
-          message: `There's no ${tokenName} token is in the wallet`
+      if (dataResult.success) {
+        toast.success({
+          heading: 'Success',
+          message: `Tx: ${txId}`
         });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-        setIsProcessing(false);
-        return;
-      }
-
-      const tokenAmountInWallet = balanceGet.balance;
-
-      console.log('Wallet Balance: ' + tokenAmountInWallet);
-
-      if (
-        !tokenAmountInWallet ||
-        Number(tokenAmountInWallet) < Number(amount)
-      ) {
-        setUpdateSuccess({
-          status: 'error',
-          message: 'Not enough token amount is in the wallet'
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-
-        setIsProcessing(false);
-        return;
-      }
-
-      if (devMode) {
-        const stakeReponse = await fetch('api/stake/stake-node', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            asset_id: product.reward.tokens!.node,
-            from: session?.user.address,
-            to: STAKE_ADDRESS,
-            amount: amount
-          })
-        });
-
-        if (!stakeReponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const stakeResult = await stakeReponse.json();
-        const txId = stakeResult.txId;
-        console.log(txId);
-        const verifyResponse = await fetch('api/stake/verify-node', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            asset_id: product.reward.tokens?.node,
-            address: session?.user.address,
-            amount: amount
-          })
-        });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
       } else {
-        if (!session || !session.user) {
-          console.log('Unauthorized');
-          return;
-        }
-
-        const txId = await sendTransaction(
-          activeAddress!,
-          STAKE_ADDRESS,
-          amount,
-          product.reward.tokens?.node ?? 'none'
-        );
-
-        if (!txId) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const verifyResponse = await fetch('api/stake/verify-node', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            address: session?.user.address,
-            amount: amount,
-            asset_id: product.reward.tokens?.node
-          })
+        toast.error({
+          heading: 'Error',
+          message: 'Node staking is failed'
         });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
+        setIsProcessing(false);
+        return;
       }
-    } catch (error) {}
-
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message: 'Error occured during node staking.'
+      });
+      return;
+    }
     fetchDeviceInfo(device.miner_key);
     setIsProcessing(false);
   };
 
   const isAlreadyNode = () => {
-    if (device?.is_registered === true || device?.node) {
+    if (product && isNodeStakingNeeded(product) && device?.node) {
       return true;
     }
 
@@ -629,7 +447,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
   };
 
   const handleNext = () => {
-    router.push({ pathname: '/register', query: { minerKey } });
+    router.push('/devices');
   };
 
   return (
@@ -644,10 +462,10 @@ export default function PayRegister({ products }: { products: Product[] }) {
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl">
-            Registration Staking & Node Staking
+          <Title className="text-white text-center text-4xl sm:text-5xl">
+            Registration & Node Staking
           </Title>
-          <p className="text-lg">
+          <p className="text-lg text-center px-2">
             You have to stake for registration with following payments.This will
             be withdrawed automatically when you un-register the devices.
           </p>
@@ -655,22 +473,27 @@ export default function PayRegister({ products }: { products: Product[] }) {
       </div>
 
       <div className="px-2 sm:px-20">
-        <MessageUpdate updateSuccess={updateSuccess} />
+        <Link href="/devices">
+          <Button className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
+            {`< Back`}
+          </Button>
+        </Link>
       </div>
+
       <Flex
         justifyContent="center"
-        className="mt-20"
+        className="mt-10 py-2"
         alignItems="center"
         flexDirection="col"
       >
-        {needStakeRegister() === true && (
+        {product && isRegistrationNeeded(product!) === true && (
           <div>
             <Flex
               className="w-full gap-3"
               flexDirection="col"
               justifyContent="center"
             >
-              <Title className="text-white text-xl sm:text-2xl">{`You have to stake $${product?.reward.stake?.register}USD in ${tokenName}`}</Title>
+              <Title className="text-white text-center text-xl sm:text-2xl">{`Stake $${product?.reward.stake?.register}USD in ${tokenName} here to complete device registration.`}</Title>
               <Button
                 className={`relative flex min-w-[150px] items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
                   isProcessing ? 'cursor-not-allowed' : 'cursor-default'
@@ -711,20 +534,20 @@ export default function PayRegister({ products }: { products: Product[] }) {
                 ) : isAlreadyRegister() ? (
                   'Staked'
                 ) : (
-                  'Stake'
+                  'Registration Stake'
                 )}
               </Button>
             </Flex>
           </div>
         )}
-        {needNodeStake() === true && (
+        {product && isNodeStakingNeeded(product!) === true && (
           <div>
             <Flex
-              className="w-full gap-3"
+              className="w-full gap-3 mt-6 px-2 py-5"
               flexDirection="col"
               justifyContent="center"
             >
-              <Title className="text-white text-xl sm:text-2xl">{`You have to stake $${product?.reward.stake?.node}USD in ${nodeTokenName}`}</Title>
+              <Title className="text-white text-center text-xl sm:text-2xl">{`Stake $${product?.reward.stake?.node}USD in ${nodeTokenName} here to support and maintain your node's operation.`}</Title>
               <Button
                 className={`relative flex min-w-[150px] items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
                   isProcessing ? 'cursor-not-allowed' : 'cursor-default'
@@ -765,13 +588,13 @@ export default function PayRegister({ products }: { products: Product[] }) {
                 ) : isAlreadyNode() ? (
                   'Staked'
                 ) : (
-                  'Stake'
+                  'Node Stake'
                 )}
               </Button>
             </Flex>
           </div>
         )}
-        {device?.is_registered === true && (
+        {isAlreadyNode() && isAlreadyRegister() && (
           <Button
             className="mt-10 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
             onClick={() => handleNext()}

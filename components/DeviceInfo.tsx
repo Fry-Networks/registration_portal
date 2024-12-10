@@ -11,10 +11,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { data: session } = useSession();
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -34,48 +31,43 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
         return;
       }
 
-      const saveData = {
-        miner_key: minerKey,
-        email: data.email,
-        names: {
-          first_name: data.firstName,
-          last_name: data.lastName
-        },
-        nickname: data.nickName,
-        address: session?.user.address
-      };
+      // const saveData = {
+      //   miner_key: minerKey,
+      //   email: data.email,
+      //   names: {
+      //     first_name: data.firstName,
+      //     last_name: data.lastName
+      //   },
+      //   nickname: data.nickName,
+      //   address: session?.user.address
+      // };
 
-      console.log(saveData);
+      // console.log(saveData);
 
-      const response =
-        status === false
-          ? await fetch('/api/registrations/save-device-info', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(saveData)
-            })
-          : await fetch('/api/registrations/update-device-info', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(saveData)
-            });
+      // const response =
+      //   status === false
+      //     ? await fetch('/api/registrations/save-device-info', {
+      //         method: 'POST',
+      //         headers: {
+      //           'Content-Type': 'application/json'
+      //         },
+      //         body: JSON.stringify(saveData)
+      //       })
+      //     : await fetch('/api/registrations/update-device-info', {
+      //         method: 'POST',
+      //         headers: {
+      //           'Content-Type': 'application/json'
+      //         },
+      //         body: JSON.stringify(saveData)
+      //       });
 
-      if (response.ok) {
-        onNext();
-      } else {
-        const data = await response.json();
-        setUpdateSuccess({ status: 'error', message: data.message });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-      }
-
-      // Call the onNext function to navigate to the next section
+      // if (response.ok) {
+      onNext();
+      // } else {
+      //   const data = await response.json();
     }
+
+    // Call the onNext function to navigate to the next section
   };
 
   const toggleSidebar = () => {
@@ -90,9 +82,6 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
           className="w-screen h-[30vh] object-cover"
           alt="Background Image"
         />
-        <div className="px-16 md:px-24">
-          <MessageUpdate updateSuccess={updateSuccess} />
-        </div>
         <div className="py-8 pl-8 pr-24 md:px-24 h-full relative">
           <form className="w-full">
             <div>
@@ -166,7 +155,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
               className="px-4 py-2 border border-red-600 rounded hover:bg-red-600"
               onClick={handleSubmit}
             >
-              {status ? 'Edit' : 'Next'}
+              Next
             </button>
           </div>
         </div>

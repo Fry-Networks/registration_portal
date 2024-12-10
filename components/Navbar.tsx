@@ -41,7 +41,6 @@ export default () => {
   useEffect(() => {
     if (address && address.length > 0) {
       if (devMode) {
-        console.log('Wallet Address: ' + address);
       } else {
         const assets = async () => {
           const infos = await getAssets();

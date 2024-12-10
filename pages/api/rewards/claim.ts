@@ -4,7 +4,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
-import { verifyTranasction } from '../stake/stake-withdraw';
+import { verifyTransaction } from '../algorand/verify-txn';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -130,7 +130,7 @@ export default async function handler(
         return;
       }
 
-      const result = await verifyTranasction(tx.txId, account.addr);
+      const result = await verifyTransaction(tx.txId, account.addr);
 
       if (!result) {
         res

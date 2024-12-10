@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { Device, FryToken } from '../../lib/types';
-import { Product } from '../../pages/api/stake/verify-stake';
+import { Device, FryToken, Product } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
 import {
   Dialog,
@@ -13,10 +12,17 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import algosdk from 'algosdk';
-import { getTokenBalance } from '../../pages/api/stake/get-token-balance';
+import { getTokenBalance } from '../../pages/api/algorand/get-token-balance';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import { useWallet } from '@txnlab/use-wallet';
+import {
+  confirmTransaction,
+  SEND_TXN_RESULT,
+  sendAlgoTransaction,
+  VERIFY_RESULT
+} from '../../lib/txn';
+import { useToastContext } from '../../hooks/ToastContext';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -51,13 +57,8 @@ const StakeModal = ({
   const [tokenName, setTokenName] = useState('');
   const [stakeAmount, setStakeAmount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
   const { data: session } = useSession();
-
-  console.log(product);
+  const toast = useToastContext();
 
   const fetchTokenInformation = async (asset_id: string | undefined) => {
     console.log(asset_id);
@@ -175,246 +176,137 @@ const StakeModal = ({
     setIsProcessing(true);
     console.log('Staking');
     try {
-      let txId: any;
-      if (devMode) {
-        const account = algosdk.mnemonicToSecretKey(
-          process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
-        );
+      if (!session || !session.user) {
+        toast.error({ heading: 'Verification Error', message: 'Unauthorized' });
+        setIsProcessing(false);
+        return;
+      }
 
-        const balanceResponse = await fetch('api/stake/get-token-balance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            address: account.addr,
-            asset_id: product.reward.tokens!.stake
-          })
+      const asset_id = product.reward.tokens?.stake ?? 'none';
+
+      const note = {
+        action: 'Verify Staking',
+        miner_key:
+          device.miner_key.split('-')[0] +
+          '-' +
+          device.miner_key.split('-')[1].slice(0, 6),
+        from: session?.user.address,
+        to: STAKE_ADDRESS,
+        asset_id: asset_id,
+        amount: stakeAmount,
+        created_at: new Date(Date.now())
+      };
+
+      const sendResult = devMode
+        ? await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            stakeAmount,
+            JSON.stringify(note),
+            null,
+            null,
+            true
+          )
+        : await sendAlgoTransaction(
+            session?.user.address!,
+            STAKE_ADDRESS,
+            asset_id,
+            stakeAmount,
+            JSON.stringify(note),
+            signTransactions,
+            sendTransactions,
+            false
+          );
+
+      if (sendResult.result != SEND_TXN_RESULT.OK) {
+        let message = '';
+        switch (sendResult.result) {
+          case SEND_TXN_RESULT.INVALID_PARAM:
+            {
+              message = 'Invalid transaction parameters.';
+            }
+            break;
+          case SEND_TXN_RESULT.NO_ASSET:
+            {
+              message = 'No asset is opted-in in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INSUFFICIENT_AMOUNT:
+            {
+              message = 'Insufficient amount in your wallet';
+            }
+            break;
+          case SEND_TXN_RESULT.INTERNAL_ERROR:
+            {
+              message = 'Error occured during sending transaction.';
+            }
+            break;
+        }
+        toast.error({ heading: 'Verification Error', message: message });
+        setIsProcessing(false);
+        return;
+      }
+
+      const txId = sendResult.txId!;
+      const verifyResult = await confirmTransaction(
+        session?.user.address!,
+        txId
+      );
+
+      if (verifyResult != VERIFY_RESULT.OK) {
+        toast.error({
+          heading: 'Verification Error',
+          message: `Confirm ${txId} failed`
         });
+        setIsProcessing(false);
+        return;
+      }
 
-        if (!balanceResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `Failed to get token balance from wallet. Check network status and try again`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
+      const dataResponse = await fetch('api/stake/verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          miner_key: device.miner_key,
+          address: session?.user.address,
+          txId: txId,
+          amount: stakeAmount,
+          type: stakeType,
+          asset_id: asset_id
+        })
+      });
 
-        const balanceGet = await balanceResponse.json();
-        if (balanceGet.success == false) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `There's no ${tokenName} token is in the wallet`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        const tokenAmountInWallet = balanceGet.balance;
-
-        if (tokenAmountInWallet < stakeAmount) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `Insufficient amount in wallet. (${tokenAmountInWallet})`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        const stakeReponse = await fetch('api/stake/stake-dev', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            miner_key: device.miner_key,
-            asset_id: product.reward.tokens!.stake,
-            type: stakeType,
-            from: session?.user.address,
-            to: STAKE_ADDRESS,
-            amount: stakeAmount
-          })
+      const dataResult = await dataResponse.json();
+      if (!dataResponse.ok) {
+        toast.error({
+          heading: 'Verification Error',
+          message: dataResult.message
         });
+        setIsProcessing(false);
+        return;
+      }
 
-        if (!stakeReponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        const stakeResult = await stakeReponse.json();
-        const txId = stakeResult.txId;
-        console.log(txId);
-        const verifyResponse = await fetch('api/stake/verify-stake', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            type: stakeType,
-            asset_id: product.reward.tokens?.stake,
-            address: session?.user.address
-          })
+      if (dataResult.success) {
+        toast.success({
+          heading: 'Verification Success',
+          message: `Tx: ${txId}`
         });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
       } else {
-        if (!session || !session.user) {
-          console.log('Unauthorized');
-          return;
-        }
-
-        const balanceResponse = await fetch('api/stake/get-token-balance', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            address: session.user.address,
-            asset_id: product.reward.tokens!.stake
-          })
+        toast.error({
+          heading: 'Verification Error',
+          message: 'Failed to verify'
         });
-
-        if (!balanceResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `Failed to get token balance from wallet. Check network status and try again`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        const balanceGet = await balanceResponse.json();
-        if (balanceGet.success == false) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `There's no ${tokenName} token is in the wallet`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        const tokenAmountInWallet = balanceGet.balance;
-
-        if (tokenAmountInWallet === null) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `There's no ${tokenName} token is in the wallet`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        if (tokenAmountInWallet < stakeAmount) {
-          setUpdateSuccess({
-            status: 'error',
-            message: `Insufficient amount in wallet. (${tokenAmountInWallet})`
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-          setIsProcessing(false);
-          return;
-        }
-
-        txId = await sendTransaction(
-          activeAddress!,
-          STAKE_ADDRESS,
-          stakeAmount
-        );
-
-        if (!txId) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to send transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
-
-        console.log(txId);
-        const verifyResponse = await fetch('api/stake/verify-stake', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            txId: txId,
-            miner: device.miner_key,
-            type: stakeType,
-            address: session?.user.address
-          })
-        });
-
-        if (!verifyResponse.ok) {
-          setUpdateSuccess({
-            status: 'error',
-            message:
-              'Failed to verify transaction. Please contact us before you try again'
-          });
-          setTimeout(() => {
-            setUpdateSuccess({ status: 'error', message: '' });
-          }, 5_000);
-
-          setIsProcessing(false);
-          return;
-        }
+        setIsProcessing(false);
+        return;
       }
     } catch (error) {
       console.error(error);
-      setUpdateSuccess({
-        status: 'error',
-        message: `Unknown error occured during staking`
+      toast.error({
+        heading: 'Verification Error',
+        message: 'Unknown error occured during staking'
       });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
       setIsProcessing(false);
       return;
     }
@@ -446,9 +338,6 @@ const StakeModal = ({
             </button>
           </div>
           <Title className="mb-5">{`Stake (${tokenName})`}</Title>
-          <div className="px-2 sm:px-20">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <Flex
             flexDirection="col"
             alignItems="stretch"

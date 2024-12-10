@@ -3,7 +3,7 @@ import clientPromise from '../../../lib/mongoclient';
 import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
-import { verifyTranasction } from '../stake/stake-withdraw';
+import { verifyTransaction } from '../algorand/verify-txn';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -37,7 +37,7 @@ export default async function handler(
   const { miner_key, txId, address } = data;
 
   try {
-    const checking = await verifyTranasction(txId, address);
+    const checking = await verifyTransaction(txId, address);
 
     if (checking) {
       console.log('Transaction ID:', txId);

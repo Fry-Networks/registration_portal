@@ -1,12 +1,12 @@
 import { Button, Flex, Title } from '@tremor/react';
 import { Device, Reward } from '../lib/types';
-import { Product } from '../pages/api/stake/verify-stake';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
 import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
+import ProgressDateBar from './ProgressDateBar';
 
 export default function RewardListItem({
   reward,
@@ -47,26 +47,35 @@ export default function RewardListItem({
             </p>
           )}
           {reward.status !== 'claimed' && (
-            <Flex justifyContent="start" className="gap-3 mt-3 w-full sm:auto">
-              <>
-                <Button
-                  className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
-                  disabled={
-                    reward.status === 'pending' || reward.status === 'claimed'
-                  }
-                  onClick={() => handleClaimButton(reward)}
-                >
-                  Claim Later (No Fee)
-                </Button>
-                <Button
-                  className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
-                  disabled={reward.status !== 'pending'}
-                  onClick={() => handleBoostButton(reward)}
-                >
-                  Claim Now (-30%)
-                </Button>
-              </>
-            </Flex>
+            <>
+              <ProgressDateBar
+                specificDate={reward.createdAt}
+                boosted={reward.status === 'claimable'}
+              />
+              <Flex
+                justifyContent="start"
+                className="gap-3 mt-3 w-full sm:auto"
+              >
+                <>
+                  <Button
+                    className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
+                    disabled={
+                      reward.status === 'pending' || reward.status === 'claimed'
+                    }
+                    onClick={() => handleClaimButton(reward)}
+                  >
+                    Claim Reward
+                  </Button>
+                  <Button
+                    className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
+                    disabled={reward.status !== 'pending'}
+                    onClick={() => handleBoostButton(reward)}
+                  >
+                    Boost Pending (-30%)
+                  </Button>
+                </>
+              </Flex>
+            </>
           )}
         </div>
       }

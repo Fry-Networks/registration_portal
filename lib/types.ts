@@ -63,3 +63,26 @@ export interface FryToken extends mongoose.Document {
   name: string;
   asset_id: string;
 }
+
+export interface Product extends mongoose.Document {
+  wix_id: string;
+  name: string;
+  key: string;
+  reward: {
+    unverified: number;
+    verified: number;
+    stake?: {
+      stake_one: number;
+      stake_two: number;
+      register: number;
+      node: number;
+    };
+    tokens?: {
+      stake: string;
+      reward: string;
+      register: string;
+      node: string;
+    };
+  };
+  created_at: Date;
+}

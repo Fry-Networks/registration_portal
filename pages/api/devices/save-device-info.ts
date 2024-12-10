@@ -44,41 +44,16 @@ export default async function handler(
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
     const exists = await collection.findOne({ miner_key });
-    for (const key in data) {
-      if (key === 'names') {
-        let error = validateInput('first_name', data[key].first_name);
-        if (error) {
-          res.status(400).json({ message: error });
-          return;
-        }
-        error = validateInput('last_name', data[key].last_name);
-        if (error) {
-          res.status(400).json({ message: error });
-          return;
-        }
-      } else if (key !== 'miner_key' && key !== 'address') {
-        const error = validateInput(key, data[key]);
-        if (error) {
-          res.status(400).json({ message: error });
-          return;
-        }
-      }
-    }
+
     if (!exists) {
       res.status(400).json({ message: 'Not found' });
       return;
     }
-    // if (exists.is_registered) {
-    //   res.status(400).json({ message: 'Already registered' });
-    //   return;
-    // }
 
     const result = await collection.updateOne(
       { miner_key: miner_key },
       {
         $set: {
-          address: address,
-          is_registered: true,
           names: names,
           email: email,
           nickname: nickname
@@ -99,23 +74,3 @@ export default async function handler(
     res.status(500).json({ message: 'error' });
   }
 }
-
-const validateInput = (name: string, value: string) => {
-  let regex;
-  let error = '';
-  switch (name) {
-    case 'first_name':
-    case 'last_name':
-      regex = /^[a-zA-Z\ -]+$/;
-      error = regex.test(value) ? '' : 'Only alphabets are allowed.';
-      break;
-    case 'email':
-      regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      error = regex.test(value) ? '' : 'Invalid email format.';
-      break;
-    default:
-      error = 'Invalid input';
-      break;
-  }
-  return error;
-};

@@ -1,13 +1,12 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
-import { Device } from '../../lib/types';
-import { Product } from '../../pages/api/stake/verify-stake';
+import { Device, Product } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
 import { useEffect, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import axios from 'axios';
-import { getTokenBalance } from '../../pages/api/stake/get-token-balance';
+import { getTokenBalance } from '../../pages/api/algorand/get-token-balance';
 
 const fry2AssetId = '2485314946';
 const USDAmount = process.env.NODE_ENV === 'production' ? 50 : 0.003;
@@ -18,6 +17,7 @@ const fryAlgo = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
 import algosdk from 'algosdk';
 import { useWallet } from '@txnlab/use-wallet';
 import { getFRYPrice } from '../../lib/price';
+import { useToastContext } from '../../hooks/ToastContext';
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
 const tokenToSend = { 'X-API-Key': token };
@@ -45,11 +45,9 @@ export default function WithdrawModal({
   const [withdrawableTime, setWithdrawableTime] = useState<Date>(
     new Date(Date.now())
   );
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+
   const { data: session } = useSession();
+  const toast = useToastContext();
 
   const fetchWithdrawable = async (device: Device) => {
     console.log;
@@ -77,14 +75,10 @@ export default function WithdrawModal({
       });
 
       if (!response.ok) {
-        setUpdateSuccess({
-          status: 'error',
+        toast.error({
+          heading: 'Withdraw Error',
           message: 'Network error to get withdraw status'
         });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-
         return;
       }
 
@@ -98,217 +92,6 @@ export default function WithdrawModal({
   useEffect(() => {
     fetchWithdrawable(device);
   }, [device, product, modals]);
-
-  const sendTransaction = async (from: string, to: string, amount: number) => {
-    try {
-      const algodClient = new algosdk.Algodv2(
-        '',
-        'https://mainnet-api.algonode.cloud',
-        ''
-      );
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const noteInfo = {
-        miner_key:
-          device.miner_key.split('-')[0] +
-          '-' +
-          device.miner_key.split('-')[1].slice(0, 6),
-        asset_id: product.reward.tokens!.stake,
-        from: from,
-        to: to,
-        amount: amount,
-        date: new Date(Date.now())
-      };
-
-      console.log(noteInfo);
-      const enc = new TextEncoder();
-      const note = enc.encode(JSON.stringify(noteInfo));
-
-      const transaction =
-        algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-          from,
-          to,
-          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
-          note: note,
-          assetIndex: Number(product.reward.tokens!.stake),
-          suggestedParams
-        });
-
-      const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
-      const signedTransactions = await signTransactions([encodedTransaction]);
-      const waitRoundsToConfirm = 4;
-      const { txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
-
-      console.log('Successfully sent transaction. Transaction ID:', txId);
-      return txId;
-    } catch (error) {
-      console.error('Transaction failed:', error);
-      return null;
-    }
-  };
-
-  const handleBoostWithdraw = async () => {
-    // setIsProcessing(true);
-    // try {
-    //   const tokenPrice = await getFRYPrice(
-    //     device.staked?.asset_id ?? fry2AssetId
-    //   );
-    //   console.log(`TokenPrice: ${tokenPrice}`);
-    //   const amount = Math.floor(USDAmount / tokenPrice);
-    //   console.log(`Fee pay amount: ${amount}`);
-    //   const balanceResponse = await fetch('api/stake/get-token-balance', {
-    //     method: 'POST',
-    //     headers: {
-    //       'Content-Type': 'application/json'
-    //     },
-    //     body: JSON.stringify({
-    //       address: account.addr,
-    //       asset_id: product.reward.tokens!.stake
-    //     })
-    //   });
-    //   if (!balanceResponse.ok) {
-    //     setUpdateSuccess({
-    //       status: 'error',
-    //       message: `Failed to get token balance from wallet. Check network status and try again`
-    //     });
-    //     setTimeout(() => {
-    //       setUpdateSuccess({ status: 'error', message: '' });
-    //     }, 5_000);
-    //     setIsProcessing(false);
-    //     return;
-    //   }
-    //   const balanceGet = await balanceResponse.json();
-    //   if (balanceGet.success == false) {
-    //     setUpdateSuccess({
-    //       status: 'error',
-    //       message: `There's no ${tokenName} token is in the wallet`
-    //     });
-    //     setTimeout(() => {
-    //       setUpdateSuccess({ status: 'error', message: '' });
-    //     }, 5_000);
-    //     setIsProcessing(false);
-    //     return;
-    //   }
-    //   const tokenAmountInWallet = balanceGet.balance;
-    //   if (!tokenAmountInWallet || tokenAmountInWallet < amount) {
-    //     setUpdateSuccess({
-    //       status: 'error',
-    //       message: 'Not enough token amount is in the wallet'
-    //     });
-    //     setTimeout(() => {
-    //       setUpdateSuccess({ status: 'error', message: '' });
-    //     });
-    //     setIsProcessing(false);
-    //     return;
-    //   }
-    //   if (devMode) {
-    //     const payResponse = await fetch('api/fee/pay-withdraw', {
-    //       method: 'POST',
-    //       headers: {
-    //         'Content-Type': 'application/json'
-    //       },
-    //       body: JSON.stringify({
-    //         miner_key: device.miner_key,
-    //         asset_id: device.staked?.asset_id ?? fry2AssetId,
-    //         from: session?.user.address,
-    //         to: fryAlgo,
-    //         amount: amount
-    //       })
-    //     });
-    //     if (!payResponse.ok) {
-    //       setUpdateSuccess({
-    //         status: 'error',
-    //         message:
-    //           'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-    //       });
-    //       setTimeout(() => {
-    //         setUpdateSuccess({ status: 'error', message: '' });
-    //       });
-    //       setIsProcessing(false);
-    //       return;
-    //     }
-    //     const payResult = await payResponse.json();
-    //     const verifyResponse = await fetch('api/fee/verify-pay', {
-    //       method: 'POST',
-    //       headers: {
-    //         'Content-Type': 'application/json'
-    //       },
-    //       body: JSON.stringify({
-    //         miner_key: device.miner_key,
-    //         txId: payResult.txId,
-    //         address: session?.user.address
-    //       })
-    //     });
-    //     if (!verifyResponse.ok) {
-    //       setUpdateSuccess({
-    //         status: 'error',
-    //         message:
-    //           'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
-    //       });
-    //       setTimeout(() => {
-    //         setUpdateSuccess({ status: 'error', message: '' });
-    //       });
-    //       setIsProcessing(false);
-    //       return;
-    //     }
-    //     await handleWithdraw();
-    //   } else {
-    //     if (!session || !session.user) {
-    //       console.log('Unauthorized');
-    //       return;
-    //     }
-    //     const txId = await sendTransaction(activeAddress!, fryAlgo, amount);
-    //     if (!txId) {
-    //       setUpdateSuccess({
-    //         status: 'error',
-    //         message:
-    //           'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-    //       });
-    //       setTimeout(() => {
-    //         setUpdateSuccess({ status: 'error', message: '' });
-    //       });
-    //       setIsProcessing(false);
-    //       return;
-    //     }
-    //     const verifyResponse = await fetch('api/fee/verify-pay', {
-    //       method: 'POST',
-    //       headers: {
-    //         'Content-Type': 'application/json'
-    //       },
-    //       body: JSON.stringify({
-    //         miner_key: device.miner_key,
-    //         txId: txId,
-    //         address: session?.user.address
-    //       })
-    //     });
-    //     if (!verifyResponse.ok) {
-    //       setUpdateSuccess({
-    //         status: 'error',
-    //         message:
-    //           'Failed to verify pay fee for boosting withdraw. Please contact us before you try again'
-    //       });
-    //       setTimeout(() => {
-    //         setUpdateSuccess({ status: 'error', message: '' });
-    //       });
-    //       setIsProcessing(false);
-    //       return;
-    //     }
-    //     await handleWithdraw();
-    //   }
-    // } catch (error) {
-    //   setUpdateSuccess({
-    //     status: 'error',
-    //     message:
-    //       'Failed in pay fee for boosting withdraw. Please contact us before you try again'
-    //   });
-    //   setTimeout(() => {
-    //     setUpdateSuccess({ status: 'error', message: '' });
-    //   });
-    //   setIsProcessing(false);
-    // }
-  };
 
   const handleWithdraw = async () => {
     setIsProcessing(true);
@@ -325,33 +108,30 @@ export default function WithdrawModal({
       });
 
       if (!response.ok) {
-        setUpdateSuccess({
-          status: 'error',
+        toast.error({
+          heading: 'Withdraw Error',
           message:
             'Failed to withdraw the token. Please contact us before you try again'
         });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
 
         setIsProcessing(false);
         return;
       }
+
+      const result = await response.json();
+      toast.success({ heading: 'Success', message: `Tx: ${result.txId}` });
 
       setIsProcessing(false);
       closeModal(modalName);
       handleWithdrawUpdate(device);
     } catch (error) {
       console.error(error);
-      setUpdateSuccess({
-        status: 'error',
+
+      toast.error({
+        heading: 'Withdraw Error',
         message:
           'Failed to withdraw the token. Please contact us before you try again'
       });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
-
       setIsProcessing(false);
       return;
     }
@@ -377,9 +157,6 @@ export default function WithdrawModal({
             </button>
           </div>
           <Title className="mb-5">{`Withdraw`}</Title>
-          <div className="px-2 sm:px-20">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <p>
             {isWithdrawable
               ? `You can withdraw now`

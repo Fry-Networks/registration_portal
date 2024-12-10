@@ -21,8 +21,6 @@ export default function SignIn({ signed }: SignInProps) {
   const { data: session, status } = useSession();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  console.log(`Session: ${session}`);
-
   async function handleWalletAuth() {
     if (devMode) {
       if (!devConnect || !devAccount) return;

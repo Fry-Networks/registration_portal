@@ -5,7 +5,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
-import { Device } from '../../../lib/types';
+import { Device, Product } from '../../../lib/types';
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -13,6 +13,10 @@ export default async function handler(
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+  const devMode =
+    process.env.NEXT_PUBLIC_DEV_MODE &&
+    process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
@@ -42,6 +46,11 @@ export default async function handler(
     const device = (await collection.findOne({
       miner_key
     })) as unknown as Device;
+
+    const deviceType = device.miner_key.split('-')[0];
+    const product = (await db
+      .collection('products')
+      .findOne({ key: deviceType })) as Product;
     if (!device) {
       res.status(404).json({ message: 'not found' });
       return;
@@ -64,11 +73,12 @@ export default async function handler(
       180;
 
     const data = {
-      available: !device.staked.asset_id
-        ? true
-        : device.staked.type == 'one'
-          ? dayCheck
-          : sixMonthsCheck,
+      available:
+        devMode || device.staked.asset_id !== product.reward.tokens?.stake
+          ? true
+          : device.staked.type == 'one'
+            ? dayCheck
+            : sixMonthsCheck,
       availableIn:
         device.staked.type == 'one'
           ? new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24

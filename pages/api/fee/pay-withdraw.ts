@@ -2,8 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
-import { verifyTranasction } from '../stake/stake-withdraw';
 import clientPromise from '../../../lib/mongoclient';
+import { verifyTransaction } from '../algorand/verify-txn';
 
 // Algorand client setup
 const token = '';
@@ -78,7 +78,7 @@ export default async function handler(
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    const checking = await verifyTranasction(tx.txId, from);
+    const checking = await verifyTransaction(tx.txId, from);
     const client = await clientPromise;
     const db = client.db('main');
     if (checking) {

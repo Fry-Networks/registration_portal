@@ -40,10 +40,6 @@ const WalletInfo = ({
   const [isComplete, setIsComplete] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { data: session } = useSession();
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
   const [connectivityFocus, setConnectivityFocus] = useState(false);
   const { openModal } = useModal();
 
@@ -112,30 +108,26 @@ const WalletInfo = ({
       if (!session || !session.user) {
         return;
       }
-      const saveData = {
-        miner_key: minerKey,
-        reward_wallet: data.reward_wallet,
-        connectivity_wallet: data.connectivity_wallet,
-        note: data.note,
-        address: session?.user.address
-      };
-      const response = await fetch('/api/registrations/save-wallet-info', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(saveData)
-      });
+      // const saveData = {
+      //   miner_key: minerKey,
+      //   reward_wallet: data.reward_wallet,
+      //   connectivity_wallet: data.connectivity_wallet,
+      //   note: data.note,
+      //   address: session?.user.address
+      // };
+      // const response = await fetch('/api/registrations/save-wallet-info', {
+      //   method: 'POST',
+      //   headers: {
+      //     'Content-Type': 'application/json'
+      //   },
+      //   body: JSON.stringify(saveData)
+      // });
 
-      if (response.ok) {
-        onNext();
-      } else {
-        const data = await response.json();
-        setUpdateSuccess({ status: 'error', message: data.message });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-      }
+      // if (response.ok) {
+      onNext();
+      // } else {
+      //   const data = await response.json();
+      // }
     }
   };
 
@@ -156,6 +148,15 @@ const WalletInfo = ({
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const getWalletAddress = (mnemonic: string) => {
+    if (mnemonic.length > 0) {
+      const account = algosdk.mnemonicToSecretKey(mnemonic);
+
+      return account.addr;
+    }
+    return '';
+  };
+
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full relative">
@@ -164,9 +165,6 @@ const WalletInfo = ({
           className="w-screen h-[30vh] object-cover"
           alt="Background Image"
         />
-        <div className="px-16 md:px-24">
-          <MessageUpdate updateSuccess={updateSuccess} />
-        </div>
         <div className="py-8 pl-6 pr-24 md:px-24 h-full relative">
           <form className="w-full">
             <div className="w-full">
@@ -177,7 +175,7 @@ const WalletInfo = ({
                 <input
                   type="text"
                   className="w-full p-2 border border-red-600 rounded"
-                  placeholder="Enter reward wallet address"
+                  placeholder="Enter wallet address or use the clipboard icon to set the currently connected wallet as your Reward Wallet address."
                   value={data.reward_wallet}
                   onChange={(e) =>
                     setData({ ...data, reward_wallet: e.target.value })
@@ -194,20 +192,16 @@ const WalletInfo = ({
 
             <div>
               <label className="block mb-2 mt-2 text-white">
-                PoC Wallet Secret Phrase <span className="text-red-500">*</span>
+                PoC Wallet <span className="text-red-500">*</span>
               </label>
               <Flex flexDirection="row" className="gap-3">
                 <input
-                  type={!connectivityFocus ? 'password' : 'text'}
+                  type="text"
                   className="w-full p-2 border border-red-600 rounded"
-                  placeholder="Enter 25 word seed phrase of wallet"
-                  value={data.connectivity_wallet}
-                  onChange={(e) =>
-                    setData({ ...data, connectivity_wallet: e.target.value })
-                  }
+                  placeholder="Click wallet icon to create a new PoC wallet. A secure secret phrase will be created for you"
+                  value={getWalletAddress(data.connectivity_wallet)}
                   onFocus={() => setConnectivityFocus(true)}
                   onBlur={() => setConnectivityFocus(false)}
-                  disabled={true}
                 />
                 <WalletIcon handleOnclick={handleGenWallet} />
               </Flex>
@@ -215,6 +209,12 @@ const WalletInfo = ({
                 <span className="text-red-500 text-sm">
                   {errors.connectivity_wallet}
                 </span>
+              )}
+              {data.connectivity_wallet && (
+                <p>
+                  For security, only the wallet address is shown. Add gas fees
+                  as needed without revealing the secret phrase.
+                </p>
               )}
             </div>
             <div>
@@ -241,7 +241,7 @@ const WalletInfo = ({
               className="px-4 py-2 border border-red-600 rounded  hover:bg-red-600"
               onClick={handleSubmit}
             >
-              {status ? 'Edit' : 'Next'}
+              Next
             </button>
           </div>
         </div>

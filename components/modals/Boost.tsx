@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
+import { useToastContext } from '../../hooks/ToastContext';
 
 export default function BoostModal({
   modalName,
@@ -18,10 +19,7 @@ export default function BoostModal({
 }) {
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [updateSuccess, setUpdateSuccess] = useState({
-    status: 'success',
-    message: ''
-  });
+  const toast = useToastContext();
 
   const boostRewards = async () => {
     console.log('Boosting');
@@ -39,13 +37,7 @@ export default function BoostModal({
 
       const result = await response.json();
       if (!response.ok) {
-        setUpdateSuccess({
-          status: 'error',
-          message: result.message
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
+        toast.error({ heading: 'Boost Error', message: result.message });
 
         setIsProcessing(false);
         return;
@@ -56,25 +48,12 @@ export default function BoostModal({
         closeModal(modalName);
         handleBoost(true, '');
       } else {
-        setUpdateSuccess({
-          status: 'error',
-          message: result.message
-        });
-        setTimeout(() => {
-          setUpdateSuccess({ status: 'error', message: '' });
-        }, 5_000);
-
+        toast.error({ heading: 'Boost Error', message: result.message });
         setIsProcessing(false);
         return;
       }
     } catch (error) {
-      setUpdateSuccess({
-        status: 'error',
-        message: 'Error on server side'
-      });
-      setTimeout(() => {
-        setUpdateSuccess({ status: 'error', message: '' });
-      }, 5_000);
+      toast.error({ heading: 'Boost Error', message: 'Error on server side' });
 
       setIsProcessing(false);
       return;
@@ -104,9 +83,6 @@ export default function BoostModal({
             </button>
           </div>
           <Title className="mb-5">Boost Rewards</Title>
-          <div className="px-2 sm:px-20">
-            <MessageUpdate updateSuccess={updateSuccess} />
-          </div>
           <Flex
             flexDirection="col"
             alignItems="stretch"
