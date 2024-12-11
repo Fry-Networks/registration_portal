@@ -305,10 +305,10 @@ export default ({ products }: { products: Product[] }) => {
   };
 
   const handleSkip = () => {
-    if (currentSection < sections.length - 1) {
-      setCurrentSection((prev) => prev + 1);
+    if (currentSection > 0) {
+      setCurrentSection((prev) => prev - 1);
     } else {
-      router.push('/');
+      router.push('/devices');
     }
   };
 

@@ -184,13 +184,13 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
         </div>
 
         <div className="flex justify-end gap-4 mt-4 text-white">
-          {/* <button
+          <button
             type="button"
             className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
             onClick={onSkip}
           >
-            Skip
-          </button> */}
+            Back
+          </button>
           <button
             type="button"
             className="px-4 py-2 border border-red-600 rounded hover:bg-red-600"
