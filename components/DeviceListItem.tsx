@@ -337,7 +337,7 @@ export default function DeviceListItem({
                 disabled={pendingAmount <= 0}
                 onClick={() => handleBoostButton(device)}
               >
-                Boost Pending (-30%)
+                Instant Claim (30% Fee)
               </Button>
               <Button
                 className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}

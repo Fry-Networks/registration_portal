@@ -71,7 +71,7 @@ export default function RewardListItem({
                     disabled={reward.status !== 'pending'}
                     onClick={() => handleBoostButton(reward)}
                   >
-                    Boost Pending (-30%)
+                    Instant Claim (30% Fee)
                   </Button>
                 </>
               </Flex>
