@@ -190,7 +190,7 @@ export default function DeviceListItem({
         >
           <div className="w-full flex flex-row justify-between">
             <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
-              {device.name}
+              {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
             </Title>
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
               {device && product && isNodeProduct(product) && (
