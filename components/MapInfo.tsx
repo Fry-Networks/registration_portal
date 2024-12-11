@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
-import mapboxgl from 'mapbox-gl';
+import mapboxgl, { LngLat, Map } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from './messageUpdate';
+import { LatLng } from 'leaflet';
 const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {
   ssr: false
 });
@@ -31,14 +32,11 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
       zoom: 3
     });
 
-    setLng(data.longitude);
-    setLat(data.latitude);
     mapRef.current = initializedMap;
 
     mapRef.current?.on('click', (e: any) => {
       const lngLat = e.lngLat;
-      setLng(lngLat.lng);
-      setLat(lngLat.lat);
+
       setData({ latitude: lngLat.lat, longitude: lngLat.lng });
 
       mapRef.current?.flyTo({
@@ -62,10 +60,28 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
     return () => mapRef.current?.remove();
   }, []);
 
+  useEffect(() => {
+    mapRef.current?.flyTo({
+      center: [data.longitude, data.latitude],
+      zoom: mapRef.current.getZoom()
+    });
+
+    if (!marker.current) {
+      const newMarker = new mapboxgl.Marker({
+        color: `#FF0000` // Specify the color here using a hex code, RGB, RGBA, or HSLA value
+      })
+        .setLngLat(new LngLat(data.longitude, data.latitude))
+        .addTo(mapRef.current!);
+      marker.current = newMarker;
+    } else {
+      // Marker exists, move it to the new location
+      marker.current.setLngLat(new LngLat(data.longitude, data.latitude));
+    }
+  }, [data]);
+
   const handleLocationSearch = (result: string, lat: number, long: number) => {
     mapRef.current?.flyTo({ center: [long, lat], zoom: 8 });
-    setLng(long);
-    setLat(lat);
+
     setData({ latitude: lat, longitude: long });
   };
 
@@ -137,7 +153,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
               type="text"
               className="p-2 rounded border border-red-600 w-full "
               placeholder="Latitude"
-              value={lat.toString()}
+              value={data.latitude.toString()}
               onChange={(e) => {
                 const input = e.target.value;
 
@@ -157,7 +173,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
               type="text"
               className="p-2 rounded border border-red-600 w-full"
               placeholder="Longitude"
-              value={lng.toString()}
+              value={data.longitude.toString()}
               onChange={(e) => {
                 const input = e.target.value;
 
