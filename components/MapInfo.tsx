@@ -87,18 +87,19 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-    if (!lat || isNaN(Number(lat))) newErrors.latitude = 'Invalid latitude';
-    if (!lng || isNaN(Number(lng))) newErrors.longitude = 'Invalid longitude';
+    if (!data.latitude || isNaN(Number(data.latitude)))
+      newErrors.latitude = 'Invalid latitude';
+    if (!data.longitude || isNaN(Number(data.longitude)))
+      newErrors.longitude = 'Invalid longitude';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleConfirmLocation = async () => {
     if (validateForm()) {
-      const latitude = lat;
-      const longitude = lng;
+      const latitude = data.latitude;
+      const longitude = data.longitude;
       mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 8 });
-      setData({ latitude: lat, longitude: longitude });
     }
   };
 
@@ -158,7 +159,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
                 const input = e.target.value;
 
                 if (/^-?\d*\.?\d*$/.test(input)) {
-                  setLat(Number(input)); // Store the string value in state
+                  setData({ ...data, latitude: Number(input) }); // Store the string value in state
                 }
               }}
             />
@@ -178,7 +179,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
                 const input = e.target.value;
 
                 if (/^-?\d*\.?\d*$/.test(input)) {
-                  setLat(Number(input)); // Store the string value in state
+                  setData({ ...data, longitude: Number(input) }); // Store the string value in state
                 }
               }}
             />
