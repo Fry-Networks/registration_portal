@@ -48,7 +48,7 @@ export default function ClaimModal({
         result.result.map((value: any) => value.txId).join(',');
 
       if (result.success) {
-        toast.error({ heading: 'Claim Success', message: `Txs: ${theMsg}` });
+        toast.success({ heading: 'Claim Success', message: `${theMsg}` });
         setIsProcessing(false);
         closeModal(modalName);
         handleClaim(true, theMsg);
