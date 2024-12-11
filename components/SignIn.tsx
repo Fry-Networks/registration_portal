@@ -201,7 +201,6 @@ export default function SignIn({ signed }: SignInProps) {
 
   useEffect(() => {
     if (session && session.user && !session.user.email) {
-      console.log(session);
       signOut();
     }
   }, [session]);

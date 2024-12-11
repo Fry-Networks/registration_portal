@@ -385,8 +385,6 @@ export async function getServerSideProps(context: any) {
 
   console.log(testMode);
 
-  console.log(session);
-
   if (!session || !session.user.address) {
     return {
       props: {}
@@ -396,8 +394,6 @@ export async function getServerSideProps(context: any) {
   try {
     const client = await clientPromise;
     const db = client.db('main');
-
-    console.log(session.user.address);
 
     const devices = await db
       .collection(testMode ? 'test-devices' : 'devices')

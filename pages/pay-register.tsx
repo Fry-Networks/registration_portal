@@ -14,6 +14,7 @@ import MessageUpdate from '../components/messageUpdate';
 import {
   isNodeStaked,
   isNodeStakingNeeded,
+  isRegistartionStaked,
   isRegistrationNeeded
 } from '../lib/utils';
 import {
@@ -289,7 +290,12 @@ export default function PayRegister({ products }: { products: Product[] }) {
   };
 
   const isAlreadyRegister = () => {
-    if (product && isRegistrationNeeded(product!) && device?.registration) {
+    if (
+      product &&
+      device &&
+      isRegistrationNeeded(product!) &&
+      isRegistartionStaked(device)
+    ) {
       return true;
     }
 
@@ -439,7 +445,12 @@ export default function PayRegister({ products }: { products: Product[] }) {
   };
 
   const isAlreadyNode = () => {
-    if (product && isNodeStakingNeeded(product) && device?.node) {
+    if (
+      product &&
+      device &&
+      isNodeStakingNeeded(product) &&
+      isNodeStaked(device)
+    ) {
       return true;
     }
 
