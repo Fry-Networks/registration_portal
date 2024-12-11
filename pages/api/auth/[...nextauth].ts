@@ -3,56 +3,65 @@ import 'dotenv/config';
 import GithubProvider from 'next-auth/providers/github';
 import WalletAuthProvider from '../../../lib/WalletAuthProvider';
 //@ts-ignore
-import { MongoDBAdapter } from "@auth/mongodb-adapter"
-import clientPromise from "../../../lib/mongoclient"
+import { MongoDBAdapter } from '@auth/mongodb-adapter';
+import clientPromise from '../../../lib/mongoclient';
 import { Adapter } from 'next-auth/adapters';
 import { Session } from 'next-auth';
 //console.log((process.env.NODE_ENV === 'development' ? process.env.GITHUB_ID_DEV : process.env.GITHUB_ID) )
 export const authOptions: NextAuthOptions = {
   jwt: {
-    secret: process.env.NEXTAUTH_SECRET as string,
-
+    secret: process.env.NEXTAUTH_SECRET as string
   },
-  providers: [
-    WalletAuthProvider(),
-  ],
+  providers: [WalletAuthProvider()],
   session: {
-    strategy: "jwt",
+    strategy: 'jwt'
   },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        console.log(user);
         token.address = user.address;
+        token.email = user.email;
+        token.first_name = user.first_name;
+        token.last_name = user.last_name;
+        token.poc_wallet = user.poc_wallet;
       }
       return token;
     },
-    async session({ session, token, user }) {
+    async session({ session, token }) {
       if (token) {
+        console.log(token);
         session.user = {
           ...session.user,
           address: token.address as string,
+          email: token.email as string,
+          first_name: token.first_name as string,
+          last_name: token.last_name as string,
+          poc_wallet: token.poc_wallet as string
         };
       }
       return session;
     }
   },
   pages: {
-    signIn: '/signin',
-  },
+    signIn: '/signin'
+  }
 };
 
 export default NextAuth(authOptions);
-
 
 export interface MySession extends Session {
   user: {
     id: string;
     name: string;
     email: string;
+    first_name: string;
+    last_name: string;
+    poc_wallet: string;
     image: string;
     address: string;
     emailVerified: string | null;
     admin: boolean;
     owner: boolean;
-  }
+  };
 }

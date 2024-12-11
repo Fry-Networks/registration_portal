@@ -68,7 +68,7 @@ export default ({ products }: { products: Product[] }) => {
   };
 
   useEffect(() => {
-    if (device === undefined) {
+    if (device === undefined || !session || !session.user) {
       return;
     }
 
@@ -96,6 +96,18 @@ export default ({ products }: { products: Product[] }) => {
       setDeviceStatus(true);
       setWalletStatus(true);
       setLocationStatus(true);
+    } else {
+      setDeviceInfoData({
+        email: session.user.email,
+        firstName: session.user.first_name ?? '',
+        lastName: session.user.last_name ?? '',
+        nickname: ''
+      });
+
+      setWalletInfoData({
+        ...walletInfoData,
+        connectivity_wallet: session.user.poc_wallet
+      });
     }
   }, [device]);
 
