@@ -29,7 +29,20 @@ export default function Convert({ products }: { products: Product[] }) {
   const toast = useToastContext();
 
   const isAllowed = (key: string) => {
-    if (['OLWQM', 'OHWQM', 'EM', 'RDN', 'IRM', 'SVN', 'CN'].includes(key)) {
+    if (
+      [
+        'OLWQM',
+        'OHWQM',
+        'EM',
+        'RDN',
+        'IRM',
+        'SVN',
+        'CN',
+        'OAHAQM',
+        'OTHAQM',
+        'IHAQM'
+      ].includes(key)
+    ) {
       return false;
     }
 
