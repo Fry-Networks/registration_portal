@@ -195,7 +195,7 @@ const WalletInfo = ({
                   onFocus={() => setConnectivityFocus(true)}
                   onBlur={() => setConnectivityFocus(false)}
                 />
-                <WalletIcon handleOnclick={handleGenWallet} />
+                {/* <WalletIcon handleOnclick={handleGenWallet} /> */}
               </Flex>
               {errors.connectivity_wallet && (
                 <span className="text-red-500 text-sm">
