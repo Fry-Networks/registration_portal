@@ -37,7 +37,10 @@ export default function BoostModal({
 
       const result = await response.json();
       if (!response.ok) {
-        toast.error({ heading: 'Boost Error', message: result.message });
+        toast.error({
+          heading: 'Instant Claim Error',
+          message: result.message
+        });
 
         setIsProcessing(false);
         return;
@@ -48,12 +51,18 @@ export default function BoostModal({
         closeModal(modalName);
         handleBoost(true, '');
       } else {
-        toast.error({ heading: 'Boost Error', message: result.message });
+        toast.error({
+          heading: 'Instant Claim Error',
+          message: result.message
+        });
         setIsProcessing(false);
         return;
       }
     } catch (error) {
-      toast.error({ heading: 'Boost Error', message: 'Error on server side' });
+      toast.error({
+        heading: 'Instant Claim Error',
+        message: 'Error on server side'
+      });
 
       setIsProcessing(false);
       return;
@@ -82,14 +91,14 @@ export default function BoostModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5">Boost Rewards</Title>
+          <Title className="mb-5">Instant Claim</Title>
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
-            <p>Claim Rewards Now (30% Fee Applies)</p>
+            <p>Claim rewards instantly (30% Fee)</p>
           </Flex>
           <Flex
             flexDirection="row"
@@ -139,7 +148,7 @@ export default function BoostModal({
                   />
                 </svg>
               ) : (
-                'Boost'
+                'Instant Claim'
               )}
             </Button>
           </Flex>
