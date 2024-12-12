@@ -298,7 +298,7 @@ export default function DeviceListItem({
               </>
             ) : (
               <p>
-                <strong className="text-white">Reward Wallet: </strong> None
+                <strong className="text-white">PoC Wallet: </strong> None
               </p>
             )}
           </Flex>
