@@ -37,6 +37,7 @@ export default function Convert({ products }: { products: Product[] }) {
         'RDN',
         'IRM',
         'SVN',
+        'SDN',
         'CN',
         'OAHAQM',
         'OTHAQM',
