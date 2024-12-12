@@ -109,6 +109,13 @@ export default ({ products }: { products: Product[] }) => {
         connectivity_wallet: session.user.poc_wallet
       });
     }
+
+    if (!device.connectivity_wallet || device.connectivity_wallet.length < 0) {
+      setWalletInfoData({
+        ...walletInfoData,
+        connectivity_wallet: session.user.poc_wallet
+      });
+    }
   }, [device]);
 
   // State for each form's data
