@@ -8,15 +8,24 @@ interface ModalContextProps {
 
 const ModalContext = createContext<ModalContextProps | undefined>(undefined);
 
-export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
+  children
+}) => {
   const [modals, setModals] = useState<{ [key: string]: boolean }>({
     updateReward: false,
     positionVerification: false,
-    stakeVerification: false,
     withdraw_stakeVerification: false,
     registration: false,
     byodConvert: false,
     changeName: false,
+    addDevice: false,
+    stake: false,
+    withdraw: false,
+    boost: false,
+    claim: false,
+    delete: false,
+    generate_wallet: false,
+    withdraw_all: false
     // Add other modals here as needed
   });
 

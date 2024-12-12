@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Disclosure } from '@headlessui/react';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet';
 import Image from 'next/image';
@@ -13,6 +12,7 @@ import Link from 'next/link';
 import fryLogo from '../assets/Logo.png';
 import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
+import { useRouter } from 'next/router';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -27,7 +27,7 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-export default function Navbar() {
+export default () => {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { providers, activeAccount, getAssets, getAccountInfo } = useWallet();
@@ -36,11 +36,11 @@ export default function Navbar() {
   const [address, setAddress] = useState('');
   const [algoBalance, setAlgoBalance] = useState('0.00');
   const [fryBalance, setFryBalance] = useState('0.00');
+  const router = useRouter();
 
   useEffect(() => {
     if (address && address.length > 0) {
       if (devMode) {
-        console.log('Wallet Address: ' + address);
       } else {
         const assets = async () => {
           const infos = await getAssets();
@@ -73,10 +73,18 @@ export default function Navbar() {
   }, [address]);
 
   useEffect(() => {
+    if ((router.pathname !== '/' && !session) || !session?.user) {
+      router.push('/');
+    }
+  }, [router.pathname, session, activeAccount]);
+
+  useEffect(() => {
     if (devMode) {
       if (devConnect && devAccount) {
         setAddress(
-          devAccount.addr.substring(0, 4) + '...' + devAccount.addr.slice(-4)
+          devAccount.addr.toString().substring(0, 4) +
+            '...' +
+            devAccount.addr.toString().slice(-4)
         );
       } else {
         setAddress('');
@@ -98,9 +106,9 @@ export default function Navbar() {
     <div>
       <Flex
         flexDirection="row"
-        className="w-full px-20 border-b  border-white/10 max-sm:px-0"
+        className="w-full px-2 border-b h-24 border-white/10 sm:px-20"
       >
-        <div className="flex">
+        <div className="flex" key="logo">
           <Link
             href="https://frynetworks.com"
             target="_blank"
@@ -109,7 +117,10 @@ export default function Navbar() {
             <Image src={fryLogo} className="logo" alt="Fry logo" />
           </Link>
         </div>
-        <div className="flex items-center justify-between gap-2">
+        <div
+          className="flex items-center justify-between gap-2"
+          key="connect-button"
+        >
           {!address || address.length === 0 ? (
             <Button
               className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
@@ -129,8 +140,18 @@ export default function Navbar() {
               onClick={(e) => {
                 if (devMode) {
                   setDevConnect(false);
+                  if (session) {
+                    console.log('Log out');
+                    signOut();
+                  }
                 } else {
-                  setIsWalletModalOpen(true);
+                  providers
+                    ?.filter((provider) => provider.isConnected)[0]
+                    .disconnect();
+                  if (session) {
+                    console.log('Log out');
+                    signOut();
+                  }
                 }
               }}
             >
@@ -176,10 +197,14 @@ export default function Navbar() {
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
-            {providers?.map((provider) => (
+            {providers?.map((provider, index) => (
               <div
+                key={`provider ${index}`}
                 className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
-                onClick={() => provider.connect()}
+                onClick={() => {
+                  provider.connect();
+                  setIsWalletModalOpen(false);
+                }}
               >
                 <Image
                   src={provider.metadata.icon}
@@ -198,7 +223,7 @@ export default function Navbar() {
       </Modal>
     </div>
   );
-}
+};
 
 const customStyles = {
   content: {

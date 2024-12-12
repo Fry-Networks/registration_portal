@@ -2,6 +2,7 @@ import React, {
   createContext,
   ReactNode,
   useContext,
+  useEffect,
   useMemo,
   useState
 } from 'react';
@@ -34,7 +35,20 @@ export function DevWalletProvider({ children }: DevWalletProviderProps) {
     [mnemonic]
   );
 
-  const [devConnect, setDevConnect] = useState<boolean>(false);
+  console.log(devAccount?.addr);
+
+  const [devConnect, setDevConnect] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const storedValue = localStorage.getItem('devConnect');
+      return storedValue === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('devConnect', JSON.stringify(devConnect));
+  }, [devConnect]);
+
   const contextValue = {
     devConnect,
     devAccount,

@@ -1,11 +1,11 @@
 import { Flex, Title } from '@tremor/react';
-import ConnectMenu from '../components/connect';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { useWallet } from '@txnlab/use-wallet';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect } from 'react';
+import SignIn from '../components/SignIn';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -15,17 +15,6 @@ export default function IndexPage() {
   const { devConnect } = useDevWallet();
   const { activeAccount } = useWallet();
   const { data: session, status } = useSession();
-
-  useEffect(() => {
-    if ((activeAccount && !session) || (devConnect && !session)) {
-      console.log('signIn');
-      signIn('wallet');
-    }
-
-    if (!activeAccount || !devConnect) {
-      return;
-    }
-  }, [activeAccount, session, devConnect]);
 
   return (
     <main className="w-full">
@@ -39,19 +28,24 @@ export default function IndexPage() {
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-5xl">
-            Onboard your miners to Fry networks
+          <Title className="text-white text-3xl sm:text-5xl w-full text-center px-2">
+            Register and Manage Your FRY Miners and Nodes with Fry Networks
           </Title>
-          <p className="text-lg">Explanation for about onboarding miners</p>
+          <p className="text-lg text-center px-2 sm:px-20">
+            Welcome to the Fry Networks Dashboard. Use this platform to
+            seamlessly register, verify, and manage your miners and nodes. Stay
+            connected to the Fry ecosystem and unlock rewards while contributing
+            to the decentralized future.
+          </p>
         </Flex>
       </div>
       <Flex flexDirection="col" className="mt-10">
         {!((devMode && devConnect) || activeAccount) ? (
-          <Title className="text-white">
+          <Title className="text-white text-center px-2">
             Please connect your wallet to onboard your devices to FRY NETWORKS
           </Title>
         ) : (
-          <p></p>
+          <SignIn />
         )}
       </Flex>
     </main>

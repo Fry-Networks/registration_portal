@@ -4,7 +4,10 @@
 
 :root {
   color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
+  color: rgba(158, 158, 158, 0.87);
+  background-color: #121212;
+  --text-secondary: var(--gray-2);
+  --gray-2: #7e7e7e;
 }
 
 .logo {
@@ -12,6 +15,10 @@
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
+}
+
+body {
+  background-color: #121212;
 }
 
 .logo_wallet {
