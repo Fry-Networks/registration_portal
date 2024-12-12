@@ -115,7 +115,7 @@ export async function sendAlgoTransaction(
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
 
-      const waitRoundsToConfirm = 4;
+      const waitRoundsToConfirm = 0;
       const result = await sendTransactions(
         signedTransactions,
         waitRoundsToConfirm
@@ -125,7 +125,7 @@ export async function sendAlgoTransaction(
     }
   } catch (error) {
     console.error(error);
-    return { result: SEND_TXN_RESULT.INVALID_PARAM };
+    return { result: SEND_TXN_RESULT.INTERNAL_ERROR };
   }
 
   return { txId: txId, result: SEND_TXN_RESULT.OK };

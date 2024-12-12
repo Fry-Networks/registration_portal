@@ -158,7 +158,7 @@ const StakeModal = ({
 
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
-      const waitRoundsToConfirm = 4;
+      const waitRoundsToConfirm = 0;
       const { txId } = await sendTransactions(
         signedTransactions,
         waitRoundsToConfirm
