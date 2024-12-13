@@ -29,8 +29,6 @@ export default function SignIn({ signed }: SignInProps) {
   const [pocWallet, setPocWallet] = useState('');
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
-  console.log(`Session: ${session}`);
-
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
