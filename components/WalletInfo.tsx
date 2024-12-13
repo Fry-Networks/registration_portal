@@ -81,7 +81,7 @@ const WalletInfo = ({
       });
 
       const result = await response.json();
-      newErrors.reward_wallet = `$${result.token.name} must be optined in reward wallet.`;
+      newErrors.reward_wallet = `$${result.token.name} must be opted-in in reward wallet.`;
     }
 
     if (!data.connectivity_wallet) {
