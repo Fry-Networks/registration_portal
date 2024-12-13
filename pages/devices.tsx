@@ -103,7 +103,7 @@ const DevicesPage = ({
       toast.warning({
         heading: 'Warning',
         message:
-          "Please withdraw registration or node staked amount with 'Withdraw All' first"
+          'After withdraw all you staked. You can un-register your device.'
       });
       return;
     }
