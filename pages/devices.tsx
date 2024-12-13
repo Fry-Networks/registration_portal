@@ -95,7 +95,11 @@ const DevicesPage = ({
     setSelectedDevice(device);
 
     console.log('Verification: ' + device.verified);
-    if (isRegistartionStaked(device) || isNodeStaked(device)) {
+    if (
+      isRegistartionStaked(device) ||
+      isNodeStaked(device) ||
+      device.verified
+    ) {
       toast.warning({
         heading: 'Warning',
         message:
@@ -265,10 +269,10 @@ const DevicesPage = ({
           className="absolute w-full h-full justify-center gap-6"
         >
           <Title className="text-white text-4xl sm:text-5xl w-full text-center">
-            Onboard your miners to Fry networks
+            Onboard your miners to Fry Networks
           </Title>
           <p className="text-lg text-center px-2">
-            You can register your miners to onboard on Fry networks and can
+            You can register your miners to onboard on Fry Networks and can
             verify and manage miner information here.
           </p>
         </Flex>

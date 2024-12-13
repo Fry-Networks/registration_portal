@@ -19,6 +19,7 @@ import { AnnotationIcon, XCircleIcon } from '@heroicons/react/outline';
 import { RiAlertLine } from '@remixicon/react';
 import AlertWithTooltip from './AlertIcon';
 import StakingIcon from './StakeIcon';
+import { useSession } from 'next-auth/react';
 
 export default function DeviceListItem({
   initialDevice,
@@ -51,6 +52,7 @@ export default function DeviceListItem({
   );
   const [device, setDevice] = useState<Device>(initialDevice);
   const [algoAmount, setAlgoAmount] = useState(0);
+  const { data: session } = useSession();
 
   const isDeviceStatusOkay = (device: Device) => {
     return device.verified && device.verified === true;
@@ -97,8 +99,6 @@ export default function DeviceListItem({
         setPendingAmount(pendingTotalAmount);
       }
 
-      console.log(`${device.miner_key} get pending success`);
-
       const claimableResponse = await fetch('api/rewards/get-reward-records', {
         method: 'POST',
         headers: {
@@ -132,7 +132,30 @@ export default function DeviceListItem({
       const response = await fetch(`/api/devices/${minerKey}`);
       if (response.ok) {
         const data = await response.json();
-        setDevice(data.device as Device);
+        let preDevice = data.device as Device;
+        if (
+          !preDevice.connectivity_wallet ||
+          preDevice.connectivity_wallet.length <= 0
+        ) {
+          const saveData = {
+            miner_key: minerKey,
+            reward_wallet: preDevice.reward_wallet,
+            connectivity_wallet: session?.user.poc_wallet,
+            note: preDevice.note,
+            address: session?.user.address
+          };
+
+          const response = await fetch('/api/devices/save-wallet-info', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(saveData)
+          });
+
+          preDevice.connectivity_wallet = session?.user.poc_wallet;
+        }
+        setDevice(preDevice);
       }
     } catch (error) {
       console.error(error);
@@ -141,7 +164,6 @@ export default function DeviceListItem({
 
   const checkDeviceStatus = async (device: Device) => {
     const deviceStatus = await getDeviceStatus(device);
-    console.log(deviceStatus);
 
     if (deviceStatus === undefined) {
       setAlertShow(false);

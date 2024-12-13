@@ -141,7 +141,6 @@ export default () => {
                 if (devMode) {
                   setDevConnect(false);
                   if (session) {
-                    console.log('Log out');
                     signOut();
                   }
                 } else {
@@ -149,7 +148,6 @@ export default () => {
                     ?.filter((provider) => provider.isConnected)[0]
                     .disconnect();
                   if (session) {
-                    console.log('Log out');
                     signOut();
                   }
                 }
