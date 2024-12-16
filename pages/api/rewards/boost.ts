@@ -3,6 +3,21 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { Reward } from '../../../lib/types';
+import { verifyTransaction } from '../algorand/verify-txn';
+import algosdk, { mnemonicToSecretKey } from 'algosdk';
+import { 
+  DEFAULT_NODE_BASEURL,
+  DEFAULT_NODE_TOKEN,
+  DEFAULT_NODE_PORT,
+ } from '@txnlab/use-wallet';
+
+const algodClient = new algosdk.Algodv2(
+  DEFAULT_NODE_TOKEN,
+  DEFAULT_NODE_BASEURL,
+  DEFAULT_NODE_PORT
+);
+
+const FRYALGO_WALLET = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -43,6 +58,67 @@ export default async function handler(
       return;
     }
 
+    type Result = {
+      asset_id: number;
+      totalAmount: number;
+      txId?: string; // Optional field
+    };
+
+    const sumByAssetId = records.reduce((acc, reward) => {
+      const asset_id = reward.asset_id ?? '924268058';
+      if (acc.has(asset_id)) {
+        acc.set(
+          asset_id,
+          Math.round((acc.get(asset_id)! + reward.amount) * 100) / 100
+        );
+      } else {
+        acc.set(asset_id, reward.amount);
+      }
+      return acc;
+    }, new Map<number, number>());
+
+    const resultArray: Result[] = Array.from(sumByAssetId.entries()).map(
+      ([asset_id, totalAmount]) => ({
+        asset_id,
+        totalAmount
+      })
+    );
+
+    const params = await algodClient.getTransactionParams().do();
+    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const from = account.addr;
+    let txns: algosdk.TransactionLike[] = [];
+    let signedTxns: Uint8Array[] = [];
+    
+    for (let i = 0; i < resultArray.length; i++) {
+      const feeAmount = Math.round((resultArray[i].totalAmount * 100 * 30) / 100) / 100;
+
+      const noteInfo = {
+        action: "Instant Claim",
+        miner_key:
+          miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
+        asset_id: resultArray[i].asset_id,
+        amount: feeAmount,
+        date: new Date(Date.now())
+      };
+      const enc = new TextEncoder();
+      const note = enc.encode(JSON.stringify(noteInfo));
+
+      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        from,
+        to: FRYALGO_WALLET,
+        amount: testMode ? 0 : feeAmount * 1_000_000,
+        note,
+        assetIndex: Number(resultArray[i].asset_id),
+        suggestedParams: params,
+      });
+
+      txns.push(txn);
+
+      const signedTxn = txn.signTxn(account.sk);
+      signedTxns.push(signedTxn);
+    }
+
     let success = true;
     for (let i = 0; i < records.length; i++) {
       const reward = records[i] as Reward;
@@ -68,6 +144,17 @@ export default async function handler(
         success: false,
         message: `Failed to boost rewards for miner ${miner_key}`
       });
+      return;
+    }
+
+    algosdk.assignGroupID(txns);
+    const tx = await algodClient.sendRawTransaction(signedTxns).do();
+    const result = await verifyTransaction(account.addr, tx.txId);
+
+    if (!result) {
+      res
+        .status(402)
+        .json({ message: 'Failed to make verify Instant Claim fee transaction' });
       return;
     }
 
