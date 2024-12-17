@@ -20,6 +20,7 @@ import { RiAlertLine } from '@remixicon/react';
 import AlertWithTooltip from './AlertIcon';
 import StakingIcon from './StakeIcon';
 import { useSession } from 'next-auth/react';
+import Tooltip from './Tooltip';
 
 export default function DeviceListItem({
   initialDevice,
@@ -217,14 +218,14 @@ export default function DeviceListItem({
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
               {device && product && isNodeProduct(product) && (
                 <div onClick={() => handleStaking(device.miner_key)}>
-                  <StakingIcon />
+                  <Tooltip children={<StakingIcon />} text="Staking" />  
                 </div>
               )}
               <div onClick={() => handleChange(device.miner_key)}>
-                <EditIcon />
+                <Tooltip children={<EditIcon />} text="Edit" />
               </div>
               <div onClick={() => handleDeleteButton(device)}>
-                <DeleteIcon />
+                <Tooltip children={<DeleteIcon />} text="Unregister" />
               </div>
             </Flex>
           </div>

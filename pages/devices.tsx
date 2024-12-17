@@ -399,6 +399,23 @@ export async function getServerSideProps(context: any) {
     const client = await clientPromise;
     const db = client.db('main');
 
+    // const collection = db.collection('devices');
+    // let query = { miner_key: { $regex: "OMAQM", $options: "i" } };
+
+    // let records = await collection
+    //   .find(query, {})
+    //   .toArray();
+
+    // for (const doc of records) {
+    //   if (doc.miner_key) {
+    //     const updatedCode = doc.miner_key.replace(/OHAQM/gi, "OMAQM");
+    //     await collection.updateOne(
+    //       { _id: doc._id }, // Match the document by its unique _id
+    //       { $set: { miner_key: updatedCode } } // Update the 'code' field with the new value
+    //     );
+    //   }
+    // }
+
     const devices = await db
       .collection(testMode ? 'test-devices' : 'devices')
       .find({ address: session.user.address, is_registered: true })

@@ -13,7 +13,7 @@ const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {
 mapboxgl.accessToken =
   'REDACTED_ROTATE_ME';
 
-const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
+const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) => {
   const router = useRouter();
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const marker = useRef<mapboxgl.Marker | null>(null);
@@ -201,6 +201,13 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip }) => {
         </div>
 
         <div className="flex justify-end gap-4 mt-4 text-white">
+          <button
+            type="button"
+            className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
           <button
             type="button"
             className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"

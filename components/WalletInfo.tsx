@@ -33,6 +33,7 @@ const WalletInfo = ({
   setData,
   onNext,
   onSkip,
+  onCancel,
   status,
   asset_id
 }) => {
@@ -221,6 +222,13 @@ const WalletInfo = ({
             </div>
           </form>
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">
+            <button
+              type="button"
+              className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
             <button
               type="button"
               className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
