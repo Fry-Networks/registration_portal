@@ -56,7 +56,7 @@ export default function DeviceListItem({
   const { data: session } = useSession();
 
   const isDeviceStatusOkay = (device: Device) => {
-    return device.verified && device.verified === true;
+    return device.verified && device.verified === true && alertShow === false;
   };
 
   const router = useRouter();
