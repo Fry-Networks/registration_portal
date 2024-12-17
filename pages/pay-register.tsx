@@ -610,7 +610,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
             className="mt-10 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
             onClick={() => handleNext()}
           >
-            Next
+            Finish
           </Button>
         )}
       </Flex>
