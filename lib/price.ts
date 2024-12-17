@@ -13,7 +13,12 @@ let currentAlgoPrice = {
 };
 
 export async function getFRYPrice(asset_id: string) {
-  const fryURL = `https://free-api.vestige.fi/asset/${asset_id}/price`;
-  const response = await axios.get(fryURL);
-  return response.data.USD;
+  try {
+    const fryURL = `https://free-api.vestige.fi/asset/${asset_id}/price`;
+    const response = await axios.get(fryURL);
+    return parseFloat(response.data.USD).toFixed(5);
+  } catch (error) {
+    console.error(`Error fetching price for ${asset_id}:`, error);
+    return [];
+  }
 }
