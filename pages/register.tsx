@@ -331,6 +331,10 @@ export default ({ products }: { products: Product[] }) => {
     }
   };
 
+  const handleCancel = () => {
+    router.push('/devices');
+  }
+
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
@@ -382,6 +386,7 @@ export default ({ products }: { products: Product[] }) => {
               setData={setWalletInfoData}
               onNext={handleNext}
               onSkip={handleSkip}
+              onCancel={handleCancel}
               asset_id={product?.reward.tokens?.reward}
             />
           </div>
@@ -393,6 +398,7 @@ export default ({ products }: { products: Product[] }) => {
               setData={setMapInfoData}
               onNext={handleNext}
               onSkip={handleSkip}
+              onCancel={handleCancel}
             />
           </div>
         </div>
