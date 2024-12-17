@@ -212,9 +212,16 @@ export default function DeviceListItem({
           className={`relative w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
-            <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
-              {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
-            </Title>
+            <div className='flex gap-2'>
+              <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
+                {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
+              </Title>
+              {alertShow && (
+                <div className="">
+                  <AlertWithTooltip deviceStatus={deviceStatus} />
+                </div>
+              )}
+            </div>
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
               {device && product && isNodeProduct(product) && (
                 <div onClick={() => handleStaking(device.miner_key)}>
@@ -229,12 +236,6 @@ export default function DeviceListItem({
               </div>
             </Flex>
           </div>
-          {alertShow && (
-            <div className="absolute top-1 right-1">
-              <AlertWithTooltip deviceStatus={deviceStatus} />
-            </div>
-          )}
-
           <hr className="border-gray-800 mt-2"></hr>
           <Flex flexDirection="row" className="mt-4">
             {device.address && device.address.length > 0 ? (
