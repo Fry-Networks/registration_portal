@@ -18,7 +18,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    console.log('No session');
     res.status(401).json({ message: 'No session' });
     return;
   }

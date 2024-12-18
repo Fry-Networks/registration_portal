@@ -50,7 +50,6 @@ export default async function handler(
         })
         .toArray()
     )[0];
-    console.log(license);
     if (!license) {
       res.status(404).json({ message: 'Not found' });
       return;

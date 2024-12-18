@@ -21,7 +21,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized 1' });
     return;
   }
@@ -33,9 +32,9 @@ export default async function handler(
 
   const { address, miner_key } = data;
   if (session.user.address !== address || !address) {
-    console.log(
-      `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
+    // console.log(
+    //   `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
+    // );
     res.status(401).json({ message: 'Unauthorized 2' });
     return;
   }

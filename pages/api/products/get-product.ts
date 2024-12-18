@@ -11,7 +11,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized 1' });
     return;
   }
@@ -21,8 +20,6 @@ export default async function handler(
   } = req.body;
 
   const { miner_key } = data;
-  console.log(req.body);
-
   const productType = miner_key.split('-')[0];
 
   try {
@@ -36,7 +33,6 @@ export default async function handler(
 
     res.status(200).json({ message: 'ok', data });
   } catch (error) {
-    console.log(error);
     res.status(500).json({ message: 'error' });
   }
 }

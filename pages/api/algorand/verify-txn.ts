@@ -52,12 +52,9 @@ export default async function handler(
   } = req.body;
   const { address, txId } = data;
   try {
-    console.log('TxId: ' + txId);
-
     let checking = false;
     let checkingRetry = 0;
     while (!checking) {
-      console.log(address);
       const lastTransactions = await indexer
         .lookupAccountTransactions(address)
         .limit(50)
@@ -103,7 +100,6 @@ export async function verifyTransaction(address: string, txId: string) {
 
   try {
     while (!checking) {
-      console.log(address);
       const lastTransactions = await indexer
         .lookupAccountTransactions(address)
         .limit(50)

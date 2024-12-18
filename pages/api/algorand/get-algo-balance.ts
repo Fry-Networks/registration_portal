@@ -24,8 +24,8 @@ export async function getTokenBalance(address: string): Promise<number | null> {
     const accountInfo = await client.accountInformation(address).do();
     const balance = accountInfo.amount / 1e6; // Convert microAlgos to Algos
 
-    console.log(`Wallet Address: ${address}`);
-    console.log(`Algo Balance: ${balance} Algos`);
+    // console.log(`Wallet Address: ${address}`);
+    // console.log(`Algo Balance: ${balance} Algos`);
     return balance;
   } catch (error) {
     console.error('Error fetching account information:', error);

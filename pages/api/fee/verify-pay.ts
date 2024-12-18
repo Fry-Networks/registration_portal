@@ -22,7 +22,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized' });
     return;
   }
@@ -40,7 +39,6 @@ export default async function handler(
     const checking = await verifyTransaction(txId, address);
 
     if (checking) {
-      console.log('Transaction ID:', txId);
       const collection = db.collection(testMode ? 'test-devices' : 'devices');
       await collection.updateOne(
         { miner_key: miner_key, address: session.user.address },
@@ -52,7 +50,6 @@ export default async function handler(
       );
       return res.status(200).json({ message: 'ok' });
     } else {
-      console.log('Transaction ID:', txId);
       return res.status(500).json({ message: 'ok' });
     }
   } catch (error) {}
