@@ -143,16 +143,16 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
           <MapboxAutocomplete
             //@ts-ignore
             publicKey={mapboxgl.accessToken!}
-            inputClass="form-control search rounded border border-red-600 p-2 !mb-1"
+            inputClass="form-control search rounded border border-red-600 p-2 !mb-1 text-black"
             onSuggestionSelect={handleLocationSearch}
             resetSearch={true}
             placeholder="Search location..."
           />
           <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
-            <label className="mr-2">Latitude</label>
+            <label className="mr-2 text-white">Latitude</label>
             <input
               type="text"
-              className="p-2 rounded border border-red-600 w-full "
+              className="p-2 rounded border border-red-600 w-full text-black"
               placeholder="Latitude"
               value={data.latitude.toString()}
               onChange={(e) => {
@@ -169,10 +169,10 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
           </div>
 
           <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
-            <label className="mr-2">Longitude</label>
+            <label className="mr-2 text-white">Longitude</label>
             <input
               type="text"
-              className="p-2 rounded border border-red-600 w-full"
+              className="p-2 rounded border border-red-600 w-full text-black"
               placeholder="Longitude"
               value={data.longitude.toString()}
               onChange={(e) => {

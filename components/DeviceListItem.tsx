@@ -209,7 +209,7 @@ export default function DeviceListItem({
     <>
       {
         <div
-          className={`relative w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
+          className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
             <div className='flex gap-2'>
@@ -240,11 +240,11 @@ export default function DeviceListItem({
           <Flex flexDirection="row" className="mt-4">
             {device.address && device.address.length > 0 ? (
               <>
-                <p className="hidden md:block">
+                <p className="hidden md:block text-white">
                   <strong className="text-white">Address: </strong>
                   {device.address}
                 </p>
-                <p className="block md:hidden">
+                <p className="block md:hidden text-white">
                   <strong className="text-white">Address: </strong>
                   {device.address.slice(0, 6)}...
                   {device.address.slice(
@@ -258,7 +258,7 @@ export default function DeviceListItem({
               <p>Address: None</p>
             )}
           </Flex>
-          <p>
+          <p className='text-white'>
             <strong className="text-white">Miner Key: </strong>
             {device.miner_key && device.miner_key.length > 0
               ? device.miner_key
