@@ -1,5 +1,24 @@
 import { Device, Product } from './types';
-import algosdk from 'algosdk';
+import algosdk, { Indexer } from 'algosdk';
+import { 
+  DEFAULT_NODE_BASEURL,
+  DEFAULT_NODE_TOKEN,
+  DEFAULT_NODE_PORT,
+ } from '@txnlab/use-wallet'
+
+ const indexServer = 'https://mainnet-idx.algonode.cloud/';
+
+export const algodClient = new algosdk.Algodv2(
+  DEFAULT_NODE_TOKEN,
+  DEFAULT_NODE_BASEURL,
+  DEFAULT_NODE_PORT
+)
+
+export const indexerClient = new Indexer(
+  DEFAULT_NODE_TOKEN,
+  indexServer,
+  DEFAULT_NODE_PORT
+)
 
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
@@ -154,3 +173,23 @@ export const getDeviceStatus = async (
 
   return undefined;
 };
+
+
+export const getTransactionTime = async (txId: string | undefined): Promise<string> => {
+  try {
+    // Fetch the transaction details
+    if (txId !== undefined) {
+      const txInfo = await indexerClient.lookupTransactionByID(txId).do();
+
+      if (txInfo.transaction && txInfo.transaction["round-time"]) {
+        const transactionTime = new Date(txInfo.transaction["round-time"] * 1000);
+        return transactionTime.toDateString();
+      } else {
+        return "Transaction not yet confirmed.";
+      }
+    }
+    return "Transaction not yet confirmed.";
+  } catch (error) {
+    return "Transaction not yet confirmed.";
+  }
+}

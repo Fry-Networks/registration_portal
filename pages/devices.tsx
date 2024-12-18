@@ -271,7 +271,7 @@ const DevicesPage = ({
           <Title className="text-white text-4xl sm:text-5xl w-full text-center">
             Onboard your miners to Fry Networks
           </Title>
-          <p className="text-lg text-center px-2">
+          <p className="text-lg text-center px-2 text-gray-300">
             You can register your miners to onboard on Fry Networks and can
             verify and manage miner information here.
           </p>
@@ -282,17 +282,17 @@ const DevicesPage = ({
         justifyContent="evenly"
         className="flex-wrap gap-6 px-2 sm:px-20 mt-10"
       >
-        <div className="rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] w-full sm:w-auto ">
+        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] w-full sm:w-auto gap-2">
           <Title className="text-white">Registered Miners</Title>
-          <p>{devices.length}</p>
+          <p className='flex text-gray-300 text-lg'>{devices.length}</p>
         </div>
-        <div className="rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px]  w-full sm:w-auto ">
+        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px]  w-full sm:w-auto gap-2">
           <Title className="text-white">Unverified Miners</Title>
-          <p>{devices.filter((device) => !device.verified).length}</p>
+          <p className='flex text-gray-300 text-lg'>{devices.filter((device) => !device.verified).length}</p>
         </div>
-        <div className="rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] w-full sm:w-auto ">
+        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] w-full sm:w-auto gap-2">
           <Title className="text-white">Verified Miners</Title>
-          <p>{devices.filter((device) => device.verified).length}</p>
+          <p className='flex text-gray-300 text-lg'>{devices.filter((device) => device.verified).length}</p>
         </div>
       </Flex>
 

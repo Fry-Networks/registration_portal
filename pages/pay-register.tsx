@@ -476,7 +476,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
           <Title className="text-white text-center text-4xl sm:text-5xl">
             Registration & Node Staking
           </Title>
-          <p className="text-lg text-center px-2">
+          <p className="text-lg text-center px-2 text-gray-300">
             You have to stake for registration with following payments.This will
             be withdrawed automatically when you un-register the devices.
           </p>

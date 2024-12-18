@@ -20,7 +20,7 @@ const AlertWithTooltip = ({
 
       {/* Tooltip */}
       {isHovered && (
-        <div className="absolute min-w-[250px] sm:min-w-[500px] right-0 top-full mt-2 bg-gray-900 text-white text-sm px-3 py-2 rounded shadow-lg">
+        <div className="absolute min-w-[250px] sm:min-w-[500px] left-0 top-full mt-2 bg-gray-900 text-white text-sm px-3 py-2 rounded shadow-lg">
           {deviceStatus['position'] && (
             <p>
               <strong>Position: </strong>Not set

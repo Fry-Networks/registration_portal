@@ -56,7 +56,7 @@ export default function DeviceListItem({
   const { data: session } = useSession();
 
   const isDeviceStatusOkay = (device: Device) => {
-    return device.verified && device.verified === true;
+    return device.verified && device.verified === true && alertShow === false;
   };
 
   const router = useRouter();
@@ -209,12 +209,19 @@ export default function DeviceListItem({
     <>
       {
         <div
-          className={`relative w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
+          className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
-            <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
-              {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
-            </Title>
+            <div className='flex gap-2'>
+              <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
+                {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
+              </Title>
+              {alertShow && (
+                <div className="">
+                  <AlertWithTooltip deviceStatus={deviceStatus} />
+                </div>
+              )}
+            </div>
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
               {device && product && isNodeProduct(product) && (
                 <div onClick={() => handleStaking(device.miner_key)}>
@@ -229,21 +236,15 @@ export default function DeviceListItem({
               </div>
             </Flex>
           </div>
-          {alertShow && (
-            <div className="absolute top-1 right-1">
-              <AlertWithTooltip deviceStatus={deviceStatus} />
-            </div>
-          )}
-
           <hr className="border-gray-800 mt-2"></hr>
           <Flex flexDirection="row" className="mt-4">
             {device.address && device.address.length > 0 ? (
               <>
-                <p className="hidden md:block">
+                <p className="hidden md:block text-white">
                   <strong className="text-white">Address: </strong>
                   {device.address}
                 </p>
-                <p className="block md:hidden">
+                <p className="block md:hidden text-white">
                   <strong className="text-white">Address: </strong>
                   {device.address.slice(0, 6)}...
                   {device.address.slice(
@@ -257,7 +258,7 @@ export default function DeviceListItem({
               <p>Address: None</p>
             )}
           </Flex>
-          <p>
+          <p className='text-white'>
             <strong className="text-white">Miner Key: </strong>
             {device.miner_key && device.miner_key.length > 0
               ? device.miner_key

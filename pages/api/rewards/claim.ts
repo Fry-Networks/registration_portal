@@ -130,7 +130,7 @@ export default async function handler(
         return;
       }
 
-      const result = await verifyTransaction(account.addr, tx.txId);
+      const result = await verifyTransaction(tx.txId, account.addr);
 
       if (!result) {
         res
