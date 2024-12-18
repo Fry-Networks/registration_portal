@@ -24,7 +24,6 @@ export default async function handler(
   } = req.body;
 
   const { address, key } = data;
-  console.log(req.body);
   if (session.user.address !== address || !address) {
     console.log(
       `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`

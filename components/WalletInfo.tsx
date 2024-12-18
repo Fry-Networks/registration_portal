@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Sidebar from './Sidebar'; // Ensure this component is properly imported
 import bgImg from '../assets/background.png';
@@ -12,6 +12,7 @@ import WalletIcon from './WalletIcon';
 import { useModal } from '../app/modalcontext';
 import GenerateWallet from './modals/GenerateWallet';
 import { getWalletAddress } from '../lib/utils';
+import { useToastContext } from '../hooks/ToastContext';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -33,6 +34,7 @@ const WalletInfo = ({
   setData,
   onNext,
   onSkip,
+  onCancel,
   status,
   asset_id
 }) => {
@@ -40,9 +42,11 @@ const WalletInfo = ({
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isComplete, setIsComplete] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isLowBalance, setIsLowBalance] = useState(true);
   const { data: session } = useSession();
   const [connectivityFocus, setConnectivityFocus] = useState(false);
   const { openModal } = useModal();
+  const toast = useToastContext();
 
   async function hasOptedInForAsset(
     address: string,
@@ -53,8 +57,6 @@ const WalletInfo = ({
       process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
     try {
-      console.log(address);
-      console.log(assetId);
       const accountInfo = await algodClient.accountInformation(address).do();
       const assets = accountInfo['assets'] || [];
       return assets.some((asset: any) => asset['asset-id'] === assetId);
@@ -104,7 +106,6 @@ const WalletInfo = ({
   };
 
   const handleSubmit = async () => {
-    console.log('handle submit');
     if (await validateForm()) {
       if (!session || !session.user) {
         return;
@@ -149,6 +150,42 @@ const WalletInfo = ({
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const checkAlgoBalance = async () => {
+    const account = getWalletAddress(data.connectivity_wallet);
+
+    try {
+      // Fetch account information
+      const accountInfo = await algodClient.accountInformation(account).do();
+  
+      // ALGO balance is in microalgos; convert to ALGO
+      const algoBalance = accountInfo.amount / 1e6;
+
+      if (algoBalance <= 3)
+      {
+        setIsLowBalance(true);
+        return;
+      }
+
+      setIsLowBalance(false);
+      return;
+  
+    } catch (error) {
+      console.error("Error fetching account balance:", error);
+    }
+  }
+
+  useEffect (() => {
+    const fetchData = async () => {
+      await checkAlgoBalance();
+    }
+
+    fetchData();
+
+    let intervalId = setInterval(fetchData, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [data]);
+
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full relative">
@@ -157,6 +194,13 @@ const WalletInfo = ({
           className="w-screen h-[30vh] object-cover"
           alt="Background Image"
         />
+        { isLowBalance ? (
+          <div className='flex justify-center text-white pt-2'>
+            <span className='flex text-yellow-400'>{`Warning! `}&nbsp;</span>
+            {'Too Low ALGO Balance for PoC Wallet'}
+          </div>
+        ) : <></>
+        }
         <div className="py-8 pl-6 pr-24 md:px-24 h-full relative">
           <form className="w-full">
             <div className="w-full">
@@ -221,6 +265,13 @@ const WalletInfo = ({
             </div>
           </form>
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">
+            <button
+              type="button"
+              className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
             <button
               type="button"
               className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"

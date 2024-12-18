@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
 import ProgressDateBar from './ProgressDateBar';
+import { getTransactionTime } from '../lib/utils';
 
 export default function RewardListItem({
   reward,
@@ -17,6 +18,18 @@ export default function RewardListItem({
   handleClaimButton: (reward: Reward) => void;
   handleBoostButton: (reward: Reward) => void;
 }) {
+
+  const[claimedTime, setClaimedTime] = useState('');
+
+  useEffect (() => {
+    const fetchData = async () => {
+      const t = await getTransactionTime(reward.txId);
+      setClaimedTime(t);
+    }
+
+    fetchData();
+  }, [reward.status]);
+
   return (
     <>
       {
@@ -41,10 +54,16 @@ export default function RewardListItem({
             {reward.amount}
           </p>
           {reward.status === 'claimed' && (
-            <p>
-              <strong className="text-white">Claimed TxId: </strong>
-              {reward.txId}
-            </p>
+            <>
+              <p>
+                <strong className="text-white">Claimed TxId: </strong>
+                {reward.txId}
+              </p>
+              <p>
+                <strong className="text-white">Claimed Time: </strong>
+                {claimedTime}
+              </p>
+            </>
           )}
           {reward.status !== 'claimed' && (
             <>

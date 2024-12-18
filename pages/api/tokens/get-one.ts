@@ -20,14 +20,11 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    console.log('No session');
     res.status(401).json({ message: 'No session' });
     return;
   }
 
   const { name, asset_id } = req.body as FryTokenData;
-
-  console.log(name, asset_id);
 
   try {
     const client = await clientPromise;

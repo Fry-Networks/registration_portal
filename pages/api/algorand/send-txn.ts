@@ -50,7 +50,6 @@ export default async function handler(
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();
 
-    console.log(note);
     const enc = new TextEncoder();
     const encodedNote = enc.encode(note);
 
@@ -70,7 +69,6 @@ export default async function handler(
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
 
-    console.log('Transaction ID:', tx.txId);
     return res.status(200).json({ txId: tx.txId });
   } catch (error) {
     console.error(error);

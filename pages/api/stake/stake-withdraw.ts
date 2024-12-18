@@ -37,7 +37,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized 1' });
     return;
   }
@@ -48,11 +47,10 @@ export default async function handler(
   } = req.body;
 
   const { address, miner_key } = data;
-  console.log(address, miner_key, session.user.address);
   if (session.user.address !== address || !address) {
-    console.log(
-      `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
+    // console.log(
+    //   `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
+    // );
     res.status(401).json({ message: 'Unauthorized 2' });
     return;
   }
@@ -61,7 +59,6 @@ export default async function handler(
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    console.log(req.body);
     const device = (await collection.findOne({
       miner_key
     })) as unknown as Device;
@@ -109,15 +106,12 @@ export default async function handler(
     let result = 'success';
 
     const asset_id = device.staked?.asset_id ?? fryCryptoAssetId;
-    console.log('AssetID: ' + asset_id);
 
     result = await withdraw(miner_key, address, amount, asset_id);
     if (!result) {
       res.status(500).json({ message: 'error' });
       return;
     }
-
-    console.log(result);
 
     await collection.updateOne(
       { miner_key },
@@ -167,8 +161,6 @@ export async function withdraw(
       amount: amount
     };
 
-    console.log(noteInformation);
-
     const enc = new TextEncoder();
     const note = enc.encode(JSON.stringify(noteInformation));
 
@@ -182,15 +174,12 @@ export async function withdraw(
       suggestedParams
     });
 
-    console.log(txn);
-
     // Sign the transaction with the account secret key
     const signedTxn = txn.signTxn(account.sk);
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
 
-    console.log(tx);
     // const result = await waitForConfirmation(algodClient, tx.txid, 3);
 
     const checking = await verifyTransaction(address, tx.txId);

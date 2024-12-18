@@ -27,6 +27,7 @@ export default function Convert({ products }: { products: Product[] }) {
   const { devAccount } = useDevWallet();
   const { data: session } = useSession();
   const toast = useToastContext();
+  const router = useRouter();
 
   const isAllowed = (key: string) => {
     if (
@@ -95,6 +96,33 @@ export default function Convert({ products }: { products: Product[] }) {
     }
   };
 
+  const handleRegister = async (minerKey: string): Promise<void> => {
+    try {
+      const response = await fetch(`/api/devices/${minerKey}`);
+      if (!response.ok) {
+        toast.error({ heading: 'Error', message: 'Device not found' });
+
+        return;
+      }
+
+      const result = await response.json();
+      if (result.device.is_registered) {
+        toast.error({ heading: 'Error', message: 'Already registered' });
+
+        return;
+      }
+
+      router.push({ pathname: '/register', query: { minerKey } });
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message:
+          'There is an error occured for registering. Please contact us before you try again'
+      });
+      return;
+    }
+  };
+
   return (
     <div className="w-full">
       <div className="relative flex mb-10">
@@ -124,7 +152,7 @@ export default function Convert({ products }: { products: Product[] }) {
             onChange={(e) => setByodLicense(e.target.value)}
             placeholder="Enter your byod license"
             className="mt-2 mb-2"
-            error={!/^[A-Z0-9]+$/.test(byodLicense)}
+            error={byodLicense !=="" && !/^[A-Z0-9]+$/.test(byodLicense)}
             errorMessage="Invalid byod license"
           />
         </div>
@@ -162,6 +190,15 @@ export default function Convert({ products }: { products: Product[] }) {
             }
           >
             Convert
+          </Button>
+          <Button
+            className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+            onClick={() => handleRegister(miner_key)}
+            disabled={
+              miner_key === ''
+            }
+          >
+            {`Add >`}
           </Button>
         </Flex>
 

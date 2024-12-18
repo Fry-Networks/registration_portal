@@ -39,7 +39,6 @@ export default async function handler(
     const db = client.db('main');
     const collection = db.collection('products');
     const test = await collection.findOne({ key: miner_type });
-    console.log(test);
     if (!test) {
       res.status(404).json({ message: 'Product Not found' });
       return;
@@ -51,7 +50,6 @@ export default async function handler(
       res.status(400).json({ message: 'Not found' });
       return;
     }
-    console.log(exists);
     if (exists.is_registered) {
       res.status(400).json({ message: 'Already registered' });
       return;
