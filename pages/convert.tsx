@@ -152,7 +152,7 @@ export default function Convert({ products }: { products: Product[] }) {
             onChange={(e) => setByodLicense(e.target.value)}
             placeholder="Enter your byod license"
             className="mt-2 mb-2"
-            error={!/^[A-Z0-9]+$/.test(byodLicense)}
+            error={byodLicense !=="" && !/^[A-Z0-9]+$/.test(byodLicense)}
             errorMessage="Invalid byod license"
           />
         </div>

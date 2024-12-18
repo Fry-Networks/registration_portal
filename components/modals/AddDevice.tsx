@@ -53,7 +53,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
           onChange={(e) => setMinerKey(e.target.value)}
           placeholder="Enter your miner key to onboard"
           className="mt-2 mb-2"
-          error={!/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
+          error={miner_key !== "" && !/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
           errorMessage="Invalid miner key"
         />
         <Flex
