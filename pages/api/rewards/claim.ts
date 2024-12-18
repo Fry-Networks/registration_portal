@@ -92,8 +92,6 @@ export default async function handler(
       })
     );
 
-    console.log(resultArray);
-
     const suggestedParams = await algodClient.getTransactionParams().do();
 
     for (let i = 0; i < resultArray.length; i++) {
@@ -105,7 +103,6 @@ export default async function handler(
         date: new Date(Date.now())
       };
 
-      console.log(noteInfo);
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
       const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
@@ -139,7 +136,6 @@ export default async function handler(
         return;
       }
 
-      console.log(tx.txId);
       resultArray[i].txId = tx.txId;
     }
 

@@ -19,7 +19,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    console.log('No session');
     res.status(401).json({ message: 'Unauthorized 1' });
     return;
   }
@@ -49,9 +48,7 @@ export default async function handler(
     const totalItems = await collection.countDocuments({
       miner_key: miner_key
     });
-    console.log(totalItems);
     const totalPages = Math.ceil(totalItems / Number(pageSize));
-    console.log(totalPages);
 
     if (items && items.length >= 0) {
       res.status(200).json({ success: true, items, totalPages });

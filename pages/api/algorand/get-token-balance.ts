@@ -49,7 +49,6 @@ export async function getTokenBalance(
 
     if (asset) {
       // Return the asset balance (converted to base units, if needed)
-      console.log(asset);
       const decimals = await getAssetDecimals(asset['asset-id']);
       return Number((asset.amount / Math.pow(10, decimals || 0)).toFixed(2)); // Adjust for decimals
     } else {

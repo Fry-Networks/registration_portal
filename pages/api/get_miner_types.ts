@@ -19,7 +19,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } = req.body;
 
     const { address } = data;
-    console.log(req.body)
     if (session.user.address !== address || !address) {
         console.log(`get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`);
         res.status(401).json({ message: "Unauthorized 2" });

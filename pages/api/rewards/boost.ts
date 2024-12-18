@@ -123,7 +123,6 @@ export default async function handler(
     for (let i = 0; i < records.length; i++) {
       const reward = records[i] as Reward;
       const boostedAmount = Math.round((reward.amount * 100 * 70) / 100) / 100;
-      console.log(boostedAmount);
       const updateResult = await collection.updateOne(
         { no: reward.no, miner_key: reward.miner_key },
         {

@@ -13,11 +13,9 @@ export default async function handler(
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-  console.log('Mode: ' + testMode);
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized 1' });
     return;
   }
@@ -32,9 +30,6 @@ export default async function handler(
 
   const { miner_key, reward_wallet, connectivity_wallet, address, note } = data;
   if (session.user.address !== address || !address) {
-    console.log(
-      `session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
     res.status(401).json({ message: 'Unauthorized 2' });
     return;
   }
@@ -60,7 +55,6 @@ export default async function handler(
         }
       }
     );
-    console.log(`Registered ${miner_key}`);
 
     res.status(200).json({ message: 'ok' });
   } catch (error) {

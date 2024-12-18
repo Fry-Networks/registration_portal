@@ -35,13 +35,12 @@ export default async function handler(
   const { miner_key: miner, txId, address, asset_id, amount, type } = data;
   try {
     if (session.user.address !== address || !address) {
-      console.log(
-        `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
-      );
+      // console.log(
+      //   `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
+      // );
       res.status(401).json({ message: 'Unauthorized 2' });
       return;
     }
-    console.log('TxId: ' + txId);
     const client = await clientPromise;
     const db = client.db('main');
     const product = (await db

@@ -1,10 +1,20 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import clientPromise from '../../../lib/mongoclient';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]';
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+
+  const session = await getServerSession(req, res, authOptions);
+
+  if (!session || !session.user) {
+    res.status(401).json({ message: 'Unauthroized' });
+    return;
+  }
+
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';

@@ -23,7 +23,6 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    console.log(`no session`);
     res.status(401).json({ message: 'Unauthorized' });
     return;
   }
@@ -59,7 +58,6 @@ export default async function handler(
       date: new Date(Date.now())
     };
 
-    console.log(noteInfo);
     const enc = new TextEncoder();
     const note = enc.encode(JSON.stringify(noteInfo));
 
@@ -82,7 +80,6 @@ export default async function handler(
     const client = await clientPromise;
     const db = client.db('main');
     if (checking) {
-      console.log('Transaction ID:', tx.txId);
       const collection = db.collection(testMode ? 'test-devices' : 'devices');
       await collection.updateOne(
         { miner_key: miner_key, address: session.user.address },
@@ -94,7 +91,6 @@ export default async function handler(
       );
       return res.status(200).json({ txId: tx.txId });
     } else {
-      console.log('Transaction ID:', tx.txId);
       return res.status(500).json({ txId: tx.txId });
     }
   } catch (error) {

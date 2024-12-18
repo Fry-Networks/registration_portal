@@ -55,13 +55,12 @@ export default async function handler(
   const { miner, txId, address, asset_id, amount } = data;
   try {
     if (session.user.address !== address || !address) {
-      console.log(
-        `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
-      );
+      // console.log(
+      //   `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
+      // );
       res.status(401).json({ message: 'Unauthorized 2' });
       return;
     }
-    console.log('TxId: ' + txId);
     const client = await clientPromise;
     const db = client.db('main');
     const product = (await db
@@ -103,7 +102,6 @@ export default async function handler(
     let checking = false;
     let checkingRetry = 0;
     while (!checking) {
-      console.log(address);
       const lastTransactions = await indexer
         .lookupAccountTransactions(address)
         .limit(50)
@@ -169,21 +167,17 @@ async function confirmTransaction(
   txId: string,
   price: number
 ): Promise<{ code: number; amount?: number }> {
-  console.log(txId);
-  console.log(price);
   let amount;
   try {
     const lowerBound = price - price * 0.05; // lower bound is 95% of the price
     const upperBound = price + price * 0.05; // upper bound is 105% of the price
 
     // Get the confirmed transaction
-    console.log('Getting transaction info for txId: ' + txId);
     await wait(2000);
     const confirmedTxn = await algodClient
       .pendingTransactionInformation(txId)
       .do();
 
-    console.log('Got transaction info');
     // Check if the receiver is correct
     const actualReceiverField = 'arcv';
     const actualReceiver = algosdk.encodeAddress(
