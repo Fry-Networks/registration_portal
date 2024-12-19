@@ -137,7 +137,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
     const foundOne = products?.find((value) => {
       return value.key === device?.miner_key.split('-')[0];
     });
-    console.log(foundOne);
+    // console.log(foundOne);
     setProduct(foundOne);
   }, [device, products]);
 

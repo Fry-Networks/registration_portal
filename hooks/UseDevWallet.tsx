@@ -35,7 +35,7 @@ export function DevWalletProvider({ children }: DevWalletProviderProps) {
     [mnemonic]
   );
 
-  console.log(devAccount?.addr);
+  // console.log(devAccount?.addr);
 
   const [devConnect, setDevConnect] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {

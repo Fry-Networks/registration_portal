@@ -36,7 +36,6 @@ export default function GenerateWallet({
 
     const mnemonic = algosdk.secretKeyToMnemonic(privateKey);
 
-    console.log(mnemonic);
     setMnemonic(mnemonic);
   }, [account]);
 

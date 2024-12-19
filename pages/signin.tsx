@@ -21,7 +21,7 @@ export default function SignIn() {
   const { devConnect } = useDevWallet();
 
   const checkUser = async () => {
-    console.log(activeAccount, devConnect);
+    // console.log(activeAccount, devConnect);
     if (!activeAccount || !devConnect) {
       return;
     }

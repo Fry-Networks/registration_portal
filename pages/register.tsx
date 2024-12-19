@@ -54,7 +54,6 @@ export default ({ products }: { products: Product[] }) => {
 
   const findProduct = (minerKey: string) => {
     const key = minerKey.split('-')[0];
-    console.log(key);
 
     const specificProduct = products.find((product) => {
       return product.key === key;
@@ -153,8 +152,6 @@ export default ({ products }: { products: Product[] }) => {
       nickname: deviceInfoData.nickname,
       address: session?.user.address
     };
-
-    console.log(saveData);
 
     const response = await fetch('/api/devices/save-device-info', {
       method: 'POST',

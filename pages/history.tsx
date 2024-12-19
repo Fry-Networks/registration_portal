@@ -187,7 +187,6 @@ export async function getServerSideProps(context: any) {
   }
 
   const { miner_key } = query;
-  console.log(miner_key);
 
   try {
     const client = await clientPromise;

@@ -60,8 +60,6 @@ export default function Convert({ products }: { products: Product[] }) {
       return;
     }
 
-    console.log(tempProducts[0].name);
-
     setSelectedProduct(tempProducts[0].key);
     setFilteredProducts(tempProducts);
   }, [products]);
@@ -219,8 +217,6 @@ export async function getServerSideProps(context: any) {
     const db = client.db('main');
 
     const products = await db.collection('products').find({}).toArray();
-
-    console.log(products);
 
     if (!products) {
       return {

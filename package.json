@@ -16,7 +16,7 @@
     "@daffiwallet/connect": "^1.0.3",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
-    "@headlessui/react": "^1.7.16",
+    "@headlessui/react": "^2.2.0",
     "@headlessui/tailwindcss": "^0.2.1",
     "@heroicons/react": "^1.0.6",
     "@mapbox/search-js-react": "^1.0.0-beta.18",
