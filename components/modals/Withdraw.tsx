@@ -83,7 +83,6 @@ export default function WithdrawModal({
       }
 
       const result = await response.json();
-      console.log(result);
       setIsWithdrawable(result.data.available);
       setWithdrawableTime(new Date(result.data.availableIn));
     } catch (error) {}

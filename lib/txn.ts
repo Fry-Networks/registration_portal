@@ -32,8 +32,6 @@ export async function sendAlgoTransaction(
   sendTransactions?: any,
   staking?: boolean
 ): Promise<OutputSendTransaction> {
-  console.log('Send Tranasction Function');
-  console.log(from, to, asset_id, amount, note);
 
   let txId = '';
   if (!asset_id || asset_id === 'none' || asset_id.length <= 0 || amount < 0) {

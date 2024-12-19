@@ -142,7 +142,6 @@ const StakeModal = ({
         date: new Date(Date.now())
       };
 
-      console.log(noteInfo);
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
 
