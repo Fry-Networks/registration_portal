@@ -2,7 +2,6 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Disclosure } from '@headlessui/react';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet';
 import Image from 'next/image';
@@ -13,6 +12,7 @@ import fryLogo from '../assets/Logo.png';
 import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
+import DownMenu from './MenuBox';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -37,6 +37,22 @@ export default () => {
   const [algoBalance, setAlgoBalance] = useState('0.00');
   const [fryBalance, setFryBalance] = useState('0.00');
   const router = useRouter();
+
+  const handleDisconnect = () => {
+    if (devMode) {
+      setDevConnect(false);
+      if (session) {
+        signOut();
+      }
+    } else {
+      providers
+        ?.filter((provider) => provider.isConnected)[0]
+        .disconnect();
+      if (session) {
+        signOut();
+      }
+    }
+  }
 
   useEffect(() => {
     if (address && address.length > 0) {
@@ -117,6 +133,7 @@ export default () => {
             <Image src={fryLogo} className="logo" alt="Fry logo" />
           </Link>
         </div>
+        
         <div
           className="flex items-center justify-between gap-2"
           key="connect-button"
@@ -135,26 +152,30 @@ export default () => {
               Connect Wallet
             </Button>
           ) : (
-            <Button
-              className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-              onClick={(e) => {
-                if (devMode) {
-                  setDevConnect(false);
-                  if (session) {
-                    signOut();
-                  }
-                } else {
-                  providers
-                    ?.filter((provider) => provider.isConnected)[0]
-                    .disconnect();
-                  if (session) {
-                    signOut();
-                  }
-                }
-              }}
-            >
-              {`Disconnect: ${address}`}
-            </Button>
+            <DownMenu 
+              address={address} 
+              disconnect={handleDisconnect} 
+            />
+            // <Button
+            //   className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+            //   onClick={(e) => {
+            //     if (devMode) {
+            //       setDevConnect(false);
+            //       if (session) {
+            //         signOut();
+            //       }
+            //     } else {
+            //       providers
+            //         ?.filter((provider) => provider.isConnected)[0]
+            //         .disconnect();
+            //       if (session) {
+            //         signOut();
+            //       }
+            //     }
+            //   }}
+            // >
+            //   {`Disconnect: ${address}`}
+            // </Button>
           )}
         </div>
       </Flex>

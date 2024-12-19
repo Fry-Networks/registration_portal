@@ -37,7 +37,6 @@ export default function DeleteModal({
       });
 
       const data = await response.json();
-      console.log(data);
       if (response.ok) {
         if (data.result === 'ok') {
           toast.success({

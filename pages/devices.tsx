@@ -166,7 +166,6 @@ const DevicesPage = ({
   };
 
   const handleWithdrawStake = (device: Device): void => {
-    console.log(device.verified);
     setSelectedDevice(device);
 
     if (!device.verified) {
@@ -387,8 +386,6 @@ export async function getServerSideProps(context: any) {
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
   const session = await getSession(context);
 
-  console.log(testMode);
-
   if (!session || !session.user.address) {
     return {
       props: {}
@@ -399,8 +396,8 @@ export async function getServerSideProps(context: any) {
     const client = await clientPromise;
     const db = client.db('main');
 
-    // const collection = db.collection('devices');
-    // let query = { miner_key: { $regex: "OMAQM", $options: "i" } };
+    // const collection = db.collection('rewards');
+    // let query = { miner_key: { $regex: "OHAQM", $options: "i" } };
 
     // let records = await collection
     //   .find(query, {})
@@ -423,7 +420,6 @@ export async function getServerSideProps(context: any) {
 
     const products = await db.collection('products').find({}).toArray();
 
-    console.log(devices);
     if (!devices && !products) {
       return {
         props: {

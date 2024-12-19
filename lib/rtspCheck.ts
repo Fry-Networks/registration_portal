@@ -43,8 +43,6 @@ export function checkRtspLink(rtspUrl: string): Promise<boolean> {
                       `x-sessioncookie: 31df7d10b7ba43f0\r\n` +
                       authHeader +
                       '\r\n';
-      console.log('Sending request:');
-      console.log(request);
       socket.write(request);
     }
 
@@ -56,8 +54,6 @@ export function checkRtspLink(rtspUrl: string): Promise<boolean> {
 
     socket.on('data', (data) => {
       response += data.toString();
-      console.log('Received response:');
-      console.log(response);
 
       if (response.includes('RTSP/1.0 200 OK')) {
         socket.destroy();
