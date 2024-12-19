@@ -100,7 +100,7 @@ export default function History({
           <Title className="text-white text-4xl sm:text-5xl">
             Reward History
           </Title>
-          <p className="text-lg text-center">
+          <p className="text-lg text-center text-gray-300">
             You can explore the rewards history and manage each reward for
             miners on here.
           </p>
