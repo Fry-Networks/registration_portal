@@ -11,7 +11,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthroized' });
+    res.status(401).json({ message: 'Unauthorized' });
     return;
   }
 
@@ -34,6 +34,11 @@ export default async function handler(
 
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
+    }
+
+    if (!device.address || device.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
     }
 
     return res.status(200).json({ device: device });

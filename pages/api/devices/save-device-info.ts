@@ -48,6 +48,11 @@ export default async function handler(
       return;
     }
 
+    if (!exists.address || exists.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized 2' });
+      return;
+    }
+
     const result = await collection.updateOne(
       { miner_key: miner_key },
       {

@@ -341,7 +341,7 @@ const StakeModal = ({
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5"
+            className="gap-3 w-full mt-5 text-slate-900"
           >
             <div className="flex gap-2">
               <p>BYOD:</p>

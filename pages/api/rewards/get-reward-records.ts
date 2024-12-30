@@ -26,12 +26,26 @@ export default async function handler(
 
   const { miner_key, status, date } = req.body as GetRewardAmountData;
 
-  console.log(`Miner Key: ${miner_key} Status: ${status}`);
+  // console.log(`Miner Key: ${miner_key} Status: ${status}`);
 
   const client = await clientPromise;
 
   try {
     const db = client.db('main');
+
+    const device = await db
+      .collection(testMode ? 'test-devices' : 'devices')
+      .findOne({ miner_key });
+
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    if (!device.address || device.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized 1' });
+      return;
+    }
+
     const collection = testMode
       ? db.collection('test-rewards')
       : db.collection('rewards');
