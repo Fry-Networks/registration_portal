@@ -40,6 +40,11 @@ export default async function handler(
       return;
     }
 
+    if (!exists.address || exists.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
     const product = (await db
       .collection('products')
       .findOne({ key: miner_key.split('-')[0] })) as Product;
