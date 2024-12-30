@@ -44,6 +44,20 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db('main');
+
+    const device = await db
+      .collection(testMode ? 'test-devices' : 'devices')
+      .findOne({ miner_key });
+
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    if (!device.address || device.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
 
     const records = await collection

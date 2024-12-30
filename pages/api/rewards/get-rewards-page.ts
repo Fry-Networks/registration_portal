@@ -25,7 +25,7 @@ export default async function handler(
 
   const { miner_key, page } = req.body as GetPageRewardData;
 
-  console.log(`Miner Key: ${miner_key} Status: ${page}`);
+  // console.log(`Miner Key: ${miner_key} Status: ${page}`);
 
   const client = await clientPromise;
 
