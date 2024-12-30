@@ -70,7 +70,7 @@ export default function GenerateWallet({
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-2 "
+            className="gap-3 w-full mt-2 text-slate-900"
           >
             <p>Genreate new wallet that you can use for PoC wallet</p>
           </Flex>

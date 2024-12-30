@@ -90,7 +90,7 @@ export default function DeleteModal({
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5"
+            className="gap-3 w-full mt-5 text-slate-900"
           >
             <p>Do you want to un-register the device?</p>
           </Flex>

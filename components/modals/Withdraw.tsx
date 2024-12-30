@@ -156,7 +156,7 @@ export default function WithdrawModal({
             </button>
           </div>
           <Title className="mb-5">{`Withdraw`}</Title>
-          <p>
+          <p className='text-slate-900'>
             {isWithdrawable
               ? `You can withdraw now`
               : `You can withdraw at ${withdrawableTime}`}

@@ -54,6 +54,11 @@ export default async function handler(
       return;
     }
 
+    if (!device.address || device.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
     const records = await collection
       .find(
         no
