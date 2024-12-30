@@ -43,6 +43,11 @@ export default async function handler(
       return;
     }
 
+    if (exists.address || exists.is_registered) {
+      res.status(401).json({ message: 'Already registered' });
+      return;
+    }
+
     await collection.updateOne(
       { miner_key },
       {
