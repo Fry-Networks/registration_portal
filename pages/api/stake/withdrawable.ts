@@ -62,6 +62,12 @@ export default async function handler(
       res.status(401).json({ message: 'Unauthorized 4' });
       return;
     }
+
+    if (!device.address || device.address !== session.user.address) {
+      res.status(401).json({ message: 'Unauthorized 5' });
+      return;
+    }
+
     const dayCheck =
       (Date.now() - new Date(device.staked.time).getTime()) /
         (1000 * 60 * 60 * 24) >
