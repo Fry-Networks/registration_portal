@@ -12,7 +12,7 @@ const ProgressDateBar = ({ specificDate, boosted }) => {
 
     // Calculate difference in days
     const differenceInTime =
-      currentDateObj.getMilliseconds() - targetDate.getMilliseconds();
+      currentDateObj.getTime() - targetDate.getTime();
     const differenceInDays = Math.ceil(
       differenceInTime / (1000 * 60 * 60 * 24)
     );
