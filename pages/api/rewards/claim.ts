@@ -5,6 +5,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
+import { getAssetDecimals } from '../../../lib/utils';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -113,10 +114,12 @@ export default async function handler(
       const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
       const from = account.addr;
 
+      const decimals = await getAssetDecimals(resultArray[i].asset_id);
+
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         from,
         to: device.reward_wallet,
-        amount: testMode ? 0 : resultArray[i].totalAmount * 1_000_000,
+        amount: testMode ? 0 : resultArray[i].totalAmount * Math.pow(10, decimals || 0),
         assetIndex: Number(resultArray[i].asset_id),
         note,
         suggestedParams
