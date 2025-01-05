@@ -60,7 +60,7 @@ export const isNodeStaked = (device: Device) => {
 };
 
 export const getWalletAddress = (mnemonic: string) => {
-  if (mnemonic.length > 0) {
+  if (mnemonic?.length > 0) {
     const account = algosdk.mnemonicToSecretKey(mnemonic);
 
     return account.addr;
