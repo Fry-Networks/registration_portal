@@ -134,7 +134,7 @@ export default function DeviceListItem({
   const fetchDeviceInfo = async (minerKey: string) => {
     try {
       const response = await fetch(`/api/devices/${minerKey}`, {
-        method: 'GET',
+        method: 'POST',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({address: session?.user.address})
       });

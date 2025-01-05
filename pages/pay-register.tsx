@@ -60,7 +60,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
     console.log('Device Miner Key: ' + minerKey);
     try {
       const response = await fetch(`/api/devices/${minerKey}`, {
-        method: 'GET',
+        method: 'POST',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({address: session?.user.address})
       });
