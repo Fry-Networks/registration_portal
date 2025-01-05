@@ -60,12 +60,24 @@ export const isNodeStaked = (device: Device) => {
 };
 
 export const getWalletAddress = (mnemonic: string) => {
-  if (mnemonic.length > 0) {
+  if (mnemonic?.length > 0) {
     const account = algosdk.mnemonicToSecretKey(mnemonic);
 
     return account.addr;
   }
   return '';
+};
+
+export const getAssetDecimals = async (assetId: number): Promise<number | null> => {
+  try {
+    const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
+    const decimals = assetInfo.asset.params.decimals;
+    console.log(`Asset ID: ${assetId}, Decimals: ${decimals}`);
+    return decimals;
+  } catch (error) {
+    console.error(`Failed to fetch asset info for Asset ID ${assetId}:`, error);
+    return null;
+  }
 };
 
 export const getAlgoBalance = async (address: string) => {
