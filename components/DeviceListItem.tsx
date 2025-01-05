@@ -18,6 +18,7 @@ import {
 import { AnnotationIcon, XCircleIcon } from '@heroicons/react/outline';
 import { RiAlertLine } from '@remixicon/react';
 import AlertWithTooltip from './AlertIcon';
+// import WithdrawIcon from './WithdrawIcon';
 import StakingIcon from './StakeIcon';
 import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
@@ -32,7 +33,8 @@ export default function DeviceListItem({
   handleBoostButton,
   handleClaimButton,
   handleWithdrawStake,
-  handleWithdrawAllButton
+  handleWithdrawAllButton,
+  // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
   product: Product;
@@ -44,6 +46,7 @@ export default function DeviceListItem({
   handleClaimButton: (device: Device) => void;
   handleWithdrawStake: (device: Device) => void;
   handleWithdrawAllButton: (device: Device) => void;
+  // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
   const [pendingAmount, setPendingAmount] = useState(0);
   const [claimableAmount, setClaimableAmount] = useState(0);
@@ -130,7 +133,11 @@ export default function DeviceListItem({
 
   const fetchDeviceInfo = async (minerKey: string) => {
     try {
-      const response = await fetch(`/api/devices/${minerKey}`);
+      const response = await fetch(`/api/devices/${minerKey}`, {
+        method: 'GET',
+        headers: {'Content-type': 'application/json'},
+        body: JSON.stringify({address: session?.user.address})
+      });
       if (response.ok) {
         const data = await response.json();
         let preDevice = data.device as Device;
@@ -316,9 +323,14 @@ export default function DeviceListItem({
                   )}
                   {` (Algo: ${algoAmount})`}
                 </p>
-                <CopyAddress
-                  address={getWalletAddress(device.connectivity_wallet)}
-                />
+                {/* <div className='flex gap-2'>
+                  <div onClick={() => handleAlgoWithdrawButton(device)}>
+                    <Tooltip children={<WithdrawIcon />} text="Withdraw" />
+                  </div> */}
+                  <CopyAddress
+                    address={getWalletAddress(device.connectivity_wallet)}
+                  />
+                {/* </div> */}
               </>
             ) : (
               <p>

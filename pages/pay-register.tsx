@@ -59,7 +59,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
   const fetchDeviceInfo = async (minerKey: string) => {
     console.log('Device Miner Key: ' + minerKey);
     try {
-      const response = await fetch(`/api/devices/${minerKey}`);
+      const response = await fetch(`/api/devices/${minerKey}`, {
+        method: 'GET',
+        headers: {'Content-type': 'application/json'},
+        body: JSON.stringify({address: session?.user.address})
+      });
       if (response.ok) {
         const data = await response.json();
         setDevice(data.device as Device);

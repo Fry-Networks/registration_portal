@@ -15,6 +15,8 @@ export default async function handler(
     return;
   }
 
+  const {address} = req.body;
+
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
@@ -36,12 +38,20 @@ export default async function handler(
       return res.status(404).json({ error: 'Device not found' });
     }
 
-    if (!device.address || device.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized' });
-      return;
+    if (address) {
+      if (session.user.address !== address) {
+        res.status(401).json({ message: 'Unauthorized 1' });
+        return;
+      }
+
+      if (device.address && device.address !== session.user.address) {
+        res.status(401).json({ message: 'Unauthorized 2' });
+        return;
+      }
+      return res.status(200).json({ device: device });
     }
 
-    return res.status(200).json({ device: device });
+    return res.status(200).json({ device: {is_registered: device.is_registered} });
   } catch (error) {
     console.error('Error fetching device', error);
     return res.status(500).json({ error: 'Internal Server Error' });
