@@ -83,7 +83,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
           alt="Background Image"
         />
         <div className="py-8 pl-8 pr-24 md:px-24 h-full relative">
-          <form className="w-full">
+          <form className="w-full text-black">
             <div>
               <label className="block mb-2 text-white">
                 Email <span className="text-red-500">*</span>

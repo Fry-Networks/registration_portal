@@ -210,9 +210,9 @@ const WalletInfo = ({
               <Flex flexDirection="row" className="gap-3">
                 <input
                   type="text"
-                  className="w-full p-2 border border-red-600 rounded"
+                  className="w-full p-2 border border-red-600 rounded text-black"
                   placeholder="Enter wallet address or use the clipboard icon to set the currently connected wallet as your Reward Wallet address."
-                  value={data.reward_wallet}
+                  defaultValue={data.reward_wallet}
                   onChange={(e) =>
                     setData({ ...data, reward_wallet: e.target.value })
                   }
@@ -233,9 +233,9 @@ const WalletInfo = ({
               <Flex flexDirection="row" className="gap-3">
                 <input
                   type="text"
-                  className="w-full p-2 border border-red-600 rounded"
+                  className="w-full p-2 border border-red-600 rounded text-black"
                   placeholder="Click wallet icon to create a new PoC wallet. A secure secret phrase will be created for you"
-                  value={getWalletAddress(data.connectivity_wallet)}
+                  defaultValue={getWalletAddress(data.connectivity_wallet)}
                   onFocus={() => setConnectivityFocus(true)}
                   onBlur={() => setConnectivityFocus(false)}
                 />
@@ -257,9 +257,9 @@ const WalletInfo = ({
               <label className="block mb-2 mt-2 text-white">Note</label>
               <input
                 type="text"
-                className="w-full p-2 border border-red-600 rounded"
+                className="w-full p-2 border border-red-600 rounded text-black"
                 placeholder="Enter note for Tx"
-                value={data.note}
+                defaultValue={data.note}
                 onChange={(e) => setData({ ...data, note: e.target.value })}
               />
             </div>

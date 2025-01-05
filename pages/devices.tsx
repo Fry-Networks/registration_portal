@@ -144,7 +144,7 @@ const DevicesPage = ({
     // Redirect to an edit page where the device details can be modified
     try {
       const response = await fetch(`/api/devices/${miner_key}`, {
-        method: 'GET',
+        method: 'POST',
         headers: {'Content-type': 'application/json'},
         body: JSON.stringify({address: session?.user.address})
       });
