@@ -6,7 +6,7 @@ import {
 } from '@heroicons/react/outline';
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
-import { getSession } from 'next-auth/react';
+import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Device, Product } from '../lib/types';
 import CopyAddress from '../components/CopyAddress';
@@ -25,6 +25,7 @@ import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdarwAll';
+// import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import { isNodeStaked, isRegistartionStaked } from '../lib/utils';
 
 export function isProductStakeAvailable(product: Product) {
@@ -56,6 +57,8 @@ const DevicesPage = ({
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
+
+  const {data: session} = useSession();
 
   const toast = useToastContext();
 
@@ -140,7 +143,11 @@ const DevicesPage = ({
   const handleChange = async (miner_key: string): Promise<void> => {
     // Redirect to an edit page where the device details can be modified
     try {
-      const response = await fetch(`/api/devices/${miner_key}`);
+      const response = await fetch(`/api/devices/${miner_key}`, {
+        method: 'GET',
+        headers: {'Content-type': 'application/json'},
+        body: JSON.stringify({address: session?.user.address})
+      });
       if (!response.ok) {
         toast.error({
           heading: 'Error',
@@ -164,6 +171,10 @@ const DevicesPage = ({
     // Redirect to an edit page where the device details can be modified
     router.push({ pathname: '/pay-register', query: { minerKey: miner_key } });
   };
+
+  // const handleAlgoWithdraw = async (device: Device): Promise<void> => {
+  //   console.log('handleAlgoWithdraw');
+  // }
 
   const handleWithdrawStake = (device: Device): void => {
     setSelectedDevice(device);
@@ -208,7 +219,6 @@ const DevicesPage = ({
   };
 
   const handleClaim = async (ret: boolean, message: string): Promise<void> => {
-    console.log('Boost function');
 
     const updateDevices = devices.map((element) => {
       if (element.miner_key !== selectedDevice.miner_key) {
@@ -254,6 +264,12 @@ const DevicesPage = ({
 
     setDevices(updateDevices);
   };
+
+  // const handleAlgoWithdrawButton = (device: Device): void => {
+  //   setSelectedDevice(device);
+  //   openModal('withdraw_algo');
+  //   console.log('Selected Withdraw: ', device);
+  // }
 
   return (
     <div className="w-full">
@@ -332,6 +348,7 @@ const DevicesPage = ({
                 handleClaimButton={handleClaimButton}
                 handleWithdrawStake={handleWithdrawStake}
                 handleWithdrawAllButton={handleWithdrawAllButton}
+                // handleAlgoWithdrawButton={handleAlgoWithdrawButton}
               />
             );
           })
@@ -374,6 +391,11 @@ const DevicesPage = ({
             device={selectedDevice}
             handleWithdrawAll={handleWithdrawAll}
           />
+          {/* <WithdrawAlgoModal
+            modalName="withdraw_algo"
+            device={selectedDevice}
+            handleAlgoWithdraw={handleAlgoWithdraw}
+          /> */}
         </>
       )}
     </div>
@@ -397,19 +419,52 @@ export async function getServerSideProps(context: any) {
     const db = client.db('main');
 
     // const collection = db.collection('rewards');
-    // let query = { miner_key: { $regex: "OHAQM", $options: "i" } };
-
+    // let query = { miner_key: { $regex: "ISM-3VMFG9XP18V5U9WQR70NC111ZTBTJNYF", $options: "i" } };
     // let records = await collection
     //   .find(query, {})
     //   .toArray();
 
     // for (const doc of records) {
-    //   if (doc.miner_key) {
-    //     const updatedCode = doc.miner_key.replace(/OHAQM/gi, "OMAQM");
+    //   if (doc.status === "claimable") {
     //     await collection.updateOne(
     //       { _id: doc._id }, // Match the document by its unique _id
-    //       { $set: { miner_key: updatedCode } } // Update the 'code' field with the new value
+    //       { $set: { status: "pending" } } // Update the 'code' field with the new value
     //     );
+    //   }
+    // }
+
+    // const collection = db.collection('devices');
+    // const rCollection = db.collection('rewards');
+    // let query = { miner_key: { $regex: "OMAQM", $options: "i" } };
+
+    // let records = await collection
+    //   .find(query, {})
+    //   .toArray();
+
+    // // console.log('IMAQM Counts: ', records);
+
+    // for (const doc of records) {
+    //   if (doc.miner_key) {
+    //     query = { miner_key: { $regex: doc.miner_key, $options: "i"} };
+    //     let rewardsList = await rCollection.find(query, {}).toArray();
+    //     // console.log('Rewards List: ', rewardsList);
+
+    //     let index = 1;
+
+    //     for (const ele of rewardsList) {
+    //       if (ele.no) {
+    //         await rCollection.updateOne(
+    //             { _id: ele._id }, // Match the document by its unique _id
+    //             { $set: { no: index } } // Update the 'code' field with the new value
+    //           );
+    //       }
+    //       index++;
+    //     }
+    //     // const updatedCode = doc.miner_key.replace(/IMAQM/gi, "OMAQM");
+    //     // await collection.updateOne(
+    //     //   { _id: doc._id }, // Match the document by its unique _id
+    //     //   { $set: { miner_key: updatedCode } } // Update the 'code' field with the new value
+    //     // );
     //   }
     // }
 
