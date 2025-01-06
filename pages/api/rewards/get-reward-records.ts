@@ -41,7 +41,7 @@ export default async function handler(
       return res.status(404).json({ error: 'Device not found' });
     }
 
-    if (!device.address || device.address !== session.user.address) {
+    if (device.address && device.address !== session.user.address) {
       res.status(401).json({ message: 'Unauthorized 1' });
       return;
     }
