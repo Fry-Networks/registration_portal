@@ -59,6 +59,17 @@ export interface Reward extends mongoose.Document {
   createdAt: Date;
 }
 
+export interface RewardBoost extends mongoose.Document {
+  miner_key: string;
+  address: string;
+  rewards_no: number;
+  fee: number;
+  amount: number;
+  asset_id: string;
+  price: number;
+  createdAt: Date;
+}
+
 export interface FryToken extends mongoose.Document {
   name: string;
   asset_id: string;
