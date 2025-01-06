@@ -238,6 +238,7 @@ const WalletInfo = ({
                   defaultValue={getWalletAddress(data.connectivity_wallet)}
                   onFocus={() => setConnectivityFocus(true)}
                   onBlur={() => setConnectivityFocus(false)}
+                  disabled
                 />
                 {/* <WalletIcon handleOnclick={handleGenWallet} /> */}
               </Flex>
