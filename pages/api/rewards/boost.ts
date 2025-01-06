@@ -2,7 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { Reward } from '../../../lib/types';
+import { Reward, RewardBoost } from '../../../lib/types';
+import { getFRYPrice } from '../../../lib/price';
 import { verifyTransaction } from '../algorand/verify-txn';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { 
@@ -59,6 +60,7 @@ export default async function handler(
     }
     
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+    const bCollection = db.collection('reward-boosts');
 
     const records = await collection
       .find(
@@ -112,7 +114,7 @@ export default async function handler(
         miner_key:
           miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
         asset_id: resultArray[i].asset_id,
-        amount: feeAmount,
+        fee_amount: feeAmount,
         date: new Date(Date.now())
       };
       const enc = new TextEncoder();
@@ -150,6 +152,17 @@ export default async function handler(
       if (updateResult.matchedCount <= 0) {
         success = false;
       }
+
+      let boostReward = {} as RewardBoost;
+      boostReward.miner_key = reward.miner_key;
+      boostReward.address = session.user.address;
+      boostReward.rewards_no = reward.no;
+      boostReward.fee = Math.round((reward.amount * 100 * 30) / 100) / 100;
+      boostReward.amount = reward.amount;
+      boostReward.asset_id = reward.asset_id;
+      boostReward.price = await getFRYPrice(reward.asset_id);
+      boostReward.createdAt = new Date();
+      const insertResult = await bCollection.insertOne(boostReward);
     }
 
     if (success === false) {
