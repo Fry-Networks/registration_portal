@@ -34,7 +34,8 @@ export const authOptions: NextAuthOptions = {
           address: token.address as string,
           email: token.email as string,
           first_name: token.first_name as string,
-          last_name: token.last_name as string
+          last_name: token.last_name as string,
+          poc_wallet: token.poc_wallet as string
         };
       }
       return session;
