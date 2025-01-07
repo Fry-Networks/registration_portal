@@ -78,7 +78,6 @@ export default async function handler(
     }
     await devicesCollection.insertOne({
       miner_key: minerkey,
-      address: session.user.address,
       created_at: new Date(),
       email: license.email,
       name: product.name,
