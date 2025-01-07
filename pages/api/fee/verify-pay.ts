@@ -36,7 +36,7 @@ export default async function handler(
   const { miner_key, txId, address } = data;
 
   try {
-    const checking = await verifyTransaction(txId, address);
+    const checking = await verifyTransaction(address, txId);
 
     if (checking) {
       const collection = db.collection(testMode ? 'test-devices' : 'devices');

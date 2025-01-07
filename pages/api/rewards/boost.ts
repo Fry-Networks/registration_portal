@@ -175,7 +175,7 @@ export default async function handler(
 
     algosdk.assignGroupID(txns);
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
-    const result = await verifyTransaction(tx.txId, account.addr);
+    const result = await verifyTransaction(account.addr, tx.txId);
 
     if (!result) {
       res
