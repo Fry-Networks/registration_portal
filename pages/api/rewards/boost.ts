@@ -6,6 +6,7 @@ import { Reward, RewardBoost } from '../../../lib/types';
 import { getFRYPrice } from '../../../lib/price';
 import { verifyTransaction } from '../algorand/verify-txn';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
+import { getAssetDecimals, fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO } from '../../../lib/utils';
 import { 
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_TOKEN,
@@ -175,7 +176,8 @@ export default async function handler(
 
     algosdk.assignGroupID(txns);
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
-    const result = await verifyTransaction(tx.txId, account.addr);
+    
+    const result = await verifyTransaction(account.addr, tx.txId);
 
     if (!result) {
       res
@@ -188,7 +190,7 @@ export default async function handler(
       .status(200)
       .json({ success: true, message: `Boost success for ${miner_key}` });
   } catch (error) {
-    console.log(error);
+    console.log(miner_key + ':' + error);
     res.status(500).json({ message: 'Internal server error' });
     return;
   }

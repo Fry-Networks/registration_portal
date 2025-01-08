@@ -76,7 +76,7 @@ export default async function handler(
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    const checking = await verifyTransaction(tx.txId, from);
+    const checking = await verifyTransaction(from, tx.txId);
     const client = await clientPromise;
     const db = client.db('main');
     if (checking) {
