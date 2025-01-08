@@ -1,12 +1,14 @@
 import { Device, Product } from './types';
-import algosdk, { Indexer } from 'algosdk';
+import algosdk, { Indexer, Account } from 'algosdk';
+import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction, ALGO_ASSET_ID } from "@tinymanorg/tinyman-js-sdk";
 import { 
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_TOKEN,
   DEFAULT_NODE_PORT,
  } from '@txnlab/use-wallet'
+import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
 
- const indexServer = 'https://mainnet-idx.algonode.cloud/';
+const indexServer = 'https://mainnet-idx.algonode.cloud/';
 
 export const algodClient = new algosdk.Algodv2(
   DEFAULT_NODE_TOKEN,
@@ -19,6 +21,12 @@ export const indexerClient = new Indexer(
   indexServer,
   DEFAULT_NODE_PORT
 )
+
+export const FRY_1 = 924268058;
+export const FRY_2 = 2485314946;
+export const fNODE = 2485202024;
+export const fVPN = 2485198745;
+export const ALGO = 0;
 
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
@@ -204,4 +212,88 @@ export const getTransactionTime = async (txId: string | undefined): Promise<stri
   } catch (error) {
     return "Transaction not yet confirmed.";
   }
+}
+
+/**
+ * @param account account data that will sign the transactions
+ * @returns a function that will sign the transactions, can be used as `initiatorSigner`
+ */
+export const signerWithSecretKey = (account: Account) => {
+  return function (txGroups: SignerTransaction[][]): Promise<Uint8Array[]> {
+    // Filter out transactions that don't need to be signed by the account
+    const txnsToBeSigned = txGroups.flatMap((txGroup) =>
+      txGroup.filter((item) => item.signers?.includes(account.addr))
+    );
+    // Sign all transactions that need to be signed by the account
+    const signedTxns: Uint8Array[] = txnsToBeSigned.map(({ txn }) =>
+      txn.signTxn(account.sk)
+    );
+
+    // We wrap this with a Promise since SDK's initiatorSigner expects a Promise
+    return new Promise((resolve) => {
+      resolve(signedTxns);
+    });
+  };
+}
+
+/**
+ * Executes a swap with a fixed input amount
+ * (Input amount is entered by the user, output amount is to be calculated by the SDK)
+ */
+export const fixedInputSwap = async ({
+  account,
+  asset_1,
+  asset_2
+}: {
+  account: Account;
+  asset_1: Number;
+  asset_2: Number;
+}) => {
+  const initiatorAddr = account.addr;
+  const pool = await poolUtils.v2.getPoolInfo({
+    network: "mainnet" as SupportedNetwork,
+    client: algodClient,
+    asset1ID: Number(asset_1),
+    asset2ID: Number(asset_2)
+  });
+
+  console.log("Pool Info : ", pool);
+
+  /**
+   * This example uses only v2 quote. Similarly, we can use
+   * Swap.getQuote method, which will return the best quote (highest rate)
+   * after checking both v1 and v2
+   */
+  const fixedInputSwapQuote = await Swap.v2.getQuote({
+    type: SwapType.FixedInput,
+    amount: 100_000,
+    assetIn: { id: asset_1, decimals: 6 } as AssetWithIdAndDecimals,
+    assetOut: { id: asset_2, decimals: 6 } as AssetWithIdAndDecimals,
+    network: "mainnet" as SupportedNetwork,
+    pool: pool,
+  });
+
+  const fixedInputSwapTxns = await Swap.v2.generateTxns({
+    client: algodClient,
+    network: "testnet" as SupportedNetwork,
+    quote: fixedInputSwapQuote,
+    swapType: SwapType.FixedInput,
+    initiatorAddr,
+    slippage: 0.05
+  });
+
+  const signedTxns = await Swap.v2.signTxns({
+    txGroup: fixedInputSwapTxns,
+    initiatorSigner: signerWithSecretKey(account)
+  });
+
+  const swapExecutionResponse = await Swap.v2.execute({
+    client: algodClient,
+    quote: fixedInputSwapQuote,
+    signedTxns,
+    txGroup: fixedInputSwapTxns,
+  });
+
+  console.log("✅ Fixed Input Swap executed successfully!");
+  console.log({txnID: swapExecutionResponse.txnID});
 }
