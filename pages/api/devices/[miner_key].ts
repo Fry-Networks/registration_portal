@@ -53,7 +53,7 @@ export default async function handler(
 
     return res.status(200).json({ device: {is_registered: device.is_registered} });
   } catch (error) {
-    console.error('Error fetching device', error);
+    console.error(`Error fetching device : ${miner_key}`, error);
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 }
