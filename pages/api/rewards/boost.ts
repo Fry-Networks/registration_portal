@@ -12,6 +12,7 @@ import {
   DEFAULT_NODE_TOKEN,
   DEFAULT_NODE_PORT,
  } from '@txnlab/use-wallet';
+import { VERIFY_RESULT } from '../../../lib/txn';
 
 const algodClient = new algosdk.Algodv2(
   DEFAULT_NODE_TOKEN,
@@ -120,11 +121,12 @@ export default async function handler(
       };
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
+      const decimals = await getAssetDecimals(resultArray[i].asset_id);
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         from,
         to: FRYALGO_WALLET,
-        amount: testMode ? 0 : feeAmount * 1_000_000,
+        amount: testMode ? 0 : feeAmount * Math.pow(10, decimals || 0),
         note,
         assetIndex: Number(resultArray[i].asset_id),
         suggestedParams: params,
@@ -179,7 +181,7 @@ export default async function handler(
     
     const result = await verifyTransaction(account.addr, tx.txId);
 
-    if (!result) {
+    if (result !== VERIFY_RESULT.OK) {
       res
         .status(402)
         .json({ message: 'Failed to make verify Instant Claim fee transaction' });

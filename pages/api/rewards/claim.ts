@@ -6,6 +6,7 @@ import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { getAssetDecimals } from '../../../lib/utils';
+import { VERIFY_RESULT } from '../../../lib/txn';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -77,6 +78,31 @@ export default async function handler(
       return;
     }
 
+    let success = true;
+    for (let i = 0; i < records.length; i++) {
+      const reward = records[i] as Reward;
+      const updateResult = await collection.updateOne(
+        { no: reward.no, miner_key: reward.miner_key },
+        {
+          $set: {
+            status: 'claimed',
+          }
+        }
+      );
+
+      if (updateResult.matchedCount <= 0) {
+        success = false;
+      }
+    }
+
+    if (success === false) {
+      res.status(200).json({
+        success: false,
+        message: `Failed to claim rewards for miner ${miner_key}`
+      });
+      return;
+    }
+
     type Result = {
       asset_id: number;
       totalAmount: number;
@@ -118,10 +144,7 @@ export default async function handler(
       const note = enc.encode(JSON.stringify(noteInfo));
       const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
       const from = account.addr;
-
       const decimals = await getAssetDecimals(resultArray[i].asset_id);
-
-      console.log(`${miner_key} decimals: `, decimals, resultArray[i].asset_id);
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         from,
@@ -145,7 +168,7 @@ export default async function handler(
       const result = await verifyTransaction(account.addr, tx.txId);
       console.log(`${miner_key} transaction: `, account.addr, tx);
 
-      if (!result) {
+      if (result !== VERIFY_RESULT.OK) {
         res
           .status(402)
           .json({ message: 'Failed to make verify reward transaction' });
@@ -155,14 +178,13 @@ export default async function handler(
       resultArray[i].txId = tx.txId;
     }
 
-    let success = true;
+    success = true;
     for (let i = 0; i < records.length; i++) {
       const reward = records[i] as Reward;
       const updateResult = await collection.updateOne(
         { no: reward.no, miner_key: reward.miner_key },
         {
           $set: {
-            status: 'claimed',
             txId: resultArray.find((value) => {
               return (
                 value.asset_id.toString() === (reward.asset_id ?? '924268058')
