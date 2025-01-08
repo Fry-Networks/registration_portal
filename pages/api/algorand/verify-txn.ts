@@ -131,7 +131,7 @@ export async function verifyTransaction(address: string, txId: string) {
       return VERIFY_RESULT.FAILED;
     }
   } catch (error) {
-    console.error(error);
+    console.error(address + ':' + error);
     return VERIFY_RESULT.INTERNAL_ERROR;
   }
 }
