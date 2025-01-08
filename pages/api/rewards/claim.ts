@@ -37,6 +37,11 @@ export default async function handler(
   const { miner_key, no } = data;
 
   try {
+
+    // const acc = mnemonicToSecretKey(process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!);
+
+    // await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2});
+
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
@@ -116,6 +121,8 @@ export default async function handler(
 
       const decimals = await getAssetDecimals(resultArray[i].asset_id);
 
+      console.log(`${miner_key} decimals: `, decimals, resultArray[i].asset_id);
+
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         from,
         to: device.reward_wallet,
@@ -136,6 +143,7 @@ export default async function handler(
       }
 
       const result = await verifyTransaction(account.addr, tx.txId);
+      console.log(`${miner_key} transaction: `, account.addr, tx);
 
       if (!result) {
         res
@@ -183,7 +191,7 @@ export default async function handler(
       result: resultArray
     });
   } catch (error) {
-    console.log(error);
+    console.log(miner_key + ':' + error);
     res.status(500).json({ message: 'Internal server error' });
     return;
   }
