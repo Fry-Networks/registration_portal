@@ -95,7 +95,7 @@ export default async function handler(
       return res.status(500).json({ txId: tx.txId });
     }
   } catch (error) {
-    console.error(error);
+    console.error(miner_key + ':' + error);
     return res.status(500).json({ txId: null });
   }
 }

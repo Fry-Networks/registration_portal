@@ -25,7 +25,7 @@
     "@remixicon/react": "^4.2.0",
     "@scure/base": "^1.1.6",
     "@testing-library/react": "^16.0.1",
-    "@tinymanorg/tinyman-js-sdk": "^3.1.1",
+    "@tinymanorg/tinyman-js-sdk": "^4.1.1",
     "@tremor/react": "^3.16.1",
     "@txnlab/use-wallet": "^2.8.1",
     "@types/js-cookie": "^3.0.3",

@@ -53,5 +53,7 @@ export default async function handler(
     } else {
       return res.status(500).json({ message: 'ok' });
     }
-  } catch (error) {}
+  } catch (error) {
+    console.error(miner_key + ':' + error);
+  }
 }

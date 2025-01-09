@@ -213,7 +213,7 @@ export default async function handler(
       result: resultArray
     });
   } catch (error) {
-    console.log(miner_key + ':' + error);
+    console.error(miner_key + ':' + error);
     res.status(500).json({ message: 'Internal server error' });
     return;
   }
