@@ -62,12 +62,12 @@ export interface Reward extends mongoose.Document {
 export interface RewardBoost extends mongoose.Document {
   miner_key: string;
   address: string;
-  rewards_no: number;
-  fee: number;
-  amount: number;
+  rewards_nos: number[];
+  fee_amount: number;
   asset_id: string;
   price: number;
   createdAt: Date;
+  txID: string;
 }
 
 export interface FryToken extends mongoose.Document {
@@ -96,4 +96,9 @@ export interface Product extends mongoose.Document {
     };
   };
   created_at: Date;
+}
+
+export type Asset = {
+  id: string;
+  decimals: number;
 }

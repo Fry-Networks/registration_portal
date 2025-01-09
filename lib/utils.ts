@@ -1,4 +1,4 @@
-import { Device, Product } from './types';
+import { Device, Product, Asset } from './types';
 import algosdk, { Indexer, Account } from 'algosdk';
 import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction, ALGO_ASSET_ID } from "@tinymanorg/tinyman-js-sdk";
 import { 
@@ -22,11 +22,15 @@ export const indexerClient = new Indexer(
   DEFAULT_NODE_PORT
 )
 
-export const FRY_1 = 924268058;
-export const FRY_2 = 2485314946;
-export const fNODE = 2485202024;
-export const fVPN = 2485198745;
-export const ALGO = 0;
+const testMode =
+  process.env.NEXT_PUBLIC_TEST_MODE &&
+  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+export const FRY_1 = { id: "924268058", decimals: 6 } as Asset;
+export const FRY_2 = { id:"2485314946", decimals: 6 } as Asset;
+export const fNODE = { id: "2485202024", decimals: 6 } as Asset;
+export const fVPN = { id: "2485198745", decimals: 6} as Asset;
+export const ALGO = { id: "0", decimals: 6 } as Asset;
 
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
@@ -243,57 +247,67 @@ export const signerWithSecretKey = (account: Account) => {
 export const fixedInputSwap = async ({
   account,
   asset_1,
-  asset_2
+  asset_2,
+  amount,
 }: {
   account: Account;
-  asset_1: Number;
-  asset_2: Number;
+  asset_1: Asset;
+  asset_2: Asset;
+  amount: number;
 }) => {
-  const initiatorAddr = account.addr;
-  const pool = await poolUtils.v2.getPoolInfo({
-    network: "mainnet" as SupportedNetwork,
-    client: algodClient,
-    asset1ID: Number(asset_1),
-    asset2ID: Number(asset_2)
-  });
+  try {
+    const initiatorAddr = account.addr;
+    const pool = await poolUtils.v2.getPoolInfo({
+      network: "mainnet" as SupportedNetwork,
+      client: algodClient,
+      asset1ID: Number(asset_1.id),
+      asset2ID: Number(asset_2.id)
+    });
 
-  console.log("Pool Info : ", pool);
+    console.log("Pool Info : ", pool);
 
-  /**
-   * This example uses only v2 quote. Similarly, we can use
-   * Swap.getQuote method, which will return the best quote (highest rate)
-   * after checking both v1 and v2
-   */
-  const fixedInputSwapQuote = await Swap.v2.getQuote({
-    type: SwapType.FixedInput,
-    amount: 100_000,
-    assetIn: { id: asset_1, decimals: 6 } as AssetWithIdAndDecimals,
-    assetOut: { id: asset_2, decimals: 6 } as AssetWithIdAndDecimals,
-    network: "mainnet" as SupportedNetwork,
-    pool: pool,
-  });
+    /**
+     * This example uses only v2 quote. Similarly, we can use
+     * Swap.getQuote method, which will return the best quote (highest rate)
+     * after checking both v1 and v2
+     */
+    const fixedInputSwapQuote = await Swap.v2.getQuote({
+      type: SwapType.FixedInput,
+      // amount: testMode ? 0 : amount * Math.pow(10, asset_1.decimals || 0),
+      amount: amount * Math.pow(10, asset_1.decimals || 0),
+      assetIn: { id: Number(asset_1.id), decimals: asset_1.decimals } as AssetWithIdAndDecimals,
+      assetOut: { id: Number(asset_2.id), decimals: asset_2.decimals } as AssetWithIdAndDecimals,
+      network: "mainnet" as SupportedNetwork,
+      pool: pool,
+    });
 
-  const fixedInputSwapTxns = await Swap.v2.generateTxns({
-    client: algodClient,
-    network: "testnet" as SupportedNetwork,
-    quote: fixedInputSwapQuote,
-    swapType: SwapType.FixedInput,
-    initiatorAddr,
-    slippage: 0.05
-  });
+    const fixedInputSwapTxns = await Swap.v2.generateTxns({
+      client: algodClient,
+      network: "testnet" as SupportedNetwork,
+      quote: fixedInputSwapQuote,
+      swapType: SwapType.FixedInput,
+      initiatorAddr,
+      slippage: 0.05
+    });
 
-  const signedTxns = await Swap.v2.signTxns({
-    txGroup: fixedInputSwapTxns,
-    initiatorSigner: signerWithSecretKey(account)
-  });
+    const signedTxns = await Swap.v2.signTxns({
+      txGroup: fixedInputSwapTxns,
+      initiatorSigner: signerWithSecretKey(account)
+    });
 
-  const swapExecutionResponse = await Swap.v2.execute({
-    client: algodClient,
-    quote: fixedInputSwapQuote,
-    signedTxns,
-    txGroup: fixedInputSwapTxns,
-  });
+    const swapExecutionResponse = await Swap.v2.execute({
+      client: algodClient,
+      quote: fixedInputSwapQuote,
+      signedTxns,
+      txGroup: fixedInputSwapTxns,
+    });
 
-  console.log("✅ Fixed Input Swap executed successfully!");
-  console.log({txnID: swapExecutionResponse.txnID});
+    console.log("✅ Fixed Input Swap executed successfully!");
+    // console.log({response: swapExecutionResponse, txnID: swapExecutionResponse.txnID});
+
+    return swapExecutionResponse;
+  } catch(error) {
+    console.error('fixedInputSwap :', error);
+    return undefined;
+  }
 }
