@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { verifyTransaction } from '../algorand/verify-txn';
+import { VERIFY_RESULT } from '../../../lib/txn';
 
 // Algorand client setup
 const token = '';
@@ -79,7 +80,7 @@ export default async function handler(
     const checking = await verifyTransaction(from, tx.txId);
     const client = await clientPromise;
     const db = client.db('main');
-    if (checking) {
+    if (checking === VERIFY_RESULT.OK) {
       const collection = db.collection(testMode ? 'test-devices' : 'devices');
       await collection.updateOne(
         { miner_key: miner_key, address: session.user.address },
@@ -94,7 +95,7 @@ export default async function handler(
       return res.status(500).json({ txId: tx.txId });
     }
   } catch (error) {
-    console.error(error);
+    console.error(miner_key + ':' + error);
     return res.status(500).json({ txId: null });
   }
 }

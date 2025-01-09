@@ -4,6 +4,7 @@ import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { verifyTransaction } from '../algorand/verify-txn';
+import { VERIFY_RESULT } from '../../../lib/txn';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -38,7 +39,7 @@ export default async function handler(
   try {
     const checking = await verifyTransaction(address, txId);
 
-    if (checking) {
+    if (checking === VERIFY_RESULT.OK) {
       const collection = db.collection(testMode ? 'test-devices' : 'devices');
       await collection.updateOne(
         { miner_key: miner_key, address: session.user.address },
@@ -52,5 +53,7 @@ export default async function handler(
     } else {
       return res.status(500).json({ message: 'ok' });
     }
-  } catch (error) {}
+  } catch (error) {
+    console.error(miner_key + ':' + error);
+  }
 }

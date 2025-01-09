@@ -88,6 +88,7 @@ export default async function handler(
       });
     }
   } catch (error) {
+    console.error(miner_key + ':' + error);
     res.status(500).json({
       message: `There's an error during deleting the device. Please check internet status and try again. If error occured again let us know`
     });
