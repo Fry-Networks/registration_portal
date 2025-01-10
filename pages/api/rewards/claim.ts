@@ -7,6 +7,7 @@ import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { getAssetDecimals } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
+import { WithId } from 'mongodb';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -36,13 +37,10 @@ export default async function handler(
   } = req.body;
 
   const { miner_key, no } = data;
+  let records: WithId<Reward>[] = [];
+  let step = { id: 1, value: 'Step1: Initialization' };
 
   try {
-
-    // const acc = mnemonicToSecretKey(process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!);
-
-    // await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2});
-
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
@@ -66,13 +64,13 @@ export default async function handler(
       return;
     }
 
-    const records = await collection
+    records = await collection
       .find(
         no
           ? { miner_key: miner_key, no: no, status: 'claimable' }
           : { miner_key: miner_key, status: 'claimable' }
       )
-      .toArray();
+      .toArray() as WithId<Reward>[];
     if (!records || records.length <= 0) {
       res.status(402).json({ message: 'No rewards data' });
       return;
@@ -98,10 +96,13 @@ export default async function handler(
     if (success === false) {
       res.status(200).json({
         success: false,
-        message: `Failed to claim rewards for miner ${miner_key}`
+        message: `Failed to set claimed status for miner ${miner_key}`
       });
       return;
     }
+
+    step.id = 2;
+    step.value = 'Step2: Set claimable to claimed status.';
 
     type Result = {
       asset_id: number;
@@ -111,13 +112,13 @@ export default async function handler(
 
     const sumByAssetId = records.reduce((acc, reward) => {
       const asset_id = reward.asset_id ?? '924268058';
-      if (acc.has(asset_id)) {
+      if (acc.has(Number(asset_id))) {
         acc.set(
-          asset_id,
-          Math.round((acc.get(asset_id)! + reward.amount) * 100) / 100
+          Number(asset_id),
+          Math.round((acc.get(Number(asset_id))! + reward.amount) * 100) / 100
         );
       } else {
-        acc.set(asset_id, reward.amount);
+        acc.set(Number(asset_id), reward.amount);
       }
       return acc;
     }, new Map<number, number>());
@@ -165,8 +166,11 @@ export default async function handler(
         return;
       }
 
+      step.id = 3;
+      step.value = `Step3: Transferred ${resultArray[i].asset_id} Asset Successfully.`;
+
       const result = await verifyTransaction(account.addr, tx.txId);
-      console.log(`${miner_key} transaction: `, account.addr, tx);
+      // console.log(`${miner_key} transaction: `, account.addr, tx);
 
       if (result !== VERIFY_RESULT.OK) {
         res
@@ -174,6 +178,9 @@ export default async function handler(
           .json({ message: 'Failed to make verify reward transaction' });
         return;
       }
+
+      step.id = 4;
+      step.value = `Step4: Confirmed ${resultArray[i].asset_id} Asset Transaction.`;
 
       resultArray[i].txId = tx.txId;
     }
@@ -200,12 +207,15 @@ export default async function handler(
     }
 
     if (success === false) {
-      res.status(200).json({
+      res.status(402).json({
         success: false,
-        message: `Failed to claim rewards for miner ${miner_key}`
+        message: `Failed to set transaction ID for miner ${miner_key}`
       });
       return;
     }
+
+    step.id = 5;
+    step.value = `Step5: Set Transaction ID for each reward on Database.`;
 
     res.status(200).json({
       success: true,
@@ -214,7 +224,39 @@ export default async function handler(
     });
   } catch (error) {
     console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'Internal server error' });
+
+    if (step.id === 2) {
+      const client = await clientPromise;
+      const db = client.db('main');
+      const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+
+      let success = true;
+      for (let i = 0; i < records.length; i++) {
+        const reward = records[i] as Reward;
+        const updateResult = await collection.updateOne(
+          { no: reward.no, miner_key: reward.miner_key },
+          {
+            $set: {
+              status: 'claimable',
+            }
+          }
+        );
+  
+        if (updateResult.matchedCount <= 0) {
+          success = false;
+        }
+      }
+
+      if (success === false) {
+        res.status(402).json({
+          success: false,
+          message: `Failed to reset claimed status for miner ${miner_key}`
+        });
+        return;
+      }
+    }
+
+    res.status(500).json({ message: step.value });
     return;
   }
 }
