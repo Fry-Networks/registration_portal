@@ -134,14 +134,22 @@ export default async function handler(
       const feeAmount = Math.round((resultArray[i].totalAmount * 100 * 30) / 100) / 100;
 
       let swappedAsset = {} as AssetWithIdAndAmount | undefined;
-      if (Number(resultArray[i].asset_id) === Number(FRY_1.id) && feeAmount > 10) {
-        swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount);
-        
-        if (swappedAsset === undefined) {
-          console.error("Failed to swap FRY1.0 asset for FRY2.0");
-          res.status(200).json({
+      if (Number(resultArray[i].asset_id) === Number(FRY_1.id)) {
+        if (feeAmount > 10) {
+          swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount);
+          
+          if (swappedAsset === undefined) {
+            console.error("Failed to swap FRY1.0 asset for FRY2.0");
+            res.status(402).json({
+              success: false,
+              message: `Failed to swap FRY1.0 asset for FRY2.0`
+            });
+            return;
+          }
+        } else {
+          res.status(402).json({
             success: false,
-            message: `Failed to swap FRY1.0 asset for FRY2.0`
+            message: `Failed to swap too low FRY1.0 assets for FRY2.0`
           });
           return;
         }
@@ -150,7 +158,7 @@ export default async function handler(
         
         if (swappedAsset === undefined) {
           console.error("Failed to swap ${resultArray[i].asset_id} asset for FRY2.0");
-          res.status(200).json({
+          res.status(402).json({
             success: false,
             message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`
           });
