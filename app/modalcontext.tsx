@@ -25,8 +25,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     claim: false,
     delete: false,
     generate_wallet: false,
-    withdraw_all: false,
-    withdraw_algo: false
+    withdraw_all: false
     // Add other modals here as needed
   });
 
