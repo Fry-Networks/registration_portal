@@ -238,12 +238,14 @@ export const requestGasFee = async (from: string | undefined, signTransactions: 
     const signedTransactions = await signTransactions([encodedTxn]);
     const waitRoundsToConfirm = 4;
 
-    const { id } = await sendTransactions(
+    const { id, txId } = await sendTransactions(
       signedTransactions,
       waitRoundsToConfirm
     );
 
-    if (id) {
+    console.log('Fee payment txId: ', txId);
+
+    if (txId) {
       return true;
     }
     return false;
