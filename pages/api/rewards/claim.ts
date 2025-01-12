@@ -5,7 +5,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
-import { getAssetDecimals } from '../../../lib/utils';
+import { getAssetDecimals, requestGasFee } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
 import { WithId } from 'mongodb';
 
@@ -131,6 +131,10 @@ export default async function handler(
     );
 
     const suggestedParams = await algodClient.getTransactionParams().do();
+    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const from = account.addr;
+    let txns: algosdk.TransactionLike[] = [];
+    let signedTxns: Uint8Array[] = [];
 
     for (let i = 0; i < resultArray.length; i++) {
       const noteInfo = {
@@ -143,8 +147,7 @@ export default async function handler(
 
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
-      const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-      const from = account.addr;
+      
       const decimals = await getAssetDecimals(resultArray[i].asset_id);
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -156,34 +159,53 @@ export default async function handler(
         suggestedParams
       });
 
+      txns.push(txn);
+
       const signedTxn = txn.signTxn(account.sk);
-      const tx = await algodClient.sendRawTransaction(signedTxn).do();
-
-      if (!tx) {
-        res
-          .status(402)
-          .json({ message: 'Failed to make rewarding transaction' });
-        return;
-      }
-
-      step.id = 3;
-      step.value = `Step3: Transferred ${resultArray[i].asset_id} Asset Successfully.`;
-
-      const result = await verifyTransaction(account.addr, tx.txId);
-      // console.log(`${miner_key} transaction: `, account.addr, tx);
-
-      if (result !== VERIFY_RESULT.OK) {
-        res
-          .status(402)
-          .json({ message: 'Failed to make verify reward transaction' });
-        return;
-      }
-
-      step.id = 4;
-      step.value = `Step4: Confirmed ${resultArray[i].asset_id} Asset Transaction.`;
-
-      resultArray[i].txId = tx.txId;
+      signedTxns.push(signedTxn);
     }
+
+    algosdk.assignGroupID(txns);
+    // const stx = await algodClient.simulateRawTransactions(signedTxns).do();
+
+    // let fee: number | undefined = 0;
+    // if (!stx) {
+    //   fee = 1000;
+    // } else {
+    //   fee = stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee;
+    // }
+    // console.log("Simulation : ", stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee);
+
+    // const isFeePaid = await requestGasFee(suggestedParams, session.user.address, from, fee);
+
+    // if (!isFeePaid) {
+    //   res
+    //     .status(402)
+    //     .json({ message: 'Failed to make fee payment transaction' });
+    //   return;
+    // }
+
+    const tx = await algodClient.sendRawTransaction(signedTxns).do();
+    if (!tx) {
+      res
+        .status(402)
+        .json({ message: 'Failed to make rewarding transaction' });
+      return;
+    }
+
+    step.id = 3;
+    step.value = `Step3: Transferred Reward Claim Transaction Successfully.`;
+
+    const result = await verifyTransaction(account.addr, tx.txId);
+    if (result !== VERIFY_RESULT.OK) {
+      res
+        .status(402)
+        .json({ message: 'Failed to make verify reward transaction' });
+      return;
+    }
+
+    step.id = 4;
+    step.value = `Step4: Confirmed Rewards Transaction.`;
 
     success = true;
     for (let i = 0; i < records.length; i++) {
@@ -192,11 +214,7 @@ export default async function handler(
         { no: reward.no, miner_key: reward.miner_key },
         {
           $set: {
-            txId: resultArray.find((value) => {
-              return (
-                value.asset_id.toString() === (reward.asset_id ?? '924268058')
-              );
-            })?.txId
+            txId: tx.txId
           }
         }
       );
@@ -220,7 +238,7 @@ export default async function handler(
     res.status(200).json({
       success: true,
       message: `Claim success for ${miner_key}`,
-      result: resultArray
+      result: tx.txId
     });
   } catch (error) {
     console.error(miner_key + ':' + error);
