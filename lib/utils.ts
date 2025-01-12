@@ -218,42 +218,42 @@ export const getTransactionTime = async (txId: string | undefined): Promise<stri
   }
 }
 
-export const requestGasFee = async (from: string | undefined, signTransactions: any, sendTransactions: any): Promise<boolean> => {
-  try {
+// export const requestGasFee = async (from: string | undefined, signTransactions: any, sendTransactions: any): Promise<boolean> => {
+//   try {
 
-    if (from === undefined)
-      return false;
+//     if (from === undefined)
+//       return false;
 
-    const suggestedParams = await algodClient.getTransactionParams().do();
-    const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+//     const suggestedParams = await algodClient.getTransactionParams().do();
+//     const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
 
-    const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-      from: from,
-      to: to,
-      amount: Number(1000), // Amount in microAlgos
-      suggestedParams: suggestedParams,
-    });
+//     const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+//       from: from,
+//       to: to,
+//       amount: Number(1000), // Amount in microAlgos
+//       suggestedParams: suggestedParams,
+//     });
 
-    const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
-    const signedTransactions = await signTransactions([encodedTxn]);
-    const waitRoundsToConfirm = 4;
+//     const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
+//     const signedTransactions = await signTransactions([encodedTxn]);
+//     const waitRoundsToConfirm = 4;
 
-    const { id, txId } = await sendTransactions(
-      signedTransactions,
-      waitRoundsToConfirm
-    );
+//     const { id, txId } = await sendTransactions(
+//       signedTransactions,
+//       waitRoundsToConfirm
+//     );
 
-    console.log('Fee payment txId: ', txId);
+//     console.log('Fee payment txId: ', txId);
 
-    if (txId) {
-      return true;
-    }
-    return false;
-  } catch(error) {
-    console.error ("getGasFee : ", error);
-    return false;
-  }
-}
+//     if (txId) {
+//       return true;
+//     }
+//     return false;
+//   } catch(error) {
+//     console.error ("getGasFee : ", error);
+//     return false;
+//   }
+// }
 
 /**
  * @param account account data that will sign the transactions
