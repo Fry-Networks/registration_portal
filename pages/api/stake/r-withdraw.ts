@@ -168,7 +168,7 @@ export async function withdraw(
     const checking = await verifyTransaction(address, tx.txId);
     return checking === VERIFY_RESULT.OK ? tx.txId : '';
   } catch (error) {
-    console.error(error);
+    console.error(miner_key + ':' + error);
     return null;
   }
 }

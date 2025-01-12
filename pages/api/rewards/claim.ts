@@ -5,8 +5,9 @@ import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
-import { getAssetDecimals } from '../../../lib/utils';
+import { getAssetDecimals, requestGasFee } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
+import { WithId } from 'mongodb';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -36,13 +37,10 @@ export default async function handler(
   } = req.body;
 
   const { miner_key, no } = data;
+  let records: WithId<Reward>[] = [];
+  let step = { id: 1, value: 'Step1: Initialization' };
 
   try {
-
-    // const acc = mnemonicToSecretKey(process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!);
-
-    // await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2});
-
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
@@ -66,13 +64,13 @@ export default async function handler(
       return;
     }
 
-    const records = await collection
+    records = await collection
       .find(
         no
           ? { miner_key: miner_key, no: no, status: 'claimable' }
           : { miner_key: miner_key, status: 'claimable' }
       )
-      .toArray();
+      .toArray() as WithId<Reward>[];
     if (!records || records.length <= 0) {
       res.status(402).json({ message: 'No rewards data' });
       return;
@@ -98,10 +96,13 @@ export default async function handler(
     if (success === false) {
       res.status(200).json({
         success: false,
-        message: `Failed to claim rewards for miner ${miner_key}`
+        message: `Failed to set claimed status for miner ${miner_key}`
       });
       return;
     }
+
+    step.id = 2;
+    step.value = 'Step2: Set claimable to claimed status.';
 
     type Result = {
       asset_id: number;
@@ -111,13 +112,13 @@ export default async function handler(
 
     const sumByAssetId = records.reduce((acc, reward) => {
       const asset_id = reward.asset_id ?? '924268058';
-      if (acc.has(asset_id)) {
+      if (acc.has(Number(asset_id))) {
         acc.set(
-          asset_id,
-          Math.round((acc.get(asset_id)! + reward.amount) * 100) / 100
+          Number(asset_id),
+          Math.round((acc.get(Number(asset_id))! + reward.amount) * 100) / 100
         );
       } else {
-        acc.set(asset_id, reward.amount);
+        acc.set(Number(asset_id), reward.amount);
       }
       return acc;
     }, new Map<number, number>());
@@ -130,6 +131,10 @@ export default async function handler(
     );
 
     const suggestedParams = await algodClient.getTransactionParams().do();
+    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const from = account.addr;
+    let txns: algosdk.TransactionLike[] = [];
+    let signedTxns: Uint8Array[] = [];
 
     for (let i = 0; i < resultArray.length; i++) {
       const noteInfo = {
@@ -142,8 +147,7 @@ export default async function handler(
 
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
-      const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-      const from = account.addr;
+      
       const decimals = await getAssetDecimals(resultArray[i].asset_id);
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -155,28 +159,53 @@ export default async function handler(
         suggestedParams
       });
 
+      txns.push(txn);
+
       const signedTxn = txn.signTxn(account.sk);
-      const tx = await algodClient.sendRawTransaction(signedTxn).do();
-
-      if (!tx) {
-        res
-          .status(402)
-          .json({ message: 'Failed to make rewarding transaction' });
-        return;
-      }
-
-      const result = await verifyTransaction(account.addr, tx.txId);
-      console.log(`${miner_key} transaction: `, account.addr, tx);
-
-      if (result !== VERIFY_RESULT.OK) {
-        res
-          .status(402)
-          .json({ message: 'Failed to make verify reward transaction' });
-        return;
-      }
-
-      resultArray[i].txId = tx.txId;
+      signedTxns.push(signedTxn);
     }
+
+    algosdk.assignGroupID(txns);
+    // const stx = await algodClient.simulateRawTransactions(signedTxns).do();
+
+    // let fee: number | undefined = 0;
+    // if (!stx) {
+    //   fee = 1000;
+    // } else {
+    //   fee = stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee;
+    // }
+    // console.log("Simulation : ", stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee);
+
+    // const isFeePaid = await requestGasFee(suggestedParams, session.user.address, from, fee);
+
+    // if (!isFeePaid) {
+    //   res
+    //     .status(402)
+    //     .json({ message: 'Failed to make fee payment transaction' });
+    //   return;
+    // }
+
+    const tx = await algodClient.sendRawTransaction(signedTxns).do();
+    if (!tx) {
+      res
+        .status(402)
+        .json({ message: 'Failed to make rewarding transaction' });
+      return;
+    }
+
+    step.id = 3;
+    step.value = `Step3: Transferred Reward Claim Transaction Successfully.`;
+
+    const result = await verifyTransaction(account.addr, tx.txId);
+    if (result !== VERIFY_RESULT.OK) {
+      res
+        .status(402)
+        .json({ message: 'Failed to make verify reward transaction' });
+      return;
+    }
+
+    step.id = 4;
+    step.value = `Step4: Confirmed Rewards Transaction.`;
 
     success = true;
     for (let i = 0; i < records.length; i++) {
@@ -185,11 +214,7 @@ export default async function handler(
         { no: reward.no, miner_key: reward.miner_key },
         {
           $set: {
-            txId: resultArray.find((value) => {
-              return (
-                value.asset_id.toString() === (reward.asset_id ?? '924268058')
-              );
-            })?.txId
+            txId: tx.txId
           }
         }
       );
@@ -200,21 +225,56 @@ export default async function handler(
     }
 
     if (success === false) {
-      res.status(200).json({
+      res.status(402).json({
         success: false,
-        message: `Failed to claim rewards for miner ${miner_key}`
+        message: `Failed to set transaction ID for miner ${miner_key}`
       });
       return;
     }
 
+    step.id = 5;
+    step.value = `Step5: Set Transaction ID for each reward on Database.`;
+
     res.status(200).json({
       success: true,
       message: `Claim success for ${miner_key}`,
-      result: resultArray
+      result: tx.txId
     });
   } catch (error) {
     console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'Internal server error' });
+
+    if (step.id === 2) {
+      const client = await clientPromise;
+      const db = client.db('main');
+      const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+
+      let success = true;
+      for (let i = 0; i < records.length; i++) {
+        const reward = records[i] as Reward;
+        const updateResult = await collection.updateOne(
+          { no: reward.no, miner_key: reward.miner_key },
+          {
+            $set: {
+              status: 'claimable',
+            }
+          }
+        );
+  
+        if (updateResult.matchedCount <= 0) {
+          success = false;
+        }
+      }
+
+      if (success === false) {
+        res.status(402).json({
+          success: false,
+          message: `Failed to reset claimed status for miner ${miner_key}`
+        });
+        return;
+      }
+    }
+
+    res.status(500).json({ message: step.value });
     return;
   }
 }

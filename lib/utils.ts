@@ -1,6 +1,6 @@
 import { Device, Product, Asset } from './types';
 import algosdk, { Indexer, Account } from 'algosdk';
-import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction, ALGO_ASSET_ID } from "@tinymanorg/tinyman-js-sdk";
+import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction } from "@tinymanorg/tinyman-js-sdk";
 import { 
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_TOKEN,
@@ -215,6 +215,41 @@ export const getTransactionTime = async (txId: string | undefined): Promise<stri
     return "Transaction not yet confirmed.";
   } catch (error) {
     return "Transaction not yet confirmed.";
+  }
+}
+
+export const requestGasFee = async (from: string | undefined, signTransactions: any, sendTransactions: any): Promise<boolean> => {
+  try {
+
+    if (from === undefined)
+      return false;
+
+    const suggestedParams = await algodClient.getTransactionParams().do();
+    const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+
+    const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      from: from,
+      to: to,
+      amount: Number(1000), // Amount in microAlgos
+      suggestedParams: suggestedParams,
+    });
+
+    const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
+    const signedTransactions = await signTransactions([encodedTxn]);
+    const waitRoundsToConfirm = 4;
+
+    const { id } = await sendTransactions(
+      signedTransactions,
+      waitRoundsToConfirm
+    );
+
+    if (id) {
+      return true;
+    }
+    return false;
+  } catch(error) {
+    console.error ("getGasFee : ", error);
+    return false;
   }
 }
 
