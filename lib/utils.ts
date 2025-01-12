@@ -243,6 +243,8 @@ export const requestGasFee = async (from: string | undefined, signTransactions: 
       waitRoundsToConfirm
     );
 
+    console.log('Fee payment txId: ', txId);
+
     if (txId) {
       return true;
     }
