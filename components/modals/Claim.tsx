@@ -1,4 +1,5 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
+import algosdk from 'algosdk';
 import { useModal } from '../../app/modalcontext';
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
@@ -6,7 +7,7 @@ import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
-import { requestGasFee } from '../../lib/utils';
+import { algodClient, getWalletAddress } from '../../lib/utils';
 import { 
   useWallet,
  } from '@txnlab/use-wallet'
@@ -32,14 +33,50 @@ export default function ClaimModal({
   const { data: session } = useSession();
   const toast = useToastContext();
 
+  const requestGasFee = async (from: string | undefined): Promise<boolean> => {
+    try {
+  
+      if (from === undefined)
+        return false;
+  
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+  
+      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+        from: from,
+        to: to,
+        amount: Number(1000), // Amount in microAlgos
+        suggestedParams: suggestedParams,
+      });
+  
+      const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
+      const signedTransactions = await signTransactions([encodedTxn]);
+      const waitRoundsToConfirm = 4;
+  
+      const { id, txId } = await sendTransactions(
+        signedTransactions,
+        waitRoundsToConfirm
+      );
+  
+      console.log('Fee payment txId: ', txId, id);
+  
+      if (txId) {
+        return true;
+      }
+      return false;
+    } catch(error) {
+      console.error ("getGasFee : ", error);
+      return false;
+    }
+  }
+
   const claimRewards = async () => {
     setIsProcessing(true);
     try {
 
       if (!testMode) {
         console.log('activeAddress : ', activeAddress, session?.user.address);
-        const from = activeAddress;
-        const isFeePaid = await requestGasFee(from, signTransactions, sendTransactions);
+        const isFeePaid = await requestGasFee(activeAddress);
         if (!isFeePaid) {
           toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${activeAddress}` });
           

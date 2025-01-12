@@ -5,7 +5,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
-import { getAssetDecimals, requestGasFee } from '../../../lib/utils';
+import { getAssetDecimals } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
 import { WithId } from 'mongodb';
 
