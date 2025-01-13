@@ -32,6 +32,8 @@ export const fNODE = { id: "2485202024", decimals: 6 } as Asset;
 export const fVPN = { id: "2485198745", decimals: 6} as Asset;
 export const ALGO = { id: "0", decimals: 6 } as Asset;
 
+export const REWALD_WALLET = "HXWYLLZDPTM5OXS3DPARMTG52RSBMMCQNKT4L2LZRRXYPNAWJBT6VIW6WU";
+
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
     product.reward.tokens?.register &&
