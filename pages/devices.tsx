@@ -26,7 +26,7 @@ import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdarwAll';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
-import { isNodeStaked, isRegistartionStaked, algodClient, getWalletAddress } from '../lib/utils';
+import { isNodeStaked, isRegistartionStaked, algodClient, getWalletAddress, REWALD_WALLET } from '../lib/utils';
 
 import algosdk from 'algosdk';
 import { 
@@ -75,7 +75,7 @@ const DevicesPage = ({
         return false;
   
       const suggestedParams = await algodClient.getTransactionParams().do();
-      const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+      const to = REWALD_WALLET;
 
       console.log('requestGasFee: ', from, to);
   
