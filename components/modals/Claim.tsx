@@ -27,7 +27,7 @@ export default function ClaimModal({
   no?: number;
   handleClaim: (ret: boolean, message: string) => Promise<void>;
 }) {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet()
+  const { activeAddress, signTransactions, sendTransactions } = useWallet();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const { data: session } = useSession();
