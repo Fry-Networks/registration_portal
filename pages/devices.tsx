@@ -26,12 +26,7 @@ import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdarwAll';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
-import { isNodeStaked, isRegistartionStaked, algodClient, getWalletAddress, REWALD_WALLET } from '../lib/utils';
-
-import algosdk from 'algosdk';
-import { 
-  useWallet,
- } from '@txnlab/use-wallet'
+import { isNodeStaked, isRegistartionStaked } from '../lib/utils';
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -57,8 +52,6 @@ const DevicesPage = ({
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
-
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
@@ -68,51 +61,8 @@ const DevicesPage = ({
 
   const toast = useToastContext();
 
-  const requestGasFee = async (from: string | undefined): Promise<boolean> => {
-    try {
-  
-      if (from === undefined)
-        return false;
-  
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const to = REWALD_WALLET;
-
-      console.log('requestGasFee: ', from, to);
-  
-      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        from: from.toString(),
-        to: to.toString(),
-        amount: Number(1000), // Amount in microAlgos
-        suggestedParams: suggestedParams,
-      });
-
-      console.log('requestGasFee pass: ', from.toString(), to.toString());
-  
-      const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
-      const signedTransactions = await signTransactions([encodedTxn]);
-      const waitRoundsToConfirm = 4;
-  
-      const { id, txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
-  
-      console.log('Fee payment txId: ', txId, id);
-  
-      if (txId) {
-        return true;
-      }
-      return false;
-    } catch(error) {
-      console.error ("getGasFee : ", error);
-      return false;
-    }
-  }
-
   const handleAdd = () => {
-    console.log('Add devices');
-    requestGasFee(activeAddress);
-    // openModal('addDevice');
+    openModal('addDevice');
   };
 
   const handleRegister = async (minerKey: string): Promise<void> => {
