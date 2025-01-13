@@ -76,6 +76,8 @@ const DevicesPage = ({
   
       const suggestedParams = await algodClient.getTransactionParams().do();
       const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+
+      console.log('requestGasFee: ', from, to);
   
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
         from: from,
@@ -83,6 +85,8 @@ const DevicesPage = ({
         amount: Number(1000), // Amount in microAlgos
         suggestedParams: suggestedParams,
       });
+
+      console.log('requestGasFee pass: ', from.toString(), to.toString());
   
       const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
       const signedTransactions = await signTransactions([encodedTxn]);
