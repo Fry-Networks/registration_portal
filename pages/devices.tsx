@@ -80,8 +80,8 @@ const DevicesPage = ({
       console.log('requestGasFee: ', from, to);
   
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        from: from,
-        to: to,
+        from: from.toString(),
+        to: to.toString(),
         amount: Number(1000), // Amount in microAlgos
         suggestedParams: suggestedParams,
       });
