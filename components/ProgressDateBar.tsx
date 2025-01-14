@@ -1,5 +1,29 @@
 import { useState, useEffect } from 'react';
 
+function getDaysConsideringTime(startDate: Date, endDate: Date): number {
+  // Set both dates to midnight to ignore hour differences
+  const start = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate()
+  );
+  const end = new Date(
+    endDate.getFullYear(),
+    endDate.getMonth(),
+    endDate.getDate()
+  );
+
+  console.log('targetDate: ', start, end);
+
+  // Get the difference in time in milliseconds
+  const differenceInTime = end.getTime() - start.getTime();
+
+  // Convert the difference to days (ignoring time)
+  const differenceInDays = differenceInTime / (1000 * 60 * 60 * 24);
+
+  return differenceInDays;
+}
+
 const ProgressDateBar = ({ specificDate, boosted }) => {
   const [progress, setProgress] = useState(0);
   const [currentDate, setCurrentDate] = useState('');
@@ -10,12 +34,16 @@ const ProgressDateBar = ({ specificDate, boosted }) => {
     const endDate = new Date(targetDate);
     endDate.setDate(targetDate.getDate() + 30);
 
+    const differenceInDays = getDaysConsideringTime(targetDate, currentDateObj);
+
     // Calculate difference in days
-    const differenceInTime =
-      currentDateObj.getTime() - targetDate.getTime();
-    const differenceInDays = Math.ceil(
-      differenceInTime / (1000 * 60 * 60 * 24)
-    );
+    // const differenceInTime =
+    //   currentDateObj.getTime() - targetDate.getTime();
+    // const differenceInDays = Math.floor(
+    //   differenceInTime / (1000 * 60 * 60 * 24)
+    // );
+
+    console.log('ProgressBar: ', differenceInDays);
 
     // Ensure progress is within 0 to 30 days
     const calculatedProgress = boosted
