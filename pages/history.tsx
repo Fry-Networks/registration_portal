@@ -122,6 +122,7 @@ export default function History({
             rewards.map((reward) => {
               return (
                 <RewardListItem
+                  key={reward._id}
                   reward={reward}
                   handleClaimButton={handleClaimButton}
                   handleBoostButton={handleBoostButton}
