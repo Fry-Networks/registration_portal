@@ -6,7 +6,7 @@ import { Reward, RewardBoost, Asset } from '../../../lib/types';
 import { getFRYPrice } from '../../../lib/price';
 import { verifyTransaction } from '../algorand/verify-txn';
 import algosdk, { mnemonicToSecretKey, Account } from 'algosdk';
-import { getAssetDecimals, fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO } from '../../../lib/utils';
+import { fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET } from '../../../lib/utils';
 import { 
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_TOKEN,
@@ -20,8 +20,6 @@ const algodClient = new algosdk.Algodv2(
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_PORT
 );
-
-const FRYALGO_WALLET = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
