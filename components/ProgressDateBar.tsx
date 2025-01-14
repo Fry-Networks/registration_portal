@@ -13,8 +13,6 @@ function getDaysConsideringTime(startDate: Date, endDate: Date): number {
     endDate.getDate()
   );
 
-  console.log('targetDate: ', start, end);
-
   // Get the difference in time in milliseconds
   const differenceInTime = end.getTime() - start.getTime();
 
@@ -42,8 +40,6 @@ const ProgressDateBar = ({ specificDate, boosted }) => {
     // const differenceInDays = Math.floor(
     //   differenceInTime / (1000 * 60 * 60 * 24)
     // );
-
-    console.log('ProgressBar: ', differenceInDays);
 
     // Ensure progress is within 0 to 30 days
     const calculatedProgress = boosted
