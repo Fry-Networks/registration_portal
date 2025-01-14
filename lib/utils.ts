@@ -32,6 +32,9 @@ export const fNODE = { id: "2485202024", decimals: 6 } as Asset;
 export const fVPN = { id: "2485198745", decimals: 6} as Asset;
 export const ALGO = { id: "0", decimals: 6 } as Asset;
 
+export const REWALD_WALLET = "HXWYLLZDPTM5OXS3DPARMTG52RSBMMCQNKT4L2LZRRXYPNAWJBT6VIW6WU";
+export const FRYALGO_WALLET = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
+
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
     product.reward.tokens?.register &&
@@ -277,6 +280,9 @@ export const signerWithSecretKey = (account: Account) => {
   };
 }
 
+export const wait = (ms: number) =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Executes a swap with a fixed input amount
  * (Input amount is entered by the user, output amount is to be calculated by the SDK)
@@ -318,14 +324,42 @@ export const fixedInputSwap = async ({
       pool: pool,
     });
 
-    const fixedInputSwapTxns = await Swap.v2.generateTxns({
+    let fixedInputSwapTxns = await Swap.v2.generateTxns({
       client: algodClient,
-      network: "testnet" as SupportedNetwork,
+      network: "mainnet" as SupportedNetwork,
       quote: fixedInputSwapQuote,
       swapType: SwapType.FixedInput,
       initiatorAddr,
       slippage: 0.05
     });
+
+    console.log('fixedInputSwapTxns : ', fixedInputSwapTxns.length, fixedInputSwapTxns[0].txn.txID(), fixedInputSwapTxns[1].txn.txID());
+    try {
+      const txStatus = await algodClient.pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID()).do();
+      if (txStatus && txStatus['confirmed-round']) {
+        while (true) {
+          fixedInputSwapTxns = await Swap.v2.generateTxns({
+            client: algodClient,
+            network: "mainnet" as SupportedNetwork,
+            quote: fixedInputSwapQuote,
+            swapType: SwapType.FixedInput,
+            initiatorAddr,
+            slippage: 0.05
+          });
+
+          try {
+            const regeneratedTxStatus = await algodClient.pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID()).do();
+          } catch (error: any) {
+            console.log('regeneratedTxStatus : ', error.response.status);
+            break;
+          }
+
+          await wait(1000);
+        }
+      }
+    } catch (error: any) {
+      console.log('txStatus : ', error.response.status);
+    }
 
     const signedTxns = await Swap.v2.signTxns({
       txGroup: fixedInputSwapTxns,

@@ -52,7 +52,6 @@ const DevicesPage = ({
 }) => {
   const router = useRouter();
   const { openModal } = useModal();
-
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
@@ -63,7 +62,6 @@ const DevicesPage = ({
   const toast = useToastContext();
 
   const handleAdd = () => {
-    console.log('Add devices');
     openModal('addDevice');
   };
 

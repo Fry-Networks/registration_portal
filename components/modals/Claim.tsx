@@ -7,14 +7,14 @@ import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
-import { algodClient, getWalletAddress } from '../../lib/utils';
+import { algodClient, REWALD_WALLET } from '../../lib/utils';
 import { 
   useWallet,
  } from '@txnlab/use-wallet'
 
-const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+const devMode =
+  process.env.NEXT_PUBLIC_DEV_MODE &&
+  process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
 export default function ClaimModal({
   modalName,
@@ -27,7 +27,7 @@ export default function ClaimModal({
   no?: number;
   handleClaim: (ret: boolean, message: string) => Promise<void>;
 }) {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet()
+  const { activeAddress, signTransactions, sendTransactions } = useWallet();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const { data: session } = useSession();
@@ -40,11 +40,11 @@ export default function ClaimModal({
         return false;
   
       const suggestedParams = await algodClient.getTransactionParams().do();
-      const to = getWalletAddress(process.env.REWARD_MNEMONIC!);
+      const to = REWALD_WALLET;
   
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        from: from,
-        to: to,
+        from: from.toString(),
+        to: to.toString(),
         amount: Number(1000), // Amount in microAlgos
         suggestedParams: suggestedParams,
       });
@@ -74,8 +74,8 @@ export default function ClaimModal({
     setIsProcessing(true);
     try {
 
-      if (!testMode) {
-        console.log('activeAddress : ', activeAddress, session?.user.address);
+      if (!devMode) {
+
         const isFeePaid = await requestGasFee(activeAddress);
         if (!isFeePaid) {
           toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${activeAddress}` });

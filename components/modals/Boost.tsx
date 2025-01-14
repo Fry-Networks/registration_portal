@@ -36,7 +36,9 @@ export default function BoostModal({
       });
 
       const result = await response.json();
+      console.log("Boost without response.ok: ", result, response);
       if (!response.ok) {
+        console.log("Boost within response.ok: ", response);
         toast.error({
           heading: 'Instant Claim Error',
           message: result.message
@@ -45,6 +47,8 @@ export default function BoostModal({
         setIsProcessing(false);
         return;
       }
+
+      console.log("Boost result.success: ", result.success);
 
       if (result.success) {
         setIsProcessing(false);
