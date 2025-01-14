@@ -349,7 +349,7 @@ export const fixedInputSwap = async ({
 
           try {
             const regeneratedTxStatus = await algodClient.pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID()).do();
-          } catch (error) {
+          } catch (error: any) {
             console.log('regeneratedTxStatus : ', error.response.status);
             break;
           }
@@ -357,7 +357,7 @@ export const fixedInputSwap = async ({
           await wait(1000);
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.log('txStatus : ', error.response.status);
     }
 
