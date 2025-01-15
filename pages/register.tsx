@@ -272,22 +272,24 @@ export default ({ products }: { products: Product[] }) => {
     console.log('Saving information result: ' + result);
 
     if (result) {
-      const response = await fetch('api/registrations/register', {
-        method: 'POST',
-        body: JSON.stringify({
-          miner_key: minerKey,
-          address: session?.user.address
-        }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        toast.error({
-          heading: 'Error',
-          message: 'Failed to register device'
+      if(!clickable) {
+        const response = await fetch('api/registrations/register', {
+          method: 'POST',
+          body: JSON.stringify({
+            miner_key: minerKey,
+            address: session?.user.address
+          }),
+          headers: { 'Content-Type': 'application/json' }
         });
-
-        return;
+  
+        if (!response.ok) {
+          toast.error({
+            heading: 'Error',
+            message: 'Failed to register device'
+          });
+  
+          return;
+        }
       }
 
       const product = findProductByMinerKey(device!.miner_key, products);
