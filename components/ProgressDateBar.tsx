@@ -45,7 +45,11 @@ const ProgressDateBar = ({ specificDate, boosted }) => {
       ? 30
       : Math.min(Math.max(differenceInDays, 0), 30);
 
-    setProgress(calculatedProgress);
+    if (boosted === false && calculatedProgress === 30) {
+      setProgress(29);
+    } else {
+      setProgress(calculatedProgress);
+    }
 
     // Set current date string
     setCurrentDate(currentDateObj.toISOString().split('T')[0]);
