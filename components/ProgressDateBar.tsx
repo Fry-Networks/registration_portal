@@ -1,26 +1,26 @@
 import { useState, useEffect } from 'react';
 
-function getDaysConsideringTime(startDate: Date, endDate: Date): number {
-  // Set both dates to midnight to ignore hour differences
-  const start = new Date(
-    startDate.getFullYear(),
-    startDate.getMonth(),
-    startDate.getDate()
-  );
-  const end = new Date(
-    endDate.getFullYear(),
-    endDate.getMonth(),
-    endDate.getDate()
-  );
+// function getDaysConsideringTime(startDate: Date, endDate: Date): number {
+//   // Set both dates to midnight to ignore hour differences
+//   const start = new Date(
+//     startDate.getFullYear(),
+//     startDate.getMonth(),
+//     startDate.getDate()
+//   );
+//   const end = new Date(
+//     endDate.getFullYear(),
+//     endDate.getMonth(),
+//     endDate.getDate()
+//   );
 
-  // Get the difference in time in milliseconds
-  const differenceInTime = end.getTime() - start.getTime();
+//   // Get the difference in time in milliseconds
+//   const differenceInTime = end.getTime() - start.getTime();
 
-  // Convert the difference to days (ignoring time)
-  const differenceInDays = differenceInTime / (1000 * 60 * 60 * 24);
+//   // Convert the difference to days (ignoring time)
+//   const differenceInDays = differenceInTime / (1000 * 60 * 60 * 24);
 
-  return differenceInDays;
-}
+//   return differenceInDays;
+// }
 
 const ProgressDateBar = ({ specificDate, boosted }) => {
   const [progress, setProgress] = useState(0);
@@ -31,15 +31,14 @@ const ProgressDateBar = ({ specificDate, boosted }) => {
     const targetDate = new Date(specificDate);
     const endDate = new Date(targetDate);
     endDate.setDate(targetDate.getDate() + 30);
-
-    const differenceInDays = getDaysConsideringTime(targetDate, currentDateObj);
+    // const differenceInDays = getDaysConsideringTime(targetDate, currentDateObj);
 
     // Calculate difference in days
-    // const differenceInTime =
-    //   currentDateObj.getTime() - targetDate.getTime();
-    // const differenceInDays = Math.floor(
-    //   differenceInTime / (1000 * 60 * 60 * 24)
-    // );
+    const differenceInTime =
+      currentDateObj.getTime() - targetDate.getTime();
+    const differenceInDays = Math.floor(
+      differenceInTime / (1000 * 60 * 60 * 24)
+    );
 
     // Ensure progress is within 0 to 30 days
     const calculatedProgress = boosted
