@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
 import ProgressDateBar from './ProgressDateBar';
-import { getTransactionTime } from '../lib/utils';
+import { getTransactionTime, getAssetName } from '../lib/utils';
 
 export default function RewardListItem({
   reward,
@@ -51,7 +51,7 @@ export default function RewardListItem({
           </p>
           <p>
             <strong className="text-white">Reward Amount: </strong>{' '}
-            {reward.amount}
+            {reward.amount} {getAssetName(reward.asset_id)}
           </p>
           {reward.status === 'claimed' && (
             <>

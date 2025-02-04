@@ -95,6 +95,18 @@ export const getAssetDecimals = async (assetId: number): Promise<number | null> 
   }
 };
 
+export const getAssetName = (assetId: string) => {
+  if (assetId === FRY_1.id) {
+    return 'fry1.0';
+  } else if (assetId === FRY_2.id) {
+    return 'fry2.0';
+  } else if (assetId === fNODE.id) {
+    return 'fnode';
+  } else if (assetId === fVPN.id) {
+    return 'fvpn';
+  }
+}
+
 export const getAlgoBalance = async (address: string) => {
   try {
     const response = await fetch('api/algorand/get-algo-balance', {
