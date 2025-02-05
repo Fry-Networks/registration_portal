@@ -214,7 +214,7 @@ export const getDeviceStatus = async (
 };
 
 
-export const getTransactionTime = async (txId: string | undefined): Promise<string> => {
+export const getTransactionTime = async (txId: string | undefined): Promise<Date> => {
   try {
     // Fetch the transaction details
     if (txId !== undefined) {
@@ -222,14 +222,16 @@ export const getTransactionTime = async (txId: string | undefined): Promise<stri
 
       if (txInfo.transaction && txInfo.transaction["round-time"]) {
         const transactionTime = new Date(txInfo.transaction["round-time"] * 1000);
-        return transactionTime.toDateString();
+        // console.log('transactionTime : ', transactionTime, new Date());
+        return transactionTime;
       } else {
-        return "Transaction not yet confirmed.";
+        return new Date();
       }
     }
-    return "Transaction not yet confirmed.";
+    return new Date();
   } catch (error) {
-    return "Transaction not yet confirmed.";
+    console.error('getTransactionTime: ', error);
+    return new Date();
   }
 }
 

@@ -19,12 +19,12 @@ export default function RewardListItem({
   handleBoostButton: (reward: Reward) => void;
 }) {
 
-  const[claimedTime, setClaimedTime] = useState('');
+  const[claimedTime, setClaimedTime] = useState<string>();
 
   useEffect (() => {
     const fetchData = async () => {
       const t = await getTransactionTime(reward.txId);
-      setClaimedTime(t);
+      setClaimedTime(t.toDateString());
     }
 
     fetchData();

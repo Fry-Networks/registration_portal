@@ -57,6 +57,7 @@ export interface Reward extends mongoose.Document {
   amount: number;
   txId?: string;
   createdAt: Date;
+  claimedAt?: Date;
 }
 
 export interface RewardBoost extends mongoose.Document {
