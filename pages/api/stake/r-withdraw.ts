@@ -30,6 +30,7 @@ const indexServer = 'https://mainnet-idx.algonode.cloud/';
 const indexer = new Indexer(tokenToSend, indexServer, port);
 
 const fryCryptoAssetId = '924268058';
+const lockSet: Set<string> = new Set();
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -47,10 +48,18 @@ export default async function handler(
   } = req.body;
 
   const { address, miner_key } = data;
+
+  if (lockSet.has(miner_key)) {
+    res.status(402).json({ message: 'Too Many Request!' });
+    return;
+  }
+  lockSet.add(miner_key);
+
   if (session.user.address !== address || !address) {
     // console.log(
     //   `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
     // );
+    lockSet.delete(miner_key);
     res.status(401).json({ message: 'Unauthorized 2' });
     return;
   }
@@ -69,20 +78,24 @@ export default async function handler(
       .findOne({ key: deviceType })) as Product;
 
     if (!device) {
+      lockSet.delete(miner_key);
       res.status(404).json({ message: 'not found' });
       return;
     }
     if (!device.registration) {
+      lockSet.delete(miner_key);
       res.status(401).json({ message: 'Unauthorized 3' });
       return;
     }
 
     if (!product) {
+      lockSet.delete(miner_key);
       res.status(404).json({ message: 'Product not found' });
       return;
     }
     const amount = device.registration.amount;
     if (!amount) {
+      lockSet.delete(miner_key);
       res.status(401).json({ message: 'Unauthorized 5' });
       return;
     }
@@ -93,6 +106,7 @@ export default async function handler(
 
     result = await withdraw(miner_key, address, amount, asset_id);
     if (!result) {
+      lockSet.delete(miner_key);
       res.status(500).json({ message: 'error' });
       return;
     }
@@ -111,8 +125,10 @@ export default async function handler(
       }
     );
 
+    lockSet.delete(miner_key);
     res.status(200).json({ message: 'ok', txId: result });
   } catch (error) {
+    lockSet.delete(miner_key);
     console.error(miner_key + ':' + error);
     res.status(500).json({ message: 'error' });
   }
