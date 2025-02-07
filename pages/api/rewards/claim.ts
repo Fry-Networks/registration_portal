@@ -19,6 +19,12 @@ const tokenToSend = { 'X-API-Key': token };
 const port = 443;
 const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
+const lockSet: Set<string> = new Set();
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -37,6 +43,12 @@ export default async function handler(
   } = req.body;
 
   const { miner_key, no } = data;
+  if (lockSet.has(miner_key)) {
+    res.status(402).json({ message: 'Too Many Request!' });
+    return;
+  }
+  lockSet.add(miner_key);
+
   let records: WithId<Reward>[] = [];
   let step = { id: 1, value: 'Step1: Initialization' };
 
@@ -50,16 +62,19 @@ export default async function handler(
 
     const device = await deviceCollection.findOne({ miner_key: miner_key });
     if (!device) {
+      lockSet.delete(miner_key);
       res.status(402).json({ message: 'No device' });
       return;
     }
 
     if (!device.reward_wallet) {
+      lockSet.delete(miner_key);
       res.status(402).json({ message: 'No reward wallet set' });
       return;
     }
 
     if (!device.address || device.address !== session.user.address) {
+      lockSet.delete(miner_key);
       res.status(401).json({ message: 'Unauthorized' });
       return;
     }
@@ -72,6 +87,7 @@ export default async function handler(
       )
       .toArray() as WithId<Reward>[];
     if (!records || records.length <= 0) {
+      lockSet.delete(miner_key);
       res.status(402).json({ message: 'No rewards data' });
       return;
     }
@@ -94,7 +110,8 @@ export default async function handler(
     }
 
     if (success === false) {
-      res.status(200).json({
+      lockSet.delete(miner_key);
+      res.status(402).json({
         success: false,
         message: `Failed to set claimed status for miner ${miner_key}`
       });
@@ -187,6 +204,7 @@ export default async function handler(
 
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
     if (!tx) {
+      lockSet.delete(miner_key);
       res
         .status(402)
         .json({ message: 'Failed to make rewarding transaction' });
@@ -198,6 +216,7 @@ export default async function handler(
 
     const result = await verifyTransaction(account.addr, tx.txId);
     if (result !== VERIFY_RESULT.OK) {
+      lockSet.delete(miner_key);
       res
         .status(402)
         .json({ message: 'Failed to make verify reward transaction' });
@@ -226,6 +245,7 @@ export default async function handler(
     }
 
     if (success === false) {
+      lockSet.delete(miner_key);
       res.status(402).json({
         success: false,
         message: `Failed to set transaction ID for miner ${miner_key}`
@@ -236,13 +256,16 @@ export default async function handler(
     step.id = 5;
     step.value = `Step5: Set Transaction ID for each reward on Database.`;
 
+    lockSet.delete(miner_key);
     res.status(200).json({
       success: true,
       message: `Claim success for ${miner_key}`,
       result: tx.txId
     });
+
   } catch (error) {
     console.error(miner_key + ':' + error);
+    lockSet.delete(miner_key);
 
     if (step.id === 2) {
       const client = await clientPromise;

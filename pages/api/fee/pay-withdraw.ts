@@ -17,6 +17,8 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
+const lockSet: Set<string> = new Set();
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -36,6 +38,12 @@ export default async function handler(
     amount: number;
   } = req.body;
   const { miner_key, asset_id, from, to, amount } = data;
+
+  if (lockSet.has(miner_key)) {
+    res.status(402).json({ message: 'Too Many Request!' });
+    return;
+  }
+  lockSet.add(miner_key);
 
   try {
     // Convert mnemonic to secret key
@@ -90,11 +98,14 @@ export default async function handler(
           }
         }
       );
+      lockSet.delete(miner_key);
       return res.status(200).json({ txId: tx.txId });
     } else {
+      lockSet.delete(miner_key);
       return res.status(500).json({ txId: tx.txId });
     }
   } catch (error) {
+    lockSet.delete(miner_key);
     console.error(miner_key + ':' + error);
     return res.status(500).json({ txId: null });
   }
