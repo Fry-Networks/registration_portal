@@ -45,7 +45,6 @@ export const authOptions: NextAuthOptions = {
     signIn: '/signin'
   }
 };
-
 export default NextAuth(authOptions);
 
 export interface MySession extends Session {

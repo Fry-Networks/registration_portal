@@ -390,7 +390,7 @@ export default function DeviceListItem({
                   className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
                   onClick={() => handleWithdrawAllButton(device)}
                 >
-                  Withdraw All
+                  Unstake
                 </Button>
               )}
             </>

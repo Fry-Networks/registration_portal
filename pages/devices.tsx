@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { Device, Product } from '../lib/types';
+import { Device, FryConversion, Product } from '../lib/types';
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
@@ -25,8 +25,13 @@ import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdarwAll';
+import FryConversionModal from '../components/modals/FryConversion';
+import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
-import { isNodeStaked, isRegistartionStaked } from '../lib/utils';
+import {
+  isNodeStaked,
+  isRegistartionStaked,
+} from '../lib/utils';
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -51,18 +56,24 @@ const DevicesPage = ({
   products: Product[];
 }) => {
   const router = useRouter();
+  const toast = useToastContext();
   const { openModal } = useModal();
+  const { data: session } = useSession();
+
   const [devices, setDevices] = useState<Device[]>(initialDevices);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
-
-  const {data: session} = useSession();
-
-  const toast = useToastContext();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [addr, setAddr] = useState(session?.user.address);
+  const [showFry1Check, setShowFry1Check] = useState(false);
+  const [showFryConversion, setShowFryConversion] = useState(false);
 
   const handleAdd = () => {
     openModal('addDevice');
+  };
+  const handleConversion = async () => {
+    setShowFry1Check(true);
   };
 
   const handleRegister = async (minerKey: string): Promise<void> => {
@@ -297,36 +308,83 @@ const DevicesPage = ({
       >
         <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] w-full sm:w-auto gap-2">
           <Title className="text-white">Registered Miners</Title>
-          <p className='flex text-gray-300 text-lg'>{devices.length}</p>
+          <p className="flex text-gray-300 text-lg">{devices.length}</p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px]  w-full sm:w-auto gap-2">
           <Title className="text-white">Unverified Miners</Title>
-          <p className='flex text-gray-300 text-lg'>{devices.filter((device) => !device.verified).length}</p>
+          <p className="flex text-gray-300 text-lg">
+            {devices.filter((device) => !device.verified).length}
+          </p>
         </div>
         <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] w-full sm:w-auto gap-2">
           <Title className="text-white">Verified Miners</Title>
-          <p className='flex text-gray-300 text-lg'>{devices.filter((device) => device.verified).length}</p>
+          <p className="flex text-gray-300 text-lg">
+            {devices.filter((device) => device.verified).length}
+          </p>
         </div>
       </Flex>
 
       <div className="w-full mt-10 px-2 sm:px-20">
         <Flex
-          flexDirection="row"
-          justifyContent="end"
-          className="gap-3 w-full mt-10"
+          justifyContent="between"
+          className="gap-3 w-full mt-10 flex-col sm:flex-row"
         >
-          <Link href="/convert">
-            <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
-              BYOD to Miner Key
-            </Button>
-          </Link>
-
           <Button
-            className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-            onClick={handleAdd}
+            className={`min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full sm:w-auto ${
+              isProcessing ? 'cursor-not-allowed' : 'cursor-default'
+            }`}
+            onClick={handleConversion}
           >
-            + Add
+            {isProcessing ? (
+              <svg
+                className="animate-spin h-6 w-6 text-red-500"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <defs>
+                  <linearGradient
+                    id="redGradient"
+                    x1="0%"
+                    y1="0%"
+                    x2="100%"
+                    y2="0%"
+                  >
+                    <stop offset="0%" stopColor="#ff0000" />
+                    <stop offset="50%" stopColor="#ff4d4d" />
+                    <stop offset="100%" stopColor="#ff9999" />
+                  </linearGradient>
+                </defs>
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="url(#redGradient)"
+                  strokeWidth="4"
+                  fill="none"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : (
+              'FRY1.0 Conversion'
+            )}
           </Button>
+          <Flex
+            className="gap-3 w-full flex-col sm:flex-row sm:justify-end"
+          >
+            <Link href="/convert" className='w-full sm:w-auto'>
+              <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full">
+                BYOD to Miner Key
+              </Button>
+            </Link>
+
+            <Button
+              className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full sm:w-auto"
+              onClick={handleAdd}
+            >
+              + Add
+            </Button>
+          </Flex>
         </Flex>
       </div>
       <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
@@ -355,6 +413,23 @@ const DevicesPage = ({
         )}
       </Flex>
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
+      <Fry1CheckModal
+        modalName="fry1Check"
+        isOpen={showFry1Check}
+        onClose={() => setShowFry1Check(false)}
+        onStartConversion={() => {
+          setShowFry1Check(false);
+          setShowFryConversion(true);
+          openModal('fryConversion');
+        }}
+      />
+      {showFryConversion && (
+        <FryConversionModal
+          modalName="fryConversion"
+          address={addr}
+          onClose={() => setShowFryConversion(false)}
+        />
+      )}
       {selectedDevice && (
         <>
           <StakeModal

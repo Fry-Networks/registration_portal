@@ -102,4 +102,26 @@ export interface Product extends mongoose.Document {
 export type Asset = {
   id: string;
   decimals: number;
+};
+
+export interface FryConversion extends mongoose.Document {
+  status: string;
+  address: string;
+  held: number;
+  verification?: number;
+  cometaStaking?: number;
+  cometaLp?: number;
+  tinymanLp?: number;
+  amount: number;
+  asset_id: string;
+  claimableAmount: number;
+  pendingAmount: number;
+  claimableMonths: number;
+  claimedMonths: number;
+  ratio?: number[];
+  history?: Array<{
+    amount: number;
+    tokenType: string;
+    date: string;
+  }>;
 }

@@ -43,6 +43,7 @@ const WalletInfo = ({
   const [isComplete, setIsComplete] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLowBalance, setIsLowBalance] = useState(true);
+  const [lackBalance, setLackBalance] = useState(0);
   const { data: session } = useSession();
   const [connectivityFocus, setConnectivityFocus] = useState(false);
   const { openModal } = useModal();
@@ -110,6 +111,8 @@ const WalletInfo = ({
       if (!session || !session.user) {
         return;
       }
+      if (isLowBalance)
+        return;
       // const saveData = {
       //   miner_key: minerKey,
       //   reward_wallet: data.reward_wallet,
@@ -159,8 +162,9 @@ const WalletInfo = ({
   
       // ALGO balance is in microalgos; convert to ALGO
       const algoBalance = accountInfo.amount / 1e6;
+      setLackBalance(10 - algoBalance);
 
-      if (algoBalance <= 3)
+      if (algoBalance < 10)
       {
         setIsLowBalance(true);
         return;
@@ -197,7 +201,7 @@ const WalletInfo = ({
         { isLowBalance ? (
           <div className='flex justify-center text-white pt-2'>
             <span className='flex text-yellow-400'>{`Warning! `}&nbsp;</span>
-            {'Too Low ALGO Balance for PoC Wallet'}
+            {`Too Low ALGO Balance for PoC Wallet. Please transfer ${lackBalance}ALGO into your PoC wallet to continue.`}
           </div>
         ) : <></>
         }

@@ -132,10 +132,10 @@ export default async function handler(
       if (acc.has(Number(asset_id))) {
         acc.set(
           Number(asset_id),
-          Math.round((acc.get(Number(asset_id))! + reward.amount) * 100) / 100
+          Number((Math.round((acc.get(Number(asset_id))! + reward.amount) * 100) / 100).toFixed(2))
         );
       } else {
-        acc.set(Number(asset_id), reward.amount);
+        acc.set(Number(asset_id), Number(reward.amount.toFixed(2)));
       }
       return acc;
     }, new Map<number, number>());
@@ -170,7 +170,7 @@ export default async function handler(
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         from,
         to: device.reward_wallet,
-        amount: testMode ? 0 : resultArray[i].totalAmount * Math.pow(10, decimals || 0),
+        amount: testMode ? 0 : Number(resultArray[i].totalAmount.toFixed(2)) * Math.pow(10, decimals || 0),
         assetIndex: Number(resultArray[i].asset_id),
         note,
         suggestedParams
