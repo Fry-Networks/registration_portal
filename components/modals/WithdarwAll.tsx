@@ -1,12 +1,14 @@
-import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
+import { Button, Dialog, DialogPanel, Flex, Title, Card, Text } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
 import { isNodeStaked, isRegistartionStaked } from '../../lib/utils';
+
+const options = ['Registration Staking', 'Node Staking'];
 
 export default function WithdrawAllModal({
   modalName,
@@ -21,11 +23,24 @@ export default function WithdrawAllModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const { data: session } = useSession();
   const toast = useToastContext();
+  const [selectedOption, setSelectedOption] = useState('');
+
+  useEffect(() => {
+    const defaultOption = options.find((option) => {
+      const isDisabled = !isRegistartionStaked(device) && option === options[0];
+      return !isDisabled;
+    });
+
+    if (defaultOption) {
+      setSelectedOption(defaultOption);
+    }
+  }, [device]);
 
   const withdrawAll = async () => {
     setIsProcessing(true);
     try {
-      if (isRegistartionStaked(device)) {
+      // if (isRegistartionStaked(device)) {
+      if (selectedOption === 'Registration Staking') {
         const response = await fetch('/api/stake/r-withdraw', {
           method: 'POST',
           headers: {
@@ -54,7 +69,8 @@ export default function WithdrawAllModal({
         });
       }
 
-      if (isNodeStaked(device)) {
+      // if (isNodeStaked(device)) {
+      if (selectedOption === 'Node Staking') {
         const response = await fetch('/api/stake/n-withdraw', {
           method: 'POST',
           headers: {
@@ -85,6 +101,7 @@ export default function WithdrawAllModal({
 
       setIsProcessing(false);
       closeModal(modalName);
+      // setSelectedOption(options[0])
       handleWithdrawAll(device);
     } catch (error) {
       console.error(error);
@@ -104,8 +121,12 @@ export default function WithdrawAllModal({
       <Dialog
         open={modals[modalName]}
         onClose={() => {
-          !isProcessing && closeModal(modalName);
-        }}
+            if(!isProcessing) {
+              // setSelectedOption(options[0])
+              closeModal(modalName)
+            }
+          }
+        }
         static={true}
         className="z-[100]"
       >
@@ -114,21 +135,57 @@ export default function WithdrawAllModal({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              onClick={() => !isProcessing && closeModal(modalName)}
+              onClick={() => {
+                  if(!isProcessing) {
+                    // setSelectedOption(options[0])
+                    closeModal(modalName)
+                  }
+                }
+              }
               aria-label="Close"
             >
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5">Withdraw All</Title>
-          <Flex
+          <Title className="mb-5">Unstake</Title>
+          {/* <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
             className="gap-3 w-full mt-5 text-slate-900"
           >
             <p>Do you want to withdraw registration and node staking?</p>
-          </Flex>
+          </Flex> */}
+          <Card className="max-w-md mx-auto p-4">
+            <Title className='text-[16px]'>Registration or Node Staking?</Title>
+            <Text className="mb-4">Choose one of the following:</Text>
+
+            <div className="space-y-2">
+              {options.map((option) => {
+                const isDisabled = !isRegistartionStaked(device) && option === options[0];
+
+                return (
+                  <label
+                    key={option}
+                    className={`flex items-center p-3 border rounded-lg transition-all ${ 
+                      selectedOption === option && !isDisabled ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+                    } ${isDisabled ? 'bg-gray-300 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="custom-radio"
+                      value={option}
+                      checked={selectedOption === option}
+                      onChange={() => setSelectedOption(option)}
+                      className="form-radio text-blue-600 h-4 w-4 mr-3"
+                      disabled={option === 'Registration Staking' ? ( isRegistartionStaked(device) ? false : true ) : isNodeStaked(device) ? false : true}
+                    />
+                    <span>{option}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </Card>
           <Flex
             flexDirection="row"
             justifyContent="center"
@@ -136,7 +193,13 @@ export default function WithdrawAllModal({
           >
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
-              onClick={() => !isProcessing && closeModal(modalName)}
+              onClick={() => {
+                  if(!isProcessing) {
+                    // setSelectedOption(options[0])
+                    closeModal(modalName)
+                  }
+                }
+              }
             >
               Close
             </Button>

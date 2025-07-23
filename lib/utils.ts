@@ -1,11 +1,17 @@
 import { Device, Product, Asset } from './types';
 import algosdk, { Indexer, Account } from 'algosdk';
-import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction } from "@tinymanorg/tinyman-js-sdk";
-import { 
+import {
+  poolUtils,
+  SupportedNetwork,
+  Swap,
+  SwapType,
+  SignerTransaction
+} from '@tinymanorg/tinyman-js-sdk';
+import {
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_PORT,
- } from '@txnlab/use-wallet'
+  DEFAULT_NODE_PORT
+} from '@txnlab/use-wallet';
 import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
 
 const indexServer = 'https://mainnet-idx.algonode.cloud/';
@@ -26,14 +32,26 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-export const FRY_1 = { id: "924268058", decimals: 6 } as Asset;
-export const FRY_2 = { id:"2485314946", decimals: 6 } as Asset;
-export const fNODE = { id: "2485202024", decimals: 6 } as Asset;
-export const fVPN = { id: "2485198745", decimals: 6} as Asset;
-export const ALGO = { id: "0", decimals: 6 } as Asset;
+export const FC_UNCHECKED = 0;
+export const FC_CHECKED = 1;
+export const FC_STARTED = 2;
 
-export const REWALD_WALLET = "HXWYLLZDPTM5OXS3DPARMTG52RSBMMCQNKT4L2LZRRXYPNAWJBT6VIW6WU";
-export const FRYALGO_WALLET = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
+export const FRY_1 = { id: '924268058', decimals: 6 } as Asset;
+export const FRY_2 = { id: '2485314946', decimals: 6 } as Asset;
+export const fNODE = { id: '2485202024', decimals: 6 } as Asset;
+export const fVPN = { id: '2485198745', decimals: 6 } as Asset;
+export const ALGO = { id: '0', decimals: 6 } as Asset;
+
+export const REWALD_WALLET =
+  'HXWYLLZDPTM5OXS3DPARMTG52RSBMMCQNKT4L2LZRRXYPNAWJBT6VIW6WU';
+export const FRYALGO_WALLET =
+  'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
+export const BURN_WALLET =
+  'MO3FUXGKGZRTVYOSCXR3FXMPZQCZHR2BGGT2B5SINVBA3W6YCZNO25GGLM';
+
+export const CORE_RELEASE_DATE = new Date('2025-07-21T00:00:00Z');
+export const MODS_RELEASE_DATE = new Date('2025-07-25T00:00:00Z');
+export const ALL_RELEASE_DATE = new Date('2025-08-01T00:00:00Z');
 
 export const isRegistrationNeeded = (product: Product) => {
   const isTokenTypeValid =
@@ -83,7 +101,27 @@ export const getWalletAddress = (mnemonic: string) => {
   return '';
 };
 
-export const getAssetDecimals = async (assetId: number): Promise<number | null> => {
+export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
+  try {
+    const accountInfo = await algodClient.accountInformation(REWALD_WALLET).do();
+
+    const asset = accountInfo.assets.find((a: any) => a['asset-id'] === parseInt(assetId));
+
+    if (asset) {
+      return asset.amount / Math.pow(10, 6);
+    } else {
+      return 0;
+      console.log('Wallet does not hold this asset.');
+    }
+  } catch (err) {
+    console.error('Error fetching balance:', err);
+    return 0;
+  }
+};
+
+export const getAssetDecimals = async (
+  assetId: number
+): Promise<number | null> => {
   try {
     const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
     const decimals = assetInfo.asset.params.decimals;
@@ -105,7 +143,7 @@ export const getAssetName = (assetId: string) => {
   } else if (assetId === fVPN.id) {
     return 'fvpn';
   }
-}
+};
 
 export const getAlgoBalance = async (address: string) => {
   try {
@@ -213,15 +251,18 @@ export const getDeviceStatus = async (
   return undefined;
 };
 
-
-export const getTransactionTime = async (txId: string | undefined): Promise<Date> => {
+export const getTransactionTime = async (
+  txId: string | undefined
+): Promise<Date> => {
   try {
     // Fetch the transaction details
     if (txId !== undefined) {
       const txInfo = await indexerClient.lookupTransactionByID(txId).do();
 
-      if (txInfo.transaction && txInfo.transaction["round-time"]) {
-        const transactionTime = new Date(txInfo.transaction["round-time"] * 1000);
+      if (txInfo.transaction && txInfo.transaction['round-time']) {
+        const transactionTime = new Date(
+          txInfo.transaction['round-time'] * 1000
+        );
         // console.log('transactionTime : ', transactionTime, new Date());
         return transactionTime;
       } else {
@@ -233,7 +274,7 @@ export const getTransactionTime = async (txId: string | undefined): Promise<Date
     console.error('getTransactionTime: ', error);
     return new Date();
   }
-}
+};
 
 // export const requestGasFee = async (from: string | undefined, signTransactions: any, sendTransactions: any): Promise<boolean> => {
 //   try {
@@ -292,7 +333,7 @@ export const signerWithSecretKey = (account: Account) => {
       resolve(signedTxns);
     });
   };
-}
+};
 
 export const wait = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -305,7 +346,7 @@ export const fixedInputSwap = async ({
   account,
   asset_1,
   asset_2,
-  amount,
+  amount
 }: {
   account: Account;
   asset_1: Asset;
@@ -315,13 +356,13 @@ export const fixedInputSwap = async ({
   try {
     const initiatorAddr = account.addr;
     const pool = await poolUtils.v2.getPoolInfo({
-      network: "mainnet" as SupportedNetwork,
+      network: 'mainnet' as SupportedNetwork,
       client: algodClient,
       asset1ID: Number(asset_1.id),
       asset2ID: Number(asset_2.id)
     });
 
-    console.log("Pool Info : ", pool);
+    console.log('Pool Info : ', pool);
 
     /**
      * This example uses only v2 quote. Similarly, we can use
