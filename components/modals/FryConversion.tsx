@@ -64,7 +64,7 @@ export default function FryConversionModal({
         to: to.toString(),
         amount: testMode
           ? 0
-          : BigInt(amount * Math.pow(10, FRY_1.decimals || 0)), // Amount in microAlgos
+          : BigInt(Math.floor(amount * Math.pow(10, FRY_1.decimals || 0))), // Amount in microAlgos
         assetIndex: Number(FRY_1.id),
         suggestedParams: suggestedParams
       });
