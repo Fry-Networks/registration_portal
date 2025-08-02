@@ -41,7 +41,7 @@ export default function FryConversionModal({
 }) {
   const { activeAddress, signTransactions, sendTransactions } = useWallet();
   const { modals, closeModal } = useModal();
-  const [account, setAccount] = useState<FryConversion | null>();
+  const [account, setAccount] = useState<FryConversion | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
   const [selectedTokenType, setSelectedTokenType] = useState('2485314946');
