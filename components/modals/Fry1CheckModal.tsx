@@ -19,7 +19,7 @@ export default function Fry1CheckModal({
   const [isStarted, setIsStarted] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [isAvailable, setIsAvailable] = useState(false);
-  const [csvData, setCsvData] = useState<FryConversion | null>();
+  const [csvData, setCsvData] = useState<FryConversion | null>(null);
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
