@@ -22,7 +22,7 @@ const ToastMessage = (props: ToastData) => {
       severity: props.toast?.type,
       summary: props.toast?.heading,
       detail: props.toast?.message,
-      life: props.toast?.duration ? props.toast.duration : 5000
+      life: props.toast?.duration ? props.toast.duration : 10000
     });
   }, [props.toast]);
 
