@@ -17,6 +17,7 @@ export interface Device extends mongoose.Document {
   reward_wallet?: string;
   note?: string;
   is_registered: boolean;
+  registered_portal_model?: string;
   staked?: {
     type: string;
     amount: number;

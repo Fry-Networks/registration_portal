@@ -17,6 +17,38 @@ import { Flex } from '@tremor/react';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
 
+// import { createAppKit } from '@reown/appkit/react';
+// import { iotex, mainnet } from '@reown/appkit/networks';
+// import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
+// import { WagmiProvider } from 'wagmi';
+
+// import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+// const projectId = "74761852c2f607c540bb116a1bc9f011";
+// const queryClient = new QueryClient();
+
+// const metadata = { //optional
+//   name: 'AppKit',
+//   description: 'AppKit',
+//   url: 'https://example.com',
+//   icons: ['https://avatars.githubusercontent.com/u/179229932']
+// }
+
+// const wagmiAdapter = new WagmiAdapter({
+//   networks: [mainnet, iotex],
+//   projectId
+// });
+
+// export const walletModal = createAppKit({
+//   adapters: [wagmiAdapter],
+//   networks: [mainnet, iotex],
+//   metadata: metadata,
+//   projectId,
+//   features: {
+//     analytics: true,
+//   }
+//  })
+
 interface MyAppProps extends AppProps {
   Component: NextPage;
 }
@@ -37,24 +69,28 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
   return (
     <ModalProvider>
-      <WalletProvider value={providers}>
-        <SessionProvider session={pageProps.session}>
-          <DevWalletProvider>
-            <ToastProvider>
-              <Navbar />
-              <div
-                id="main"
-                className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
-              >
-                <ProtectedComponent
-                  Component={Component}
-                  pageProps={pageProps}
-                />
-              </div>
-            </ToastProvider>
-          </DevWalletProvider>
-        </SessionProvider>
-      </WalletProvider>
+      {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
+        <QueryClientProvider client={queryClient}> */}
+          <WalletProvider value={providers}>
+            <SessionProvider session={pageProps.session}>
+              <DevWalletProvider>
+                <ToastProvider>
+                  <Navbar />
+                  <div
+                    id="main"
+                    className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
+                  >
+                    <ProtectedComponent
+                      Component={Component}
+                      pageProps={pageProps}
+                    />
+                  </div>
+                </ToastProvider>
+              </DevWalletProvider>
+            </SessionProvider>
+          </WalletProvider>
+        {/* </QueryClientProvider>
+      </WagmiProvider> */}
     </ModalProvider>
   );
 }

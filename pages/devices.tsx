@@ -31,7 +31,35 @@ import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import {
   isNodeStaked,
   isRegistartionStaked,
+  getWalletAddress,
+  algodClient
 } from '../lib/utils';
+
+const testMode =
+    process.env.NEXT_PUBLIC_TEST_MODE &&
+    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+const minerType = {
+  weather: ['HWM', 'LWM'],
+  air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
+  water: ['OLWQM', 'OHWQM'],
+  radiation: ['IRM'],
+  hardware: ['ISM', 'OSM', 'BM', 'IDM', 'ODM'],
+  camera: [
+    'AOWSCM',
+    'AOWCM',
+    'AIWCM',
+    'AOSCM',
+    'AISCM',
+    'AOTCM',
+    'AITCM',
+    'AIWSCM'
+  ],
+  energy: ['EM']
+};
+
+type MinerCategory = keyof typeof minerType;
+type MinerType = (typeof minerType)[MinerCategory][number];
 
 export function isProductStakeAvailable(product: Product) {
   let result = false;
@@ -72,8 +100,39 @@ const DevicesPage = ({
   const handleAdd = () => {
     openModal('addDevice');
   };
+
   const handleConversion = async () => {
     setShowFry1Check(true);
+  };
+
+  function getMinerCategory(miner_key: string): MinerCategory | null {
+    const prefix = miner_key.split('-')[0];
+    for (const key of Object.keys(minerType) as MinerCategory[]) {
+      if (minerType[key].includes(prefix)) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
+    const account = getWalletAddress(mnemonic);
+
+    try {
+      // Fetch account information
+      const accountInfo = await algodClient.accountInformation(account).do();
+
+      // ALGO balance is in microalgos; convert to ALGO
+      const algoBalance = parseFloat((accountInfo.amount / 1e6).toFixed(2));
+      if (algoBalance < 10) {
+        return 10 - algoBalance;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error fetching account balance:', error);
+      return null;
+    }
   };
 
   const handleRegister = async (minerKey: string): Promise<void> => {
@@ -81,18 +140,33 @@ const DevicesPage = ({
       const response = await fetch(`/api/devices/${minerKey}`);
       if (!response.ok) {
         toast.error({ heading: 'Error', message: 'Device not found' });
-
         return;
       }
 
       const result = await response.json();
       if (result.device.is_registered) {
         toast.error({ heading: 'Error', message: 'Already registered' });
-
         return;
       }
 
-      router.push({ pathname: '/register', query: { minerKey } });
+      const prefix = getMinerCategory(minerKey);
+      if (!prefix) {
+        toast.error({
+          heading: 'Error',
+          message: `Invalid Miner Key! We couldn't validate that miner key. Please double-check it and try again.`
+        });
+        return;
+      }
+
+      if (result.device.registered_portal_model !== undefined) {
+        router.push({
+          pathname: `/${prefix}portal`,
+          query: { minerKey, portalType: result.device.registered_portal_model }
+        });
+        return;
+      }
+      // router.push({ pathname: '/register', query: { minerKey } });
+      router.push({ pathname: `/${prefix}portal`, query: { minerKey } });
     } catch (error) {
       toast.error({
         heading: 'Error',
@@ -100,6 +174,74 @@ const DevicesPage = ({
           'There is an error occured for registering. Please contact us before you try again'
       });
       return;
+    }
+  };
+
+  const handleSetting = async (minerKey: string): Promise<void> => {
+    // Redirect to an edit page where the device details can be modified
+    try {
+      const response = await fetch(`/api/devices/${minerKey}`, {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json' },
+        body: JSON.stringify({ address: session?.user.address })
+      });
+      if (!response.ok) {
+        toast.error({
+          heading: 'Error',
+          message: `Device not found.`
+        });
+        return;
+      }
+
+      const result = await response.json();
+
+      if (!testMode) {
+        const missingBalance = await checkAlgoBalance(
+          result.device.connectivity_wallet
+        );
+        if (missingBalance !== null) {
+          toast.warning({
+            heading: 'Warning',
+            message: `Too Low ALGO Balance for PoC Wallet. Please transfer ${missingBalance} ALGO into your PoC wallet to continue.`
+          });
+          return;
+        }
+      }
+
+      const prefix = getMinerCategory(minerKey);
+      if (!prefix) {
+        toast.error({
+          heading: 'Error',
+          message: `Invalid Miner Key! It doesn't exist the portal credential for miner key. Please double-check it and try again.`
+        });
+        return;
+      }
+
+      // Correct check for registered_portal_model existence in device object
+      if (
+        'registered_portal_model' in result.device &&
+        result.device.registered_portal_model
+      ) {
+        router.push({
+          pathname: `/${prefix}portal`,
+          query: {
+            minerKey,
+            portalType: result.device.registered_portal_model,
+            onlyPortal: true
+          }
+        });
+        return;
+      }
+
+      router.push({
+        pathname: `/${prefix}portal`,
+        query: { minerKey, onlyPortal: true }
+      });
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message: `Failed to fetch device information.`
+      });
     }
   };
 
@@ -154,8 +296,8 @@ const DevicesPage = ({
     try {
       const response = await fetch(`/api/devices/${miner_key}`, {
         method: 'POST',
-        headers: {'Content-type': 'application/json'},
-        body: JSON.stringify({address: session?.user.address})
+        headers: { 'Content-type': 'application/json' },
+        body: JSON.stringify({ address: session?.user.address })
       });
       if (!response.ok) {
         toast.error({
@@ -228,7 +370,6 @@ const DevicesPage = ({
   };
 
   const handleClaim = async (ret: boolean, message: string): Promise<void> => {
-
     const updateDevices = devices.map((element) => {
       if (element.miner_key !== selectedDevice.miner_key) {
         return element;
@@ -369,10 +510,8 @@ const DevicesPage = ({
               'FRY1.0 Conversion'
             )}
           </Button>
-          <Flex
-            className="gap-3 w-full flex-col sm:flex-row sm:justify-end"
-          >
-            <Link href="/convert" className='w-full sm:w-auto'>
+          <Flex className="gap-3 w-full flex-col sm:flex-row sm:justify-end">
+            <Link href="/convert" className="w-full sm:w-auto">
               <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full">
                 BYOD to Miner Key
               </Button>
@@ -400,6 +539,7 @@ const DevicesPage = ({
                 handleStaking={handleStaking}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
+                handleSetting={handleSetting}
                 handleBoostButton={handleBoostButton}
                 handleClaimButton={handleClaimButton}
                 handleWithdrawStake={handleWithdrawStake}
@@ -464,6 +604,7 @@ const DevicesPage = ({
             device={selectedDevice}
             handleWithdrawAll={handleWithdrawAll}
           />
+
           {/* <WithdrawAlgoModal
             modalName="withdraw_algo"
             device={selectedDevice}
@@ -511,8 +652,10 @@ export async function getServerSideProps(context: any) {
     // let query = { miner_key: { $regex: "OMAQM", $options: "i" } };
 
     // let records = await collection
-    //   .find(query, {})
+    //   .find({is_registered: true})
     //   .toArray();
+
+    // console.log(records.length);
 
     // // console.log('IMAQM Counts: ', records);
 

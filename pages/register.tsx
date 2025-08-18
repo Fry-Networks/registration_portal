@@ -21,7 +21,7 @@ export default ({ products }: { products: Product[] }) => {
   const [locationStatus, setLocationStatus] = useState(false);
   const [stakeStatus, setStakeStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
-  const { minerKey, clickable } = router.query;
+  const { minerKey, clickable, type } = router.query;
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const [product, setProduct] = useState<Product | undefined>(undefined);
   const toast = useToastContext();
@@ -53,6 +53,38 @@ export default ({ products }: { products: Product[] }) => {
       }
     };
 
+    const setPortalType = async (minerKey: string, type: string | string[]) => {
+      try {
+        const response = await fetch(`/api/devices/save-portal-type`, {
+          method: 'POST',
+          headers: {'Content-type': 'application/json'},
+          body: JSON.stringify({miner_key: minerKey, type, address: session?.user.address})
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setDevice(data.device as Device);
+          toast.success({
+            heading: 'Success',
+            message: 'Device information updated successfully'
+          });
+        } else {
+          toast.error({
+            heading: 'Error',
+            message: 'Failed to update device information for portal type'
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to update device information for portal type'
+        });
+      }
+    }
+
+    if (type) {
+      setPortalType(minerKey, type);
+    }
     fetchDeviceInfo(minerKey);
   }, [minerKey]);
 
@@ -277,7 +309,8 @@ export default ({ products }: { products: Product[] }) => {
           method: 'POST',
           body: JSON.stringify({
             miner_key: minerKey,
-            address: session?.user.address
+            address: session?.user.address,
+            type
           }),
           headers: { 'Content-Type': 'application/json' }
         });

@@ -45,40 +45,35 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
             <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
           </button>
         </div>
-        <Title className="mb-5">Register a new device</Title>
-
-        <TextInput
-          type="text"
-          value={miner_key}
-          onChange={(e) => setMinerKey(e.target.value)}
-          placeholder="Enter your miner key to onboard"
-          className="mt-2 mb-2 text-slate-900"
-          error={miner_key !== "" && !/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
-          errorMessage="Invalid miner key"
-        />
-        <Flex
-          flexDirection="row"
-          justifyContent="center"
-          className="gap-3 w-full mt-5"
-        >
-          <Button
-            className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
-            onClick={() => closeModal(modalName)}
-          >
-            Close
-          </Button>
-          <Button
-            className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
-            disabled={!/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
-            onClick={() => {
-              closeModal(modalName);
-              handleRegister(miner_key);
-              setMinerKey('');
-            }}
-          >
-            Register
-          </Button>
-        </Flex>
+            <Title className="mb-5">Register a new device</Title>
+            <TextInput
+              type="text"
+              value={miner_key}
+              onChange={(e) => setMinerKey(e.target.value)}
+              placeholder="Enter your miner key to onboard"
+              className="mt-2 mb-2 text-slate-900"
+              error={miner_key !== '' && !/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
+              errorMessage="Invalid miner key"
+            />
+            <Flex flexDirection="row" justifyContent="center" className="gap-3 w-full mt-5">
+              <Button
+                className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+                onClick={() => closeModal(modalName)}
+              >
+                Close
+              </Button>
+              <Button
+                className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+                disabled={!/\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(miner_key)}
+                onClick={() => {
+                  closeModal(modalName);
+                  handleRegister(miner_key);
+                  setMinerKey('');
+                }}
+              >
+                Register
+              </Button>
+            </Flex>
       </DialogPanel>
     </Dialog>
   );
