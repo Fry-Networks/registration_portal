@@ -20,6 +20,7 @@ import { RiAlertLine } from '@remixicon/react';
 import AlertWithTooltip from './AlertIcon';
 // import WithdrawIcon from './WithdrawIcon';
 import StakingIcon from './StakeIcon';
+import SettingIcon from './SettingIcon';
 import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
 
@@ -30,10 +31,11 @@ export default function DeviceListItem({
   handleDeleteButton,
   handleStaking,
   handleChange,
+  handleSetting,
   handleBoostButton,
   handleClaimButton,
   handleWithdrawStake,
-  handleWithdrawAllButton,
+  handleWithdrawAllButton
   // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
@@ -42,6 +44,7 @@ export default function DeviceListItem({
   handleDeleteButton: (device: Device) => void;
   handleStaking: (miner_key: string) => Promise<void>;
   handleChange: (miner_key: string) => Promise<void>;
+  handleSetting: (miner_key: string) => Promise<void>;
   handleBoostButton: (device: Device) => Promise<void>;
   handleClaimButton: (device: Device) => void;
   handleWithdrawStake: (device: Device) => void;
@@ -135,8 +138,8 @@ export default function DeviceListItem({
     try {
       const response = await fetch(`/api/devices/${minerKey}`, {
         method: 'POST',
-        headers: {'Content-type': 'application/json'},
-        body: JSON.stringify({address: session?.user.address})
+        headers: { 'Content-type': 'application/json' },
+        body: JSON.stringify({ address: session?.user.address })
       });
       if (response.ok) {
         const data = await response.json();
@@ -219,7 +222,7 @@ export default function DeviceListItem({
           className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
         >
           <div className="w-full flex flex-row justify-between">
-            <div className='flex gap-2'>
+            <div className="flex gap-2">
               <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
                 {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
               </Title>
@@ -230,9 +233,12 @@ export default function DeviceListItem({
               )}
             </div>
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
+              <div onClick={() => handleSetting(device.miner_key)}>
+                <Tooltip children={<SettingIcon />} text="Setting" />
+              </div>
               {device && product && isNodeProduct(product) && (
                 <div onClick={() => handleStaking(device.miner_key)}>
-                  <Tooltip children={<StakingIcon />} text="Staking" />  
+                  <Tooltip children={<StakingIcon />} text="Staking" />
                 </div>
               )}
               <div onClick={() => handleChange(device.miner_key)}>
@@ -265,7 +271,7 @@ export default function DeviceListItem({
               <p>Address: None</p>
             )}
           </Flex>
-          <p className='text-white'>
+          <p className="text-white">
             <strong className="text-white">Miner Key: </strong>
             {device.miner_key && device.miner_key.length > 0
               ? device.miner_key
@@ -286,10 +292,7 @@ export default function DeviceListItem({
                 </p>
                 <p className="block md:hidden">
                   <strong className="text-white">Reward Wallet: </strong>
-                  {device.reward_wallet.slice(
-                    0,
-                    6
-                  )}...
+                  {device.reward_wallet.slice(0, 6)}...
                   {device.reward_wallet.slice(
                     device.reward_wallet.length - 6,
                     device.reward_wallet.length
@@ -313,10 +316,7 @@ export default function DeviceListItem({
                 </p>
                 <p className="block md:hidden">
                   <strong className="text-white">PoC Wallet: </strong>
-                  {getWalletAddress(device.connectivity_wallet).slice(
-                    0,
-                    6
-                  )}...
+                  {getWalletAddress(device.connectivity_wallet).slice(0, 6)}...
                   {getWalletAddress(device.connectivity_wallet).slice(
                     getWalletAddress(device.connectivity_wallet).length - 6,
                     getWalletAddress(device.connectivity_wallet).length
@@ -327,9 +327,9 @@ export default function DeviceListItem({
                   <div onClick={() => handleAlgoWithdrawButton(device)}>
                     <Tooltip children={<WithdrawIcon />} text="Withdraw" />
                   </div> */}
-                  <CopyAddress
-                    address={getWalletAddress(device.connectivity_wallet)}
-                  />
+                <CopyAddress
+                  address={getWalletAddress(device.connectivity_wallet)}
+                />
                 {/* </div> */}
               </>
             ) : (

@@ -19,6 +19,28 @@ import Link from 'next/link';
 import { Product } from '../lib/types';
 import { useToastContext } from '../hooks/ToastContext';
 
+const minerType = {
+  weather: ['HWM', 'LWM'],
+  air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
+  water: ['OLWQM', 'OHWQM'],
+  radiation: ['IRM'],
+  hardware: ['ISM', 'OSM', 'BM', 'IDM', 'ODM'],
+  camera: [
+    'AOWSCM',
+    'AOWCM',
+    'AIWCM',
+    'AOSCM',
+    'AISCM',
+    'AOTCM',
+    'AITCM',
+    'AIWSCM'
+  ],
+  energy: ['EM']
+};
+
+type MinerCategory = keyof typeof minerType;
+type MinerType = (typeof minerType)[MinerCategory][number];
+
 export default function Convert({ products }: { products: Product[] }) {
   const [byodLicense, setByodLicense] = useState('');
   const [selectedProduct, setSelectedProduct] = useState('');
@@ -50,6 +72,16 @@ export default function Convert({ products }: { products: Product[] }) {
 
     return true;
   };
+
+  function getMinerCategory(miner_key: string): MinerCategory | null {
+    const prefix = miner_key.split('-')[0];
+    for (const key of Object.keys(minerType) as MinerCategory[]) {
+      if (minerType[key].includes(prefix)) {
+        return key;
+      }
+    }
+    return null;
+  }
 
   useEffect(() => {
     if (!products || products.length < 0) {
@@ -99,18 +131,30 @@ export default function Convert({ products }: { products: Product[] }) {
       const response = await fetch(`/api/devices/${minerKey}`);
       if (!response.ok) {
         toast.error({ heading: 'Error', message: 'Device not found' });
-
         return;
       }
 
       const result = await response.json();
       if (result.device.is_registered) {
         toast.error({ heading: 'Error', message: 'Already registered' });
-
         return;
       }
 
-      router.push({ pathname: '/register', query: { minerKey } });
+      const prefix = getMinerCategory(minerKey);
+      if (!prefix) {
+        toast.error({
+          heading: 'Error',
+          message: `Invalid Miner Key! We couldn't validate that miner key. Please double-check it and try again.`
+        });
+        return;
+      }
+
+      if (result.device.registered_portal_model !== undefined) {
+        router.push({ pathname: `/${prefix}portal`, query: { minerKey, portalType: result.device.registered_portal_model } });
+        return;
+      }
+
+      router.push({ pathname: `/${prefix}portal`, query: { minerKey } });
     } catch (error) {
       toast.error({
         heading: 'Error',

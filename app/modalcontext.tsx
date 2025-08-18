@@ -27,6 +27,23 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     generate_wallet: false,
     withdraw_all: false,
     fryConversion: false,
+    ambient: false,
+    ecowitt: false,
+    pebble: false,
+    airthings: false,
+    purple: false,
+    awair: false,
+    kaiterra: false,
+    atmotube: false,
+    govee: false,
+    nrf: false,
+    sensecap: false,
+    weatherxm: false,
+    lacrosse: false,
+    iopool: false,
+    gmcmap: false,
+    tapo: false,
+    shelly: false,
     // Add other modals here as needed
   });
 

@@ -14,19 +14,21 @@ import {
 } from '@txnlab/use-wallet';
 import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
 
-const indexServer = 'https://mainnet-idx.algonode.cloud/';
+const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud/';
+const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io/';
+const API_TOKEN = 'REDACTED_ROTATE_ME';
 
 export const algodClient = new algosdk.Algodv2(
   DEFAULT_NODE_TOKEN,
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_PORT
-)
+);
 
 export const indexerClient = new Indexer(
   DEFAULT_NODE_TOKEN,
-  indexServer,
+  DEFAULT_INDEX_BASEURL,
   DEFAULT_NODE_PORT
-)
+);
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -103,9 +105,13 @@ export const getWalletAddress = (mnemonic: string) => {
 
 export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
   try {
-    const accountInfo = await algodClient.accountInformation(REWALD_WALLET).do();
+    const accountInfo = await algodClient
+      .accountInformation(REWALD_WALLET)
+      .do();
 
-    const asset = accountInfo.assets.find((a: any) => a['asset-id'] === parseInt(assetId));
+    const asset = accountInfo.assets.find(
+      (a: any) => a['asset-id'] === parseInt(assetId)
+    );
 
     if (asset) {
       return asset.amount / Math.pow(10, 6);
@@ -373,29 +379,43 @@ export const fixedInputSwap = async ({
       type: SwapType.FixedInput,
       // amount: testMode ? 0 : amount * Math.pow(10, asset_1.decimals || 0),
       amount: amount * Math.pow(10, asset_1.decimals || 0),
-      assetIn: { id: Number(asset_1.id), decimals: asset_1.decimals } as AssetWithIdAndDecimals,
-      assetOut: { id: Number(asset_2.id), decimals: asset_2.decimals } as AssetWithIdAndDecimals,
-      network: "mainnet" as SupportedNetwork,
+      assetIn: {
+        id: Number(asset_1.id),
+        decimals: asset_1.decimals
+      } as AssetWithIdAndDecimals,
+      assetOut: {
+        id: Number(asset_2.id),
+        decimals: asset_2.decimals
+      } as AssetWithIdAndDecimals,
+      network: 'mainnet' as SupportedNetwork,
       pool: pool,
+      slippage: 0.05
     });
 
     let fixedInputSwapTxns = await Swap.v2.generateTxns({
       client: algodClient,
-      network: "mainnet" as SupportedNetwork,
+      network: 'mainnet' as SupportedNetwork,
       quote: fixedInputSwapQuote,
       swapType: SwapType.FixedInput,
       initiatorAddr,
       slippage: 0.05
     });
 
-    console.log('fixedInputSwapTxns : ', fixedInputSwapTxns.length, fixedInputSwapTxns[0].txn.txID(), fixedInputSwapTxns[1].txn.txID());
+    console.log(
+      'fixedInputSwapTxns : ',
+      fixedInputSwapTxns.length,
+      fixedInputSwapTxns[0].txn.txID(),
+      fixedInputSwapTxns[1].txn.txID()
+    );
     try {
-      const txStatus = await algodClient.pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID()).do();
+      const txStatus = await algodClient
+        .pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID())
+        .do();
       if (txStatus && txStatus['confirmed-round']) {
         while (true) {
           fixedInputSwapTxns = await Swap.v2.generateTxns({
             client: algodClient,
-            network: "mainnet" as SupportedNetwork,
+            network: 'mainnet' as SupportedNetwork,
             quote: fixedInputSwapQuote,
             swapType: SwapType.FixedInput,
             initiatorAddr,
@@ -403,7 +423,9 @@ export const fixedInputSwap = async ({
           });
 
           try {
-            const regeneratedTxStatus = await algodClient.pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID()).do();
+            const regeneratedTxStatus = await algodClient
+              .pendingTransactionInformation(fixedInputSwapTxns[0].txn.txID())
+              .do();
           } catch (error: any) {
             console.log('regeneratedTxStatus : ', error.response.status);
             break;
@@ -425,15 +447,15 @@ export const fixedInputSwap = async ({
       client: algodClient,
       quote: fixedInputSwapQuote,
       signedTxns,
-      txGroup: fixedInputSwapTxns,
+      txGroup: fixedInputSwapTxns
     });
 
-    console.log("✅ Fixed Input Swap executed successfully!");
+    console.log('✅ Fixed Input Swap executed successfully!');
     // console.log({response: swapExecutionResponse, txnID: swapExecutionResponse.txnID});
 
     return swapExecutionResponse;
-  } catch(error) {
+  } catch (error) {
     console.error('fixedInputSwap :', error);
     return undefined;
   }
-}
+};
