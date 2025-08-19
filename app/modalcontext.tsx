@@ -31,7 +31,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     ecowitt: false,
     pebble: false,
     airthings: false,
-    purple: false,
+    purpleair: false,
     awair: false,
     kaiterra: false,
     atmotube: false,
