@@ -60,7 +60,7 @@ const AirPortal = () => {
       logo: airthingsLogo
     },
     {
-      id: 'purple',
+      id: 'purpleair',
       name: 'Purple Air',
       logo: purpleAirLogo
     },
