@@ -116,25 +116,25 @@ const DevicesPage = ({
     return null;
   }
 
-  const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
-    const account = getWalletAddress(mnemonic);
+  // const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
+  //   const account = getWalletAddress(mnemonic);
 
-    try {
-      // Fetch account information
-      const accountInfo = await algodClient.accountInformation(account).do();
+  //   try {
+  //     // Fetch account information
+  //     const accountInfo = await algodClient.accountInformation(account).do();
 
-      // ALGO balance is in microalgos; convert to ALGO
-      const algoBalance = parseFloat((accountInfo.amount / 1e6).toFixed(2));
-      if (algoBalance < 10) {
-        return 10 - algoBalance;
-      }
+  //     // ALGO balance is in microalgos; convert to ALGO
+  //     const algoBalance = parseFloat((accountInfo.amount / 1e6).toFixed(2));
+  //     if (algoBalance < 10) {
+  //       return 10 - algoBalance;
+  //     }
 
-      return null;
-    } catch (error) {
-      console.error('Error fetching account balance:', error);
-      return null;
-    }
-  };
+  //     return null;
+  //   } catch (error) {
+  //     console.error('Error fetching account balance:', error);
+  //     return null;
+  //   }
+  // };
 
   const handleRegister = async (minerKey: string): Promise<void> => {
     try {
@@ -196,18 +196,18 @@ const DevicesPage = ({
 
       const result = await response.json();
 
-      if (!testMode) {
-        const missingBalance = await checkAlgoBalance(
-          result.device.connectivity_wallet
-        );
-        if (missingBalance !== null) {
-          toast.warning({
-            heading: 'Warning',
-            message: `Too Low ALGO Balance for PoC Wallet. Please transfer ${missingBalance} ALGO into your PoC wallet to continue.`
-          });
-          return;
-        }
-      }
+      // if (!testMode) {
+      //   const missingBalance = await checkAlgoBalance(
+      //     result.device.connectivity_wallet
+      //   );
+      //   if (missingBalance !== null) {
+      //     toast.warning({
+      //       heading: 'Warning',
+      //       message: `Too Low ALGO Balance for PoC Wallet. Please transfer ${missingBalance} ALGO into your PoC wallet to continue.`
+      //     });
+      //     return;
+      //   }
+      // }
 
       const prefix = getMinerCategory(minerKey);
       if (!prefix) {
