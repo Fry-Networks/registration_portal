@@ -113,6 +113,8 @@ export default async function handler(
 
     const suggestedParams = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const rekey = algosdk.mnemonicToSecretKey(process.env.REWARD_REKEY!);
+
     const from = account.addr;
 
     const noteInfo = {
@@ -134,10 +136,11 @@ export default async function handler(
       amount: testMode ? 0 : BigInt(Math.floor(amount * Math.pow(10, decimals || 0))),
       assetIndex: Number(convertType === FRY_2.id ? FRY_2.id : fNODE.id),
       note,
-      suggestedParams
+      suggestedParams,
+      rekeyTo: rekey.addr
     });
 
-    const signedTxn = txn.signTxn(account.sk);
+    const signedTxn = txn.signTxn(rekey.sk);
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
     if (!tx) {
       res.status(402).json({
@@ -154,7 +157,7 @@ export default async function handler(
       return;
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: `You’ve received "${user.claimableMonths}/12" month’s ${convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE'} from your vesting schedule. Check back next month for your next claim!`,
     });
