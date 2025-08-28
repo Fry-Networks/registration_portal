@@ -143,6 +143,7 @@ export async function withdraw(
   try {
     // Convert mnemonic to secret key
     const account = algosdk.mnemonicToSecretKey(process.env.STAKE_MNEMONIC!);
+    const rekey = algosdk.mnemonicToSecretKey(process.env.STAKE_REKEY!);
 
     const from = account.addr.toString();
 
@@ -170,11 +171,12 @@ export async function withdraw(
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
-      suggestedParams
+      suggestedParams,
+      rekeyTo: rekey.addr
     });
 
     // Sign the transaction with the account secret key
-    const signedTxn = txn.signTxn(account.sk);
+    const signedTxn = txn.signTxn(rekey.sk);
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();

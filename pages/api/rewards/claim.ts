@@ -149,6 +149,8 @@ export default async function handler(
 
     const suggestedParams = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const rekey = algosdk.mnemonicToSecretKey(process.env.REWARD_REKEY!);
+
     const from = account.addr;
     let txns: algosdk.TransactionLike[] = [];
     let signedTxns: Uint8Array[] = [];
@@ -173,12 +175,13 @@ export default async function handler(
         amount: testMode ? 0 : resultArray[i].totalAmount * Math.pow(10, decimals || 0),
         assetIndex: Number(resultArray[i].asset_id),
         note,
-        suggestedParams
+        suggestedParams,
+        rekeyTo: rekey.addr
       });
 
       txns.push(txn);
 
-      const signedTxn = txn.signTxn(account.sk);
+      const signedTxn = txn.signTxn(rekey.sk);
       signedTxns.push(signedTxn);
     }
 

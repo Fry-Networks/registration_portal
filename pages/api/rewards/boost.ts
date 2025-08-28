@@ -123,6 +123,8 @@ export default async function handler(
 
     const params = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+    const rekey = algosdk.mnemonicToSecretKey(process.env.REWARD_REKEY!);
+
     const from = account.addr;
     let txns: algosdk.TransactionLike[] = [];
     let signedTxns: Uint8Array[] = [];
@@ -182,11 +184,12 @@ export default async function handler(
         note,
         assetIndex: Number(FRY_2.id),
         suggestedParams: params,
+        rekeyTo: rekey.addr
       });
 
       txns.push(txn);
 
-      const signedTxn = txn.signTxn(account.sk);
+      const signedTxn = txn.signTxn(rekey.sk);
       signedTxns.push(signedTxn);
       totalFeeAmount += Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount : Number(swappedAsset?.amount) / 10 ** FRY_2.decimals;
     }

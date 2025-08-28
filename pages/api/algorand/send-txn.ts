@@ -43,6 +43,7 @@ export default async function handler(
         ? process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
         : process.env.STAKE_MNEMONIC!
     );
+    const rekey = algosdk.mnemonicToSecretKey(process.env.STAKE_REKEY!);
 
     const from = account.addr.toString();
     const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id);
@@ -60,11 +61,12 @@ export default async function handler(
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note: encodedNote,
-      suggestedParams
+      suggestedParams,
+      rekeyTo: staking ? undefined : rekey.addr
     });
 
     // Sign the transaction with the account secret key
-    const signedTxn = txn.signTxn(account.sk);
+    const signedTxn = txn.signTxn(staking ? account.sk : rekey.sk);
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
