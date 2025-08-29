@@ -323,7 +323,7 @@ export const getTransactionTime = async (
  * @param account account data that will sign the transactions
  * @returns a function that will sign the transactions, can be used as `initiatorSigner`
  */
-export const signerWithSecretKey = (account: Account) => {
+export const signerWithSecretKey = (account: Account, rekey: Account) => {
   return function (txGroups: SignerTransaction[][]): Promise<Uint8Array[]> {
     // Filter out transactions that don't need to be signed by the account
     const txnsToBeSigned = txGroups.flatMap((txGroup) =>
@@ -331,7 +331,7 @@ export const signerWithSecretKey = (account: Account) => {
     );
     // Sign all transactions that need to be signed by the account
     const signedTxns: Uint8Array[] = txnsToBeSigned.map(({ txn }) =>
-      txn.signTxn(account.sk)
+      txn.signTxn(rekey.sk)
     );
 
     // We wrap this with a Promise since SDK's initiatorSigner expects a Promise
@@ -352,12 +352,14 @@ export const fixedInputSwap = async ({
   account,
   asset_1,
   asset_2,
-  amount
+  amount,
+  rekey
 }: {
   account: Account;
   asset_1: Asset;
   asset_2: Asset;
   amount: number;
+  rekey: Account;
 }) => {
   try {
     const initiatorAddr = account.addr;
@@ -440,7 +442,7 @@ export const fixedInputSwap = async ({
 
     const signedTxns = await Swap.v2.signTxns({
       txGroup: fixedInputSwapTxns,
-      initiatorSigner: signerWithSecretKey(account)
+      initiatorSigner: signerWithSecretKey(account, rekey)
     });
 
     const swapExecutionResponse = await Swap.v2.execute({

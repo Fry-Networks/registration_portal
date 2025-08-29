@@ -25,20 +25,20 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-const swapWithInputAsset = async (acc: Account, asset: string, amount: number) => {
+const swapWithInputAsset = async (acc: Account, asset: string, amount: number, rekey: Account) => {
 
   if (asset === FRY_1.id) {
-    const res_1 = await fixedInputSwap({account: acc, asset_1: FRY_1, asset_2: ALGO, amount: amount});
+    const res_1 = await fixedInputSwap({account: acc, asset_1: FRY_1, asset_2: ALGO, amount: amount, rekey});
     if (res_1?.assetOut !== undefined) {
       const algoAmount = Number(res_1.assetOut.amount) / 10 ** ALGO.decimals;
-      const res_2 = await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2, amount: algoAmount});
+      const res_2 = await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2, amount: algoAmount, rekey});
       return res_2?.assetOut;
     }
   } else if (asset === fNODE.id) {
-    const res = await fixedInputSwap({account: acc, asset_1: fNODE, asset_2: FRY_2, amount: amount});
+    const res = await fixedInputSwap({account: acc, asset_1: fNODE, asset_2: FRY_2, amount: amount, rekey});
     return res?.assetOut;
   } else if (asset === fVPN.id) {
-    const res = await fixedInputSwap({account: acc, asset_1: fVPN, asset_2: FRY_2, amount: amount});
+    const res = await fixedInputSwap({account: acc, asset_1: fVPN, asset_2: FRY_2, amount: amount, rekey});
     return res?.assetOut;
   } else {
     return undefined;
@@ -136,7 +136,7 @@ export default async function handler(
       let swappedAsset = {} as AssetWithIdAndAmount | undefined;
       if (Number(resultArray[i].asset_id) === Number(FRY_1.id)) {
         if (feeAmount > 10) {
-          swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount);
+          swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount, rekey);
           
           if (swappedAsset === undefined) {
             console.error("Failed to swap FRY1.0 asset for FRY2.0");
@@ -154,10 +154,10 @@ export default async function handler(
           return;
         }
       } else if (Number(resultArray[i].asset_id) === Number(fNODE.id) || Number(resultArray[i].asset_id) === Number(fVPN.id)){
-        swappedAsset = await swapWithInputAsset(account, resultArray[i].asset_id.toString(), feeAmount);
+        swappedAsset = await swapWithInputAsset(account, resultArray[i].asset_id.toString(), feeAmount, rekey);
         
         if (swappedAsset === undefined) {
-          console.error("Failed to swap ${resultArray[i].asset_id} asset for FRY2.0");
+          console.error(`Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`);
           res.status(402).json({
             success: false,
             message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`
