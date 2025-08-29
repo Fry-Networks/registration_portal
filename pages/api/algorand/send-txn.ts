@@ -61,8 +61,7 @@ export default async function handler(
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note: encodedNote,
-      suggestedParams,
-      rekeyTo: staking ? undefined : rekey.addr
+      suggestedParams
     });
 
     // Sign the transaction with the account secret key

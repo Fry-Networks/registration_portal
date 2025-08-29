@@ -170,8 +170,7 @@ export async function withdraw(
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
-      suggestedParams,
-      rekeyTo: rekey.addr.toString()
+      suggestedParams
     });
 
     // Sign the transaction with the account secret key
