@@ -113,7 +113,7 @@ export default async function handler(
 
     const suggestedParams = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const rekey = algosdk.mnemonicToSecretKey(process.env.REWARD_REKEY!);
+    const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
 
     const from = account.addr;
 
@@ -137,7 +137,6 @@ export default async function handler(
       assetIndex: Number(convertType === FRY_2.id ? FRY_2.id : fNODE.id),
       note,
       suggestedParams,
-      rekeyTo: rekey.addr
     });
 
     const signedTxn = txn.signTxn(rekey.sk);
