@@ -83,7 +83,7 @@ export const isRegistartionStaked = (device: Device) => {
 };
 
 export const isNodeProduct = (product: Product) => {
-  return product.name.includes('Node');
+  return product.name.includes('Node') || product.name.includes('Edge');
 };
 
 export const isNodeStaked = (device: Device) => {
