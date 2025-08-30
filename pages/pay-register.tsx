@@ -609,7 +609,25 @@ export default function PayRegister({ products }: { products: Product[] }) {
             </Flex>
           </div>
         )}
-        {isAlreadyNode() && isAlreadyRegister() && (
+        {(() => {
+          // Determine which stakes are needed
+          const needsRegistration = product && isRegistrationNeeded(product);
+          const needsNode = product && isNodeStakingNeeded(product);
+          // If both are needed, wait for both to be staked
+          if (needsRegistration && needsNode) {
+            return isAlreadyRegister() && isAlreadyNode();
+          }
+          // If only registration is needed, wait for it
+          if (needsRegistration && !needsNode) {
+            return isAlreadyRegister();
+          }
+          // If only node is needed, wait for it
+          if (!needsRegistration && needsNode) {
+            return isAlreadyNode();
+          }
+          // If neither is needed, don't show
+          return false;
+        })() && (
           <Button
             className="mt-10 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
             onClick={() => handleNext()}

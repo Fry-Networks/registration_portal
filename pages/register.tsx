@@ -118,9 +118,7 @@ export default ({ products }: { products: Product[] }) => {
       });
 
       setWalletInfoData({
-        reward_wallet: device.reward_wallet ?? '',
-        connectivity_wallet: device.connectivity_wallet ?? '',
-        note: device.note ?? ''
+        reward_wallet: device.reward_wallet ?? ''
       });
 
       setMapInfoData({
@@ -139,18 +137,10 @@ export default ({ products }: { products: Product[] }) => {
         nickname: ''
       });
 
-      setWalletInfoData({
-        ...walletInfoData,
-        connectivity_wallet: session.user.poc_wallet
-      });
+  // ...existing code...
     }
 
-    if (!device.connectivity_wallet || device.connectivity_wallet.length < 0) {
-      setWalletInfoData({
-        ...walletInfoData,
-        connectivity_wallet: session.user.poc_wallet
-      });
-    }
+  // ...existing code...
   }, [device]);
 
   // State for each form's data
@@ -161,9 +151,7 @@ export default ({ products }: { products: Product[] }) => {
     nickname: ''
   });
   const [walletInfoData, setWalletInfoData] = useState({
-    reward_wallet: '',
-    connectivity_wallet: '',
-    note: ''
+    reward_wallet: ''
   });
 
   const [mapInfoData, setMapInfoData] = useState({
@@ -218,8 +206,6 @@ export default ({ products }: { products: Product[] }) => {
       const saveData = {
         miner_key: minerKey,
         reward_wallet: walletInfoData.reward_wallet,
-        connectivity_wallet: walletInfoData.connectivity_wallet,
-        note: walletInfoData.note,
         address: session?.user.address
       };
       const response = await fetch('/api/devices/save-wallet-info', {
@@ -326,11 +312,7 @@ export default ({ products }: { products: Product[] }) => {
       }
 
       const product = findProductByMinerKey(device!.miner_key, products);
-      if (
-        product &&
-        isRegistrationNeeded(product) &&
-        isNodeStakingNeeded(product)
-      ) {
+      if (product && (isRegistrationNeeded(product) || isNodeStakingNeeded(product))) {
         router.push({ pathname: '/pay-register', query: { minerKey } });
       } else {
         router.push('/devices');

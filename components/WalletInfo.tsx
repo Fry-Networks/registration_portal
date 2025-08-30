@@ -87,21 +87,7 @@ const WalletInfo = ({
       newErrors.reward_wallet = `$${result.token.name} must be opted-in in reward wallet.`;
     }
 
-    if (!data.connectivity_wallet) {
-      newErrors.connectivity_wallet = 'Private key of wallet is required.';
-    } else if (data.connectivity_wallet.split(' ').length !== 25) {
-      newErrors.connectivity_wallet = 'Private key consists of 25 words.';
-    } else {
-      try {
-        const account = algosdk.mnemonicToSecretKey(data.connectivity_wallet);
-
-        if (!account) {
-          newErrors.connectivity_wallet = 'Inputed wrong private key';
-        }
-      } catch (error) {
-        newErrors.connectivity_wallet = 'Inputed wrong private key';
-      }
-    }
+  // ...existing code...
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -146,49 +132,16 @@ const WalletInfo = ({
   };
 
   const saveGenerateWallet = (mnemonic: string) => {
-    setData({ ...data, connectivity_wallet: mnemonic });
+  // ...existing code...
   };
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
-  const checkAlgoBalance = async () => {
-    const account = getWalletAddress(data.connectivity_wallet);
+  // ...existing code...
 
-    try {
-      // Fetch account information
-      const accountInfo = await algodClient.accountInformation(account).do();
-  
-      // ALGO balance is in microalgos; convert to ALGO
-      const algoBalance = accountInfo.amount / 1e6;
-      setLackBalance(10 - algoBalance);
-
-      if (algoBalance < 10)
-      {
-        setIsLowBalance(true);
-        return;
-      }
-
-      setIsLowBalance(false);
-      return;
-  
-    } catch (error) {
-      console.error("Error fetching account balance:", error);
-    }
-  }
-
-  useEffect (() => {
-    const fetchData = async () => {
-      await checkAlgoBalance();
-    }
-
-    fetchData();
-
-    let intervalId = setInterval(fetchData, 10000);
-
-    return () => clearInterval(intervalId);
-  }, [data]);
+  // ...existing code...
 
   return (
     <div className="flex h-full">
@@ -198,13 +151,7 @@ const WalletInfo = ({
           className="w-screen h-[30vh] object-cover"
           alt="Background Image"
         />
-        { isLowBalance ? (
-          <div className='flex justify-center text-white pt-2'>
-            <span className='flex text-yellow-400'>{`Warning! `}&nbsp;</span>
-            {`Too Low ALGO Balance for PoC Wallet. Please transfer ${lackBalance}ALGO into your PoC wallet to continue.`}
-          </div>
-        ) : <></>
-        }
+  {/* ...existing code... */}
         <div className="py-8 pl-6 pr-24 md:px-24 h-full relative">
           <form className="w-full">
             <div className="w-full">
@@ -230,44 +177,7 @@ const WalletInfo = ({
               )}
             </div>
 
-            <div>
-              <label className="block mb-2 mt-2 text-white">
-                PoC Wallet <span className="text-red-500">*</span>
-              </label>
-              <Flex flexDirection="row" className="gap-3">
-                <input
-                  type="text"
-                  className="w-full p-2 border border-red-600 rounded text-black"
-                  placeholder="Click wallet icon to create a new PoC wallet. A secure secret phrase will be created for you"
-                  defaultValue={getWalletAddress(data.connectivity_wallet)}
-                  onFocus={() => setConnectivityFocus(true)}
-                  onBlur={() => setConnectivityFocus(false)}
-                  disabled
-                />
-                {/* <WalletIcon handleOnclick={handleGenWallet} /> */}
-              </Flex>
-              {errors.connectivity_wallet && (
-                <span className="text-red-500 text-sm">
-                  {errors.connectivity_wallet}
-                </span>
-              )}
-              {data.connectivity_wallet && (
-                <p>
-                  For security, only the wallet address is shown. Add gas fees
-                  as needed without revealing the secret phrase.
-                </p>
-              )}
-            </div>
-            <div>
-              <label className="block mb-2 mt-2 text-white">Note</label>
-              <input
-                type="text"
-                className="w-full p-2 border border-red-600 rounded text-black"
-                placeholder="Enter note for Tx"
-                defaultValue={data.note}
-                onChange={(e) => setData({ ...data, note: e.target.value })}
-              />
-            </div>
+            {/* ...existing code... */}
           </form>
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">
             <button
