@@ -36,7 +36,7 @@ const minerType = {
     'AIWSCM'
   ],
   energy: ['EM'],
-  node: ['SDN', 'SVN', 'RDN', 'CN', 'ANM']
+  node: ['SDN', 'SVN', 'RDN', 'CN', 'AEM']
 };
 
 type MinerCategory = keyof typeof minerType;
