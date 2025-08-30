@@ -97,8 +97,7 @@ const WalletInfo = ({
       if (!session || !session.user) {
         return;
       }
-      if (isLowBalance)
-        return;
+  // ...existing code...
       // const saveData = {
       //   miner_key: minerKey,
       //   reward_wallet: data.reward_wallet,
