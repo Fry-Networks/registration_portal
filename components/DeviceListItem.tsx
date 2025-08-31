@@ -133,7 +133,15 @@ export default function DeviceListItem({
     <>
       {
         <div
-          className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${stakeable === false && !device.verified ? ` border-gray-500` : isDeviceStatusOkay(device) ? ` border-green-500` : `border-red-500`}`}
+          className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${
+            stakeable === false && !device.verified
+              ? 'border-gray-500'
+              : !device.registered_portal_model
+                ? 'border-orange-500'
+                : isDeviceStatusOkay(device)
+                  ? 'border-green-500'
+                  : 'border-red-500'
+          }`}
         >
           <div className="w-full flex flex-row justify-between">
             <div className="flex gap-2">
