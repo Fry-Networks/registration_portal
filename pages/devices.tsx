@@ -107,12 +107,6 @@ const DevicesPage = ({
 
   const [devices, setDevices] = useState<Device[]>(initialDevices);
 
-  // Debug: log devices and their registered_portal_model
-  useEffect(() => {
-    if (devices && devices.length > 0) {
-      console.log('Devices and their registered_portal_model:', devices.map(d => ({ miner_key: d.miner_key, registered_portal_model: d.registered_portal_model })));
-    }
-  }, [devices]);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
@@ -764,7 +758,7 @@ export async function getServerSideProps(context: any) {
 
     const devices = await db
       .collection(testMode ? 'test-devices' : 'devices')
-      .find({ address: session.user.address, is_registered: true })
+      .find({ address: session.user.address, is_registered: true }, { projection: { address: 1, byod: 1, is_registered: 1, miner_key: 1, name: 1, nickname: 1, position: 1, reward_wallet: 1, staked: 1, stake_type: 1, verified: 1, hexId: 1, created_at: 1, email: 1, registered_portal_model: 1 } })
       .toArray();
 
     const products = await db.collection('products').find({}).toArray();
@@ -868,7 +862,8 @@ export async function getServerSideProps(context: any) {
                 verified: device.verified,
                 hexId: device.hexId,
                 created_at: device.created_at,
-                email: device.email
+                email: device.email,
+                registered_portal_model: device.registered_portal_model
               }))
             )
           ),
@@ -938,7 +933,8 @@ export async function getServerSideProps(context: any) {
                   verified: device.verified,
                   hexId: device.hexId,
                   created_at: device.created_at,
-                  email: device.email
+                  email: device.email,
+                  registered_portal_model: device.registered_portal_model
                 };
               })
             )
@@ -969,7 +965,8 @@ export async function getServerSideProps(context: any) {
                   verified: device.verified,
                   hexId: device.hexId,
                   created_at: device.created_at,
-                  email: device.email
+                  email: device.email,
+                  registered_portal_model: device.registered_portal_model
                 };
               })
             )
