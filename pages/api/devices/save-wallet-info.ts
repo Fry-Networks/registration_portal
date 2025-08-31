@@ -16,7 +16,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
@@ -28,7 +28,7 @@ export default async function handler(
 
   const { miner_key, reward_wallet, address } = data;
   if (session.user.address !== address || !address) {
-    res.status(401).json({ message: 'Unauthorized 2' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
@@ -39,12 +39,12 @@ export default async function handler(
     const exists = await collection.findOne({ miner_key });
 
     if (!exists) {
-      res.status(400).json({ message: 'Not found' });
+      res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Not found' });
       return;
     }
 
     if (exists.address && exists.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized 2' });
+      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
     }
 
@@ -57,9 +57,9 @@ export default async function handler(
       }
     );
 
-    res.status(200).json({ message: 'ok' });
+    res.status(200).json({ success: true });
   } catch (error) {
     console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'error' });
+    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
   }
 }

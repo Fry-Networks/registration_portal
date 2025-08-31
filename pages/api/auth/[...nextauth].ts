@@ -23,7 +23,6 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.first_name = user.first_name;
         token.last_name = user.last_name;
-        token.poc_wallet = user.poc_wallet;
       }
       return token;
     },
@@ -34,8 +33,7 @@ export const authOptions: NextAuthOptions = {
           address: token.address as string,
           email: token.email as string,
           first_name: token.first_name as string,
-          last_name: token.last_name as string,
-          poc_wallet: token.poc_wallet as string
+          last_name: token.last_name as string
         };
       }
       return session;
@@ -54,7 +52,6 @@ export interface MySession extends Session {
     email: string;
     first_name: string;
     last_name: string;
-    poc_wallet: string;
     image: string;
     address: string;
     emailVerified: string | null;

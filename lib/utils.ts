@@ -178,83 +178,90 @@ export const getAlgoBalance = async (address: string) => {
 };
 
 export const getDeviceStatus = async (
-  device: Device
+  device: Device,
+  productParam?: Product
 ): Promise<{ [key: string]: string } | undefined> => {
   try {
     const deviceStatus: { [key: string]: string } = {};
-    const productResponse = await fetch('api/products/get-product', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ miner_key: device.miner_key })
-    });
+    // Prefer provided product to avoid extra network calls
+    let product: Product | undefined = productParam;
+    if (!product) {
+      const productResponse = await fetch('api/products/get-product', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ miner_key: device.miner_key })
+      });
 
-    if (!productResponse.ok) {
-      return undefined;
-    }
-
-    const productResult = await productResponse.json();
-
-    const product = productResult.data[0] as Product;
-    let isError = false;
-
-    if (!device.position) {
-      deviceStatus.position = 'Not set';
-      isError = true;
-    }
-
-    if (!device.reward_wallet) {
-      deviceStatus.reward_wallet = 'Not set';
-      isError = true;
-    }
-
-    if (!device.connectivity_wallet) {
-      deviceStatus.connectivity_wallet = 'Not set';
-      isError = true;
-    }
-
-    if (isRegistrationNeeded(product)) {
-      if (!device.registration) {
-        deviceStatus.registration = 'Not staked for registration';
-        isError = true;
-      } else if (
-        device.registration.asset_id !== product.reward.tokens?.register
-      ) {
-        deviceStatus.registration =
-          'Registration staking information is changed. Please check and stake again';
-        isError = true;
-      } else if (device.registration.amount === 0) {
-        deviceStatus.registration = 'Not staked for registration';
-        isError = true;
+      if (!productResponse.ok) {
+        return undefined;
       }
-    }
 
-    if (isNodeStakingNeeded(product)) {
-      if (!device.node) {
-        deviceStatus.node = 'Not staked for node operation';
-        isError = true;
-      } else if (device.node.asset_id !== product.reward.tokens?.node) {
-        deviceStatus.node =
-          'Node staking information is changed. Please check and stake again';
-        isError = true;
-      } else if (device.node.amount === 0) {
-        deviceStatus.node = 'Not staked for node operation';
-        isError = true;
-      }
+      const productResult = await productResponse.json();
+      product = productResult.data[0] as Product;
     }
-
-    if (isError) {
-      return deviceStatus;
-    } else {
-      return undefined;
-    }
+    return computeDeviceStatus(device, product);
   } catch (error) {
     console.error('Device Status: ' + error);
     return undefined;
   }
 
   return undefined;
+};
+
+export const computeDeviceStatus = (
+  device: Device,
+  product?: Product
+): { [key: string]: string } | undefined => {
+  const deviceStatus: { [key: string]: string } = {};
+  let isError = false;
+
+  if (!device.position) {
+    deviceStatus.position = 'Not set';
+    isError = true;
+  }
+
+  if (!device.reward_wallet) {
+    deviceStatus.reward_wallet = 'Not set';
+    isError = true;
+  }
+
+  // Connectivity wallet check intentionally removed
+
+  if (product && isRegistrationNeeded(product)) {
+    if (!device.registration) {
+      deviceStatus.registration = 'Not staked for registration';
+      isError = true;
+    } else if (device.registration.asset_id !== product.reward.tokens?.register) {
+      deviceStatus.registration =
+        'Registration staking information is changed. Please check and stake again';
+      isError = true;
+    } else if (device.registration.amount === 0) {
+      deviceStatus.registration = 'Not staked for registration';
+      isError = true;
+    }
+  }
+
+  if (product && isNodeStakingNeeded(product)) {
+    if (!device.node) {
+      deviceStatus.node = 'Not staked for node operation';
+      isError = true;
+    } else if (device.node.asset_id !== product.reward.tokens?.node) {
+      deviceStatus.node =
+        'Node staking information is changed. Please check and stake again';
+      isError = true;
+    } else if (device.node.amount === 0) {
+      deviceStatus.node = 'Not staked for node operation';
+      isError = true;
+    }
+  }
+
+  if (isError) {
+    return deviceStatus;
+  } else {
+    return undefined;
+  }
 };
 
 export const getTransactionTime = async (

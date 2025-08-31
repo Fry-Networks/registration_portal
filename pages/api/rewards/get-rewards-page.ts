@@ -3,11 +3,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 
-interface GetPageRewardData {
-  miner_key: string;
-  page: number;
-}
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -17,61 +12,40 @@ export default async function handler(
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
-
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
-  const { miner_key, page } = req.body as GetPageRewardData;
+  const { miner_key, page = 1 } = req.body as {
+    miner_key: string;
+    page?: number;
+  };
 
-  // console.log(`Miner Key: ${miner_key} Status: ${page}`);
+  if (!miner_key || typeof miner_key !== 'string') {
+    res.status(400).json({ message: 'Invalid miner_key' });
+    return;
+  }
 
-  const client = await clientPromise;
+  const pageSize = 20;
 
   try {
+    const client = await clientPromise;
     const db = client.db('main');
+    const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
 
-    const exists = await db
-      .collection(testMode ? 'test-devices' : 'devices')
-      .findOne({ miner_key });
-
-    if (!exists) {
-      res.status(400).json({ message: 'Not found' });
-      return;
-    }
-
-    if (exists.address && exists.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized 2' });
-      return;
-    }
-
-    const collection = testMode
-      ? db.collection('test-rewards')
-      : db.collection('rewards');
-
-    const pageSize = 20;
-    const skip = (Number(page) - 1) * Number(pageSize);
-
+    const total = await collection.countDocuments({ miner_key });
+    const totalPages = Math.ceil(total / pageSize) || 1;
     const items = await collection
-      .find({ miner_key: miner_key })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(pageSize))
+      .find({ miner_key })
+      .sort({ _id: -1 })
+      .skip((Number(page) - 1) * pageSize)
+      .limit(pageSize)
       .toArray();
 
-    const totalItems = await collection.countDocuments({
-      miner_key: miner_key
-    });
-    const totalPages = Math.ceil(totalItems / Number(pageSize));
-
-    if (items && items.length >= 0) {
-      res.status(200).json({ success: true, items, totalPages });
-    } else {
-      res.status(200).json({ success: false });
-    }
+    res.status(200).json({ success: true, items, totalPages });
   } catch (error) {
-    console.error(`Page Rewards Error: ${error}`);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error('get-rewards-page error:', error);
+    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
   }
 }

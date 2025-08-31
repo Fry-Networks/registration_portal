@@ -52,7 +52,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthroized' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
@@ -72,11 +72,11 @@ export default async function handler(
       .findOne({ miner_key });
 
     if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
+      return res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
     }
 
     if (!device.address || device.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized' });
+      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
     }
     
@@ -91,7 +91,7 @@ export default async function handler(
       )
       .toArray();
     if (!records || records.length <= 0) {
-      res.status(402).json({ message: 'No rewards data' });
+      res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to boost' });
       return;
     }
 
@@ -140,17 +140,11 @@ export default async function handler(
           
           if (swappedAsset === undefined) {
             console.error("Failed to swap FRY1.0 asset for FRY2.0");
-            res.status(402).json({
-              success: false,
-              message: `Failed to swap FRY1.0 asset for FRY2.0`
-            });
+            res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to swap FRY1.0 asset for FRY2.0` });
             return;
           }
         } else {
-          res.status(402).json({
-            success: false,
-            message: `Failed to swap too low FRY1.0 assets for FRY2.0`
-          });
+          res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: `Too little FRY1.0 to swap for FRY2.0` });
           return;
         }
       } else if (Number(resultArray[i].asset_id) === Number(fNODE.id) || Number(resultArray[i].asset_id) === Number(fVPN.id)){
@@ -158,10 +152,7 @@ export default async function handler(
         
         if (swappedAsset === undefined) {
           console.error(`Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`);
-          res.status(402).json({
-            success: false,
-            message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`
-          });
+          res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0` });
           return;
         }
       }
@@ -216,10 +207,7 @@ export default async function handler(
     }
 
     if (success === false) {
-      res.status(200).json({
-        success: false,
-        message: `Failed to boost rewards for miner ${miner_key}`
-      });
+      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to boost rewards for miner ${miner_key}` });
       return;
     }
 
@@ -237,21 +225,11 @@ export default async function handler(
     boostReward.txID = tx.txId;
     const insertResult = await bCollection.insertOne(boostReward);
     
-    const result = await verifyTransaction(account.addr, tx.txId);
-
-    if (result !== VERIFY_RESULT.OK) {
-      res
-        .status(402)
-        .json({ message: 'Failed to make verify Instant Claim fee transaction' });
-      return;
-    }
-
-    res
-      .status(200)
-      .json({ success: true, message: `Boost success for ${miner_key}` });
+    // Respond immediately; confirmation handled by client background polling
+    res.status(200).json({ success: true, message: `Boost submitted for ${miner_key}`, txId: tx.txId });
   } catch (error) {
     console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
     return;
   }
 }

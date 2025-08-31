@@ -32,11 +32,7 @@ const AlertWithTooltip = ({
             </p>
           )}
 
-          {deviceStatus['connectivity_wallet'] && (
-            <p>
-              <strong>Connectivity Wallet: </strong>Not set
-            </p>
-          )}
+          {/* Connectivity wallet removed from requirements */}
           {deviceStatus['registration'] && (
             <p>
               <strong>Registration Staking: </strong>

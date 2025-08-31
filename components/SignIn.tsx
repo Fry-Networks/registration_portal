@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import GenerateWallet from './modals/GenerateWallet';
-import { getWalletAddress } from '../lib/utils';
+// PoC wallet removed; no need to derive wallet from mnemonic
 
 interface SignInProps {
   signed?: boolean;
@@ -26,7 +26,7 @@ export default function SignIn({ signed }: SignInProps) {
   const [email, setEmail] = useState('');
   const [first_name, setFirstName] = useState('');
   const [last_name, setLastName] = useState('');
-  const [pocWallet, setPocWallet] = useState('');
+  // Removed PoC wallet requirement
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const validateForm = () => {
@@ -41,10 +41,7 @@ export default function SignIn({ signed }: SignInProps) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const generateRandomWallet = () => {
-    const account = algosdk.generateAccount();
-    setPocWallet(algosdk.secretKeyToMnemonic(account.sk));
-  };
+  // PoC wallet generation removed
 
   async function handleWalletAuth() {
     if (isNew && !validateForm()) {
@@ -85,7 +82,6 @@ export default function SignIn({ signed }: SignInProps) {
               email: email,
               first_name: first_name,
               last_name: last_name,
-              poc_wallet: pocWallet,
               signedTxn: signedTxnBase64,
               nonce,
               callbackUrl: '/'
@@ -145,7 +141,6 @@ export default function SignIn({ signed }: SignInProps) {
               email: email,
               first_name: first_name,
               last_name: last_name,
-              poc_wallet: pocWallet,
               signedTxn: signedTxnBase64,
               nonce,
               callbackUrl: '/'
@@ -189,9 +184,7 @@ export default function SignIn({ signed }: SignInProps) {
     setIsNew(isNew);
   };
 
-  useEffect(() => {
-    generateRandomWallet();
-  }, [isNew]);
+  // PoC wallet removed; no wallet generation needed
 
   useEffect(() => {
     checkUser();
@@ -260,18 +253,7 @@ export default function SignIn({ signed }: SignInProps) {
                 <span className="text-red-500 text-sm">{errors.lastName}</span>
               )}
             </div>
-            <div>
-              <label className="block mb-2 mt-2 text-white">
-                PoC wallet <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                className="w-full p-2 border border-red-600 rounded"
-                placeholder="Enter First Name"
-                value={getWalletAddress(pocWallet)}
-                disabled={true}
-              />
-            </div>
+            {/* PoC wallet input removed */}
           </div>
         )}
         <div className="mt-10">

@@ -13,8 +13,7 @@ export default function WalletAuthProvider(): Provider {
       nonce: { label: 'Nonce', type: 'text' },
       email: { label: 'Email', type: 'text' },
       first_name: { label: 'First Name', type: 'text' },
-      last_name: { label: 'Second Name', type: 'text' },
-      poc_wallet: { label: 'Poc Wallet', type: 'text' }
+      last_name: { label: 'Second Name', type: 'text' }
     },
     authorize: async (credentials) => {
       if (
@@ -45,24 +44,21 @@ export default function WalletAuthProvider(): Provider {
             address: credentials.address,
             email: exists.email,
             first_name: exists.first_name,
-            last_name: exists.last_name,
-            poc_wallet: exists.poc_wallet
+            last_name: exists.last_name
           };
         } else {
           await collection.insertOne({
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,
-            last_name: credentials.last_name,
-            poc_wallet: credentials.poc_wallet
+            last_name: credentials.last_name
           });
           return {
             id: credentials.address,
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,
-            last_name: credentials.last_name,
-            poc_wallet: credentials.poc_wallet
+            last_name: credentials.last_name
           };
         }
       }

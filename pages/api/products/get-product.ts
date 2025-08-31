@@ -11,7 +11,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
@@ -31,8 +31,8 @@ export default async function handler(
       return product.key === productType;
     });
 
-    res.status(200).json({ message: 'ok', data });
+    res.status(200).json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ message: 'error' });
+    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
   }
 }

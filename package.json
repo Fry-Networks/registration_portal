@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start -p 3007",
-    "lint": "next lint"
+    "lint": "next lint",
+    "setup:indexes": "node scripts/create-indexes.js"
   },
   "dependencies": {
     "@algo-builder/types-algosdk": "^1.1.0",

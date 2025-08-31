@@ -6,7 +6,8 @@ import 'primeicons/primeicons.css';
 
 export type ToastType = {
   heading: string;
-  message: string;
+  message?: string;
+  content?: React.ReactNode;
   type?: 'error' | 'success' | 'info' | 'warn';
   duration?: number;
 };
@@ -18,11 +19,13 @@ const ToastMessage = (props: ToastData) => {
   const toast = useRef<Toast>(null);
 
   useEffect(() => {
+    if (!props.toast) return;
+    const { type, heading, message, content, duration } = props.toast;
     toast.current?.show({
-      severity: props.toast?.type,
-      summary: props.toast?.heading,
-      detail: props.toast?.message,
-      life: props.toast?.duration ? props.toast.duration : 10000
+      severity: type,
+      summary: heading,
+      ...(content ? { content } : { detail: message }),
+      life: duration ? duration : 10000
     });
   }, [props.toast]);
 

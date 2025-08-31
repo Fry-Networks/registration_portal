@@ -72,7 +72,7 @@ export default function GenerateWallet({
             justifyContent="center"
             className="gap-3 w-full mt-2 text-slate-900"
           >
-            <p>Genreate new wallet that you can use for PoC wallet</p>
+            <p>Generate a new wallet mnemonic and address.</p>
           </Flex>
           {mnemonic && (
             <div className="mt-1">

@@ -1,5 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
-import { Device, Product, Reward } from '../lib/types';
+import { Device, Product } from '../lib/types';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
 import EditIcon from './EditIcon';
@@ -7,9 +7,7 @@ import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
 import {
-  getAlgoBalance,
-  getDeviceStatus,
-  getWalletAddress,
+  computeDeviceStatus,
   isNodeProduct,
   isNodeStaked,
   isRegistartionStaked,
@@ -23,6 +21,7 @@ import StakingIcon from './StakeIcon';
 import SettingIcon from './SettingIcon';
 import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
+import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 
 export default function DeviceListItem({
   initialDevice,
@@ -35,7 +34,8 @@ export default function DeviceListItem({
   handleBoostButton,
   handleClaimButton,
   handleWithdrawStake,
-  handleWithdrawAllButton
+  handleWithdrawAllButton,
+  initialStatus
   // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
@@ -49,16 +49,16 @@ export default function DeviceListItem({
   handleClaimButton: (device: Device) => void;
   handleWithdrawStake: (device: Device) => void;
   handleWithdrawAllButton: (device: Device) => void;
+  initialStatus?: { [key: string]: string } | undefined;
   // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
   const [pendingAmount, setPendingAmount] = useState(0);
   const [claimableAmount, setClaimableAmount] = useState(0);
-  const [alertShow, setAlertShow] = useState(false);
+  const [alertShow, setAlertShow] = useState(!!initialStatus);
   const [deviceStatus, setDeviceStatus] = useState<{ [key: string]: string }>(
-    {}
+    (initialStatus as any) || {}
   );
   const [device, setDevice] = useState<Device>(initialDevice);
-  const [algoAmount, setAlgoAmount] = useState(0);
   const { data: session } = useSession();
 
   const isDeviceStatusOkay = (device: Device) => {
@@ -78,61 +78,7 @@ export default function DeviceListItem({
     return true;
   };
 
-  const fetchRewardAmounts = async (device: Device, product: Product) => {
-    try {
-      const pendingResponse = await fetch('api/rewards/get-reward-records', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          miner_key: device.miner_key,
-          status: 'pending'
-        })
-      });
-
-      if (pendingResponse.ok) {
-        const result = await pendingResponse.json();
-        const pendingRecords = result.records as Reward[];
-        const pendingTotalAmount = pendingRecords.reduce(
-          (sum, record) =>
-            Math.round(
-              (sum + (typeof record.amount === 'number' ? record.amount : 0)) *
-                100
-            ) / 100,
-          0
-        );
-
-        setPendingAmount(pendingTotalAmount);
-      }
-
-      const claimableResponse = await fetch('api/rewards/get-reward-records', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          miner_key: device.miner_key,
-          status: 'claimable'
-        })
-      });
-
-      if (claimableResponse.ok) {
-        const result = await claimableResponse.json();
-        const claimableRecords = result.records as Reward[];
-        const claimableTotalAmount = claimableRecords.reduce(
-          (sum, record) =>
-            Math.round(
-              (sum + (typeof record.amount === 'number' ? record.amount : 0)) *
-                100
-            ) / 100,
-          0
-        );
-
-        setClaimableAmount(claimableTotalAmount);
-      }
-    } catch (error) {}
-  };
+  const { data: rewardSummary } = useRewardSummary(device?.miner_key);
 
   const fetchDeviceInfo = async (minerKey: string) => {
     try {
@@ -143,58 +89,24 @@ export default function DeviceListItem({
       });
       if (response.ok) {
         const data = await response.json();
-        let preDevice = data.device as Device;
-        if (
-          !preDevice.connectivity_wallet ||
-          preDevice.connectivity_wallet.length <= 0
-        ) {
-          const saveData = {
-            miner_key: minerKey,
-            reward_wallet: preDevice.reward_wallet,
-            connectivity_wallet: session?.user.poc_wallet,
-            note: preDevice.note,
-            address: session?.user.address
-          };
-
-          const response = await fetch('/api/devices/save-wallet-info', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(saveData)
-          });
-
-          preDevice.connectivity_wallet = session?.user.poc_wallet;
-        }
-        setDevice(preDevice);
+        setDevice(data.device as Device);
       }
     } catch (error) {
       console.error(error);
     }
   };
 
-  const checkDeviceStatus = async (device: Device) => {
-    const deviceStatus = await getDeviceStatus(device);
+  const checkDeviceStatus = (device: Device) => {
+    const status = computeDeviceStatus(device, product);
 
-    if (deviceStatus === undefined) {
+    if (status === undefined) {
       setAlertShow(false);
       setDeviceStatus({});
       return;
     }
 
-    setDeviceStatus(deviceStatus);
+    setDeviceStatus(status);
     setAlertShow(true);
-  };
-
-  const fetchAlgoAmount = async (device: Device) => {
-    if (!device.connectivity_wallet) {
-      return;
-    }
-
-    const algoAmount = await getAlgoBalance(
-      getWalletAddress(device.connectivity_wallet)
-    );
-    setAlgoAmount(algoAmount);
   };
 
   useEffect(() => {
@@ -203,10 +115,12 @@ export default function DeviceListItem({
   }, [initialDevice, product]);
 
   useEffect(() => {
-    fetchRewardAmounts(device, product);
+    if (rewardSummary) {
+      setPendingAmount(rewardSummary.pending || 0);
+      setClaimableAmount(rewardSummary.claimable || 0);
+    }
     checkDeviceStatus(device);
-    fetchAlgoAmount(device);
-  }, [device]);
+  }, [device, rewardSummary]);
 
   const viewHistory = async (): Promise<void> => {
     router.push({
@@ -306,38 +220,7 @@ export default function DeviceListItem({
               </p>
             )}
           </Flex>
-          <Flex flexDirection="row">
-            {device.connectivity_wallet &&
-            device.connectivity_wallet.length > 0 ? (
-              <>
-                <p className="hidden md:block">
-                  <strong className="text-white">PoC Wallet: </strong>
-                  {`${getWalletAddress(device.connectivity_wallet)} (Algo: ${algoAmount})`}
-                </p>
-                <p className="block md:hidden">
-                  <strong className="text-white">PoC Wallet: </strong>
-                  {getWalletAddress(device.connectivity_wallet).slice(0, 6)}...
-                  {getWalletAddress(device.connectivity_wallet).slice(
-                    getWalletAddress(device.connectivity_wallet).length - 6,
-                    getWalletAddress(device.connectivity_wallet).length
-                  )}
-                  {` (Algo: ${algoAmount})`}
-                </p>
-                {/* <div className='flex gap-2'>
-                  <div onClick={() => handleAlgoWithdrawButton(device)}>
-                    <Tooltip children={<WithdrawIcon />} text="Withdraw" />
-                  </div> */}
-                <CopyAddress
-                  address={getWalletAddress(device.connectivity_wallet)}
-                />
-                {/* </div> */}
-              </>
-            ) : (
-              <p>
-                <strong className="text-white">PoC Wallet: </strong> None
-              </p>
-            )}
-          </Flex>
+          {/* PoC Wallet removed from UI */}
           <p>
             <strong className="text-white">Pending Reward Amount: </strong>
             {pendingAmount}

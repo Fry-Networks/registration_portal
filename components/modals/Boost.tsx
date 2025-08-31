@@ -1,10 +1,11 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
+import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 
 export default function BoostModal({
   modalName,
@@ -20,10 +21,17 @@ export default function BoostModal({
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const toast = useToastContext();
+  const [stage, setStage] = useState<'idle'|'submitting'|'submitted'|'error'>('idle');
+  const [statusText, setStatusText] = useState('');
+  const [txIdState, setTxIdState] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const intervalRef = useRef<any>(null);
 
   const boostRewards = async () => {
     console.log('Boosting');
     setIsProcessing(true);
+    setStage('submitting');
+    setStatusText('Submitting instant claim...');
     try {
       const response = await fetch('api/rewards/boost', {
         method: 'POST',
@@ -44,6 +52,8 @@ export default function BoostModal({
           message: result.message
         });
 
+        setStage('error');
+        setStatusText('Instant claim failed: ' + (result.message || 'Server error'));
         setIsProcessing(false);
         return;
       }
@@ -51,14 +61,63 @@ export default function BoostModal({
       console.log("Boost result.success: ", result.success);
 
       if (result.success) {
-        setIsProcessing(false);
-        closeModal(modalName);
+        setStage('submitted');
+        setStatusText('Transaction broadcasted. Waiting for confirmation...');
+        setTxIdState(result.txId);
+        // Keep modal open and update device totals soon after
+        setIsProcessing(true);
         handleBoost(true, '');
+
+        // Optional background confirm and refresh
+        try {
+          const txId = result.txId;
+          if (txId) {
+            startConfirmationWatcher(
+              txId,
+              async () => {
+                toast.success({
+                  heading: 'Instant Claim Confirmed',
+                  content: (
+                    <div>
+                      <div>30% fee paid in FRY 2.0.</div>
+                      <div>70% moved to Claimable.</div>
+                      <div>
+                        TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txId}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+                      </div>
+                    </div>
+                  )
+                });
+                await handleBoost(true, 'Boost confirmed');
+                setIsProcessing(false);
+                setStage('idle');
+                setTxIdState(null);
+                setSecondsLeft(null);
+                if (intervalRef.current) clearInterval(intervalRef.current);
+                closeModal(modalName);
+              },
+              {
+                onAttempt: (i, delay) => {
+                  const secs = Math.ceil(delay / 1000);
+                  setSecondsLeft(secs);
+                  setStatusText(`Waiting for confirmation… retry in ${secs}s (attempt ${i + 1})`);
+                  if (intervalRef.current) clearInterval(intervalRef.current);
+                  intervalRef.current = setInterval(() => {
+                    setSecondsLeft((s) => (s && s > 0 ? s - 1 : 0));
+                  }, 1000);
+                },
+                onTimeout: () =>
+                  toast.info({ heading: 'Network Confirmation', message: 'Still confirming on network; this can take a bit.' })
+              }
+            );
+          }
+        } catch {}
       } else {
         toast.error({
           heading: 'Instant Claim Error',
           message: result.message
         });
+        setStage('error');
+        setStatusText('Instant claim failed: ' + (result.message || 'Unknown error'));
         setIsProcessing(false);
         return;
       }
@@ -68,6 +127,8 @@ export default function BoostModal({
         message: 'Error on server side'
       });
 
+      setStage('error');
+      setStatusText('Unexpected error. Please try again.');
       setIsProcessing(false);
       return;
     }
@@ -79,7 +140,8 @@ export default function BoostModal({
       <Dialog
         open={modals[modalName]}
         onClose={() => {
-          !isProcessing && closeModal(modalName);
+          if (stage === 'submitting') return;
+          closeModal(modalName);
         }}
         static={true}
         className="z-[100]"
@@ -103,6 +165,9 @@ export default function BoostModal({
             className="gap-3 w-full mt-5 text-slate-900"
           >
             <p>Claim rewards instantly (30% Fee)</p>
+            {isProcessing && (
+              <p className="text-sm text-gray-700">{statusText}</p>
+            )}
           </Flex>
           <Flex
             flexDirection="row"
@@ -111,7 +176,10 @@ export default function BoostModal({
           >
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
-              onClick={() => !isProcessing && closeModal(modalName)}
+              onClick={() => {
+                if (stage === 'submitting') return;
+                closeModal(modalName);
+              }}
             >
               Close
             </Button>
@@ -121,9 +189,9 @@ export default function BoostModal({
               }`}
               onClick={() => boostRewards()}
             >
-              {isProcessing ? (
-                <svg
-                  className="animate-spin h-6 w-6 text-red-500"
+            {isProcessing ? (
+              <svg
+                className="animate-spin h-6 w-6 text-red-500"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -151,11 +219,21 @@ export default function BoostModal({
                     strokeLinecap="round"
                   />
                 </svg>
-              ) : (
-                'Instant Claim'
-              )}
+            ) : (
+              'Instant Claim'
+            )}
             </Button>
           </Flex>
+          {stage === 'submitted' && txIdState && (
+            <div className="mt-3 text-sm text-gray-700">
+              {secondsLeft !== null && (
+                <div>Next retry in {secondsLeft}s</div>
+              )}
+              <div>
+                TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txIdState}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+              </div>
+            </div>
+          )}
         </DialogPanel>
       </Dialog>
     </div>

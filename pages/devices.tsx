@@ -7,6 +7,8 @@ import {
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
 import { getSession, useSession } from 'next-auth/react';
+import { SWRConfig } from 'swr';
+import type { Summary } from '../lib/hooks/useRewardSummary';
 import clientPromise from '../lib/mongoclient';
 import { Device, FryConversion, Product } from '../lib/types';
 import CopyAddress from '../components/CopyAddress';
@@ -21,6 +23,7 @@ import DeviceListItem from '../components/DeviceListItem';
 import StakeModal from '../components/modals/Stake';
 import WithdrawModal from '../components/modals/Withdraw';
 import BoostModal from '../components/modals/Boost';
+import { mutate as swrMutate } from 'swr';
 import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
@@ -32,7 +35,10 @@ import {
   isNodeStaked,
   isRegistartionStaked,
   getWalletAddress,
-  algodClient
+  algodClient,
+  computeDeviceStatus,
+  FRY_1,
+  fNODE
 } from '../lib/utils';
 
 const testMode =
@@ -79,10 +85,20 @@ export function findProductByMinerKey(miner_key: string, products: Product[]) {
 
 const DevicesPage = ({
   initialDevices = [],
-  products = []
+  products = [],
+  rewardFallback = {},
+  statusFallback = {},
+  bannerTotals
 }: {
   initialDevices: Device[];
   products: Product[];
+  rewardFallback?: Record<string, Summary>;
+  statusFallback?: Record<string, { [key: string]: string } | undefined>;
+  bannerTotals: {
+    FRY1: { pending: number; claimable: number };
+    fNODE: { pending: number; claimable: number };
+    tFRY: { pending: number; claimable: number };
+  };
 }) => {
   const router = useRouter();
   const toast = useToastContext();
@@ -368,6 +384,10 @@ const DevicesPage = ({
     }) as Device[];
 
     setDevices(updateDevices);
+    // Revalidate only this device's summary
+    if (selectedDevice?.miner_key) {
+      swrMutate(`reward-summary:${selectedDevice.miner_key}`);
+    }
   };
 
   const handleClaim = async (ret: boolean, message: string): Promise<void> => {
@@ -382,6 +402,15 @@ const DevicesPage = ({
     }) as Device[];
 
     setDevices(updateDevices);
+    if (selectedDevice?.miner_key) {
+      const key = `reward-summary:${selectedDevice.miner_key}`;
+      // Optimistic drop of claimable to 0, then revalidate
+      swrMutate(
+        key,
+        (current: any) => ({ pending: current?.pending ?? 0, claimable: 0 }),
+        { revalidate: true }
+      );
+    }
   };
 
   const handleStakingUpdate = (device: Device): void => {
@@ -423,6 +452,7 @@ const DevicesPage = ({
   // }
 
   return (
+    <SWRConfig value={{ fallback: rewardFallback }}>
     <div className="w-full">
       <div className="relative flex">
         <Image
@@ -511,7 +541,7 @@ const DevicesPage = ({
               'FRY1.0 Conversion'
             )}
           </Button>
-          <Flex className="gap-3 w-full flex-col sm:flex-row sm:justify-end">
+      <Flex className="gap-3 w-full flex-col sm:flex-row sm:justify-end">
             <Link href="/convert" className="w-full sm:w-auto">
               <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full">
                 BYOD to Miner Key
@@ -525,18 +555,42 @@ const DevicesPage = ({
               + Add
             </Button>
           </Flex>
-        </Flex>
+      </Flex>
+    </div>
+    {/* All devices totals banner */}
+    <div className="w-full px-2 sm:px-20 mt-4">
+      <div className="border border-red-600 rounded-md p-3 text-white">
+        <div className="font-semibold mb-2">All Devices Totals</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+          <div>
+            <div className="text-gray-300">FRY 1.0</div>
+            <div>Pending: {bannerTotals.FRY1.pending}</div>
+            <div>Claimable: {bannerTotals.FRY1.claimable}</div>
+          </div>
+          <div>
+            <div className="text-gray-300">fNode</div>
+            <div>Pending: {bannerTotals.fNODE.pending}</div>
+            <div>Claimable: {bannerTotals.fNODE.claimable}</div>
+          </div>
+          <div>
+            <div className="text-gray-300">tFry (coming soon)</div>
+            <div>Pending: {bannerTotals.tFRY.pending}</div>
+            <div>Claimable: {bannerTotals.tFRY.claimable}</div>
+          </div>
+        </div>
       </div>
-      <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
+    </div>
+    <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
         {devices.length > 0 ? (
           devices.map((device, index) => {
             const product = findProductByMinerKey(device.miner_key, products);
             return (
               <DeviceListItem
-                key={`list item ${index}`}
+                key={device.miner_key}
                 initialDevice={device}
                 product={product!}
                 stakeable={isProductStakeAvailable(product!)}
+                initialStatus={statusFallback[device.miner_key]}
                 handleStaking={handleStaking}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
@@ -614,6 +668,7 @@ const DevicesPage = ({
         </>
       )}
     </div>
+    </SWRConfig>
   );
 };
 
@@ -632,6 +687,15 @@ export async function getServerSideProps(context: any) {
   try {
     const client = await clientPromise;
     const db = client.db('main');
+
+    // Initialize variables at function scope
+    let rewardFallback: Record<string, Summary> = {};
+    let statusFallback: Record<string, any> = {};
+    let bannerTotals = {
+      FRY1: { pending: 0, claimable: 0 },
+      fNODE: { pending: 0, claimable: 0 },
+      tFRY: { pending: 0, claimable: 0 }
+    };
 
     // const collection = db.collection('rewards');
     // let query = { miner_key: { $regex: "ISM-3VMFG9XP18V5U9WQR70NC111ZTBTJNYF", $options: "i" } };
@@ -692,11 +756,133 @@ export async function getServerSideProps(context: any) {
 
     const products = await db.collection('products').find({}).toArray();
 
+    // Server-side reward summary prefetch for all devices
+    const minerKeys: string[] = devices?.map((d: any) => d.miner_key) || [];
+    if (minerKeys.length > 0) {
+      const rewardsCol = db.collection(testMode ? 'test-rewards' : 'rewards');
+      const pipeline = [
+        {
+          $match: {
+            miner_key: { $in: minerKeys },
+            status: { $in: ['pending', 'claimable'] }
+          }
+        },
+        {
+          $group: {
+            _id: { miner_key: '$miner_key', status: '$status', asset_id: '$asset_id' },
+            total: { $sum: { $toDouble: '$amount' } }
+          }
+        }
+      ];
+      const grouped = await rewardsCol.aggregate(pipeline).toArray();
+
+      // initialize
+      rewardFallback = minerKeys.reduce((acc, key) => {
+        acc[`reward-summary:${key}`] = { pending: 0, claimable: 0 };
+        return acc;
+      }, {} as Record<string, Summary>);
+
+      for (const row of grouped as any[]) {
+        const mk = row._id.miner_key as string;
+        const status = row._id.status as 'pending' | 'claimable';
+        const total = Math.round((row.total || 0) * 100) / 100;
+        const k = `reward-summary:${mk}`;
+        if (!rewardFallback[k]) rewardFallback[k] = { pending: 0, claimable: 0 };
+        rewardFallback[k][status] = total;
+      }
+
+      // Build statusFallback (SSR device status) and bannerTotals by asset
+      for (const d of devices as any[]) {
+        const product = products.find((p: any) => p.key === d.miner_key.split('-')[0]);
+        const status = computeDeviceStatus(
+          {
+            address: d.address,
+            byod: d.byod,
+            created_at: d.created_at,
+            email: d.email,
+            hexId: d.hexId,
+            is_registered: d.is_registered,
+            miner_key: d.miner_key,
+            name: d.name,
+            nickname: d.nickname,
+            position: d.position,
+            reward_wallet: d.reward_wallet,
+            staked: d.staked,
+            stake_type: d.stake_type,
+            verified: d.verified,
+            _id: d._id,
+            __v: d.__v
+          } as any,
+          product as any
+        );
+        if (status) {
+          statusFallback[d.miner_key] = status;
+        }
+      }
+
+      // Banner totals per asset_id across all devices
+      const assetTotals: Record<string, { pending: number; claimable: number }> = {};
+      for (const row of grouped as any[]) {
+        const asset = String(row._id.asset_id);
+        const status = row._id.status as 'pending' | 'claimable';
+        const total = Math.round((row.total || 0) * 100) / 100;
+        if (!assetTotals[asset]) assetTotals[asset] = { pending: 0, claimable: 0 };
+        assetTotals[asset][status] += total;
+      }
+
+      bannerTotals = {
+        FRY1: assetTotals[FRY_1.id] || { pending: 0, claimable: 0 },
+        fNODE: assetTotals[fNODE.id] || { pending: 0, claimable: 0 },
+        tFRY: { pending: 0, claimable: 0 } // Placeholder until tFry is live
+      };
+
+      // Return early with computed fallbacks
+      return {
+        props: {
+          initialDevices: JSON.parse(
+            JSON.stringify(
+              devices.map((device) => ({
+                address: device.address,
+                byod: device.byod,
+                is_registered: device.is_registered,
+                miner_key: device.miner_key,
+                name: device.name,
+                nickname: device.nickname,
+                position: device.position,
+                reward_wallet: device.reward_wallet,
+                staked: device.staked,
+                stake_type: device.stake_type,
+                verified: device.verified,
+                hexId: device.hexId,
+                created_at: device.created_at,
+                email: device.email
+              }))
+            )
+          ),
+          products: JSON.parse(
+            JSON.stringify(
+              products.map((product) => ({
+                name: product.name,
+                key: product.key,
+                reward: product.reward
+              }))
+            )
+          ),
+          rewardFallback,
+          statusFallback,
+          bannerTotals
+        }
+      };
+    }
+
     if (!devices && !products) {
       return {
         props: {
           devices: [],
-          products: []
+          products: [],
+          rewardFallback: {},
+          statusFallback: {},
+          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } }
         }
       };
     } else if (!devices && products) {
@@ -713,7 +899,10 @@ export async function getServerSideProps(context: any) {
                 };
               })
             )
-          )
+          ),
+          rewardFallback: {},
+          statusFallback: {},
+          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } }
         }
       };
     } else if (devices && !products) {
@@ -741,7 +930,10 @@ export async function getServerSideProps(context: any) {
               })
             )
           ),
-          products: []
+          products: [],
+          rewardFallback,
+          statusFallback,
+          bannerTotals
         }
       };
     } else {
@@ -779,7 +971,10 @@ export async function getServerSideProps(context: any) {
                 };
               })
             )
-          )
+          ),
+          rewardFallback,
+          statusFallback,
+          bannerTotals
         }
       };
     }

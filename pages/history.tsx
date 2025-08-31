@@ -4,6 +4,7 @@ import bgImg from '../assets/background.png';
 import { getSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Reward } from '../lib/types';
+import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 import RewardListItem from '../components/RewardListItem';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -31,6 +32,9 @@ export default function History({
   const pageSize = 20;
 
   const { miner_key } = router.query;
+  const { data: summary } = useRewardSummary(
+    typeof miner_key === 'string' ? miner_key : undefined
+  );
 
   const fetchData = async () => {
     const response = await fetch('api/rewards/get-rewards-page', {
@@ -112,6 +116,14 @@ export default function History({
             Back
           </Button>
         </Link>
+      </div>
+      <div className="px-2 sm:px-20 mt-4 text-white">
+        {summary && (
+          <p>
+            <strong>Totals:</strong> Pending {summary.pending} • Claimable{' '}
+            {summary.claimable}
+          </p>
+        )}
       </div>
       <div className="mt-6 px-2 sm:px-20">
         <Flex

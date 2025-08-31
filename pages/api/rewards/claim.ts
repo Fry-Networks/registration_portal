@@ -4,8 +4,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { Device, Reward } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
-import { verifyTransaction } from '../algorand/verify-txn';
-import { getAssetDecimals, getTransactionTime } from '../../../lib/utils';
+import { getAssetDecimals } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
 import { WithId } from 'mongodb';
 
@@ -32,7 +31,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthroized' });
+    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
   }
 
@@ -44,7 +43,7 @@ export default async function handler(
 
   const { miner_key, no } = data;
   if (lockSet.has(miner_key)) {
-    res.status(402).json({ message: 'Too Many Request!' });
+    res.status(429).json({ success: false, code: 'NETWORK_ERROR', message: 'Another claim is in progress. Please try again shortly.' });
     return;
   }
   lockSet.add(miner_key);
@@ -63,19 +62,19 @@ export default async function handler(
     const device = await deviceCollection.findOne({ miner_key: miner_key });
     if (!device) {
       lockSet.delete(miner_key);
-      res.status(402).json({ message: 'No device' });
+      res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
       return;
     }
 
     if (!device.reward_wallet) {
       lockSet.delete(miner_key);
-      res.status(402).json({ message: 'No reward wallet set' });
+      res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: 'No reward wallet set' });
       return;
     }
 
     if (!device.address || device.address !== session.user.address) {
       lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized' });
+      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
     }
 
@@ -88,7 +87,7 @@ export default async function handler(
       .toArray() as WithId<Reward>[];
     if (!records || records.length <= 0) {
       lockSet.delete(miner_key);
-      res.status(402).json({ message: 'No rewards data' });
+      res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
       return;
     }
 
@@ -111,10 +110,7 @@ export default async function handler(
 
     if (success === false) {
       lockSet.delete(miner_key);
-      res.status(402).json({
-        success: false,
-        message: `Failed to set claimed status for miner ${miner_key}`
-      });
+      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to set claimed status for miner ${miner_key}` });
       return;
     }
 
@@ -207,26 +203,12 @@ export default async function handler(
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
     if (!tx) {
       lockSet.delete(miner_key);
-      res
-        .status(402)
-        .json({ message: 'Failed to make rewarding transaction' });
+      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Failed to broadcast reward transaction' });
       return;
     }
 
     step.id = 3;
-    step.value = `Step3: Transferred Reward Claim Transaction Successfully.`;
-
-    const result = await verifyTransaction(account.addr, tx.txId);
-    if (result !== VERIFY_RESULT.OK) {
-      lockSet.delete(miner_key);
-      res
-        .status(402)
-        .json({ message: 'Failed to make verify reward transaction' });
-      return;
-    }
-
-    step.id = 4;
-    step.value = `Step4: Confirmed Rewards Transaction.`;
+    step.value = `Step3: Broadcasted reward claim transaction.`;
 
     success = true;
     for (let i = 0; i < records.length; i++) {
@@ -236,7 +218,8 @@ export default async function handler(
         {
           $set: {
             txId: tx.txId,
-            claimedAt: await getTransactionTime(tx.txId),
+            // Optimistic timestamp; can be refined later by a background job
+            claimedAt: new Date(),
           }
         }
       );
@@ -248,20 +231,17 @@ export default async function handler(
 
     if (success === false) {
       lockSet.delete(miner_key);
-      res.status(402).json({
-        success: false,
-        message: `Failed to set transaction ID for miner ${miner_key}`
-      });
+      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to set transaction ID for miner ${miner_key}` });
       return;
     }
 
-    step.id = 5;
-    step.value = `Step5: Set Transaction ID for each reward on Database.`;
+    step.id = 4;
+    step.value = `Step4: Recorded transaction ID in database.`;
 
     lockSet.delete(miner_key);
     res.status(200).json({
       success: true,
-      message: `Claim success for ${miner_key}`,
+      message: `Claim submitted for ${miner_key}`,
       result: tx.txId
     });
 
@@ -300,7 +280,7 @@ export default async function handler(
       }
     }
 
-    res.status(500).json({ message: step.value });
+    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: step.value });
     return;
   }
 }
