@@ -137,12 +137,17 @@ export default function DeviceListItem({
             stakeable === false && !device.verified
               ? 'border-gray-500'
               : !device.registered_portal_model
-                ? 'border-orange-500'
+                ? 'border-yellow-400'
                 : isDeviceStatusOkay(device)
                   ? 'border-green-500'
                   : 'border-red-500'
           }`}
         >
+          {!device.registered_portal_model && (
+            <div className="mb-2 p-2 rounded bg-yellow-100 text-yellow-800 text-sm">
+              This device is not linked to FryNetworks. Click the <b>gear icon</b> to link it.
+            </div>
+          )}
           <div className="w-full flex flex-row justify-between">
             <div className="flex gap-2">
               <Title className="text-white font-bold text-xl sm:text-2xl mb-2">
