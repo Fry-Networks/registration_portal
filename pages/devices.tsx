@@ -106,6 +106,13 @@ const DevicesPage = ({
   const { data: session } = useSession();
 
   const [devices, setDevices] = useState<Device[]>(initialDevices);
+
+  // Debug: log devices and their registered_portal_model
+  useEffect(() => {
+    if (devices && devices.length > 0) {
+      console.log('Devices and their registered_portal_model:', devices.map(d => ({ miner_key: d.miner_key, registered_portal_model: d.registered_portal_model })));
+    }
+  }, [devices]);
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
@@ -497,7 +504,7 @@ const DevicesPage = ({
         <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-yellow-600 min-w-[200px] w-full sm:w-auto gap-2">
           <Title className="text-white">Miners not linked</Title>
           <p className="flex text-yellow-300 text-lg">
-            {devices.filter((device) => !device.registered_portal_model).length}
+            {devices.filter((device) => !device.registered_portal_model || device.registered_portal_model === '').length}
           </p>
         </div>
       </Flex>
