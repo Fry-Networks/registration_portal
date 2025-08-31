@@ -494,6 +494,12 @@ const DevicesPage = ({
             {devices.filter((device) => device.verified).length}
           </p>
         </div>
+        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-yellow-600 min-w-[200px] w-full sm:w-auto gap-2">
+          <Title className="text-white">Miners not linked</Title>
+          <p className="flex text-yellow-300 text-lg">
+            {devices.filter((device) => !device.registered_portal_model).length}
+          </p>
+        </div>
       </Flex>
 
       <div className="w-full mt-10 px-2 sm:px-20">
