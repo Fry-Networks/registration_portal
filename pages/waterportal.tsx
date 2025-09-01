@@ -121,7 +121,7 @@ const WaterPortal = () => {
       toast.error({
         heading: 'Error',
         message:
-          'We were unable to verify your key. Please try again later, if the problem persists, contact DevDoctor.'
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
       });
       return false;
     }
@@ -171,7 +171,7 @@ const WaterPortal = () => {
       toast.error({
         heading: 'Error',
         message:
-          'We were unable to verify your key. Please try again later, if the problem persists, contact DevDoctor.'
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
       });
       return false;
     }
@@ -191,7 +191,7 @@ const WaterPortal = () => {
           className="absolute w-full h-full justify-center gap-6"
         >
           <Title className="text-white text-4xl sm:text-5xl w-full text-center">
-            Weather Portal
+            Water Portal
           </Title>
           <p className="text-lg text-center px-2 text-gray-300">
             You can register your miners to onboard on Fry Networks and can
