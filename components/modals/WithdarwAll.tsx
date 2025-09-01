@@ -64,7 +64,7 @@ export default function WithdrawAllModal({
 
         const result = await response.json();
         toast.success({
-          heading: 'Withdarw Registraion Success',
+          heading: 'Withdraw Registration Success',
           message: `Tx: ${result.txId}`
         });
       }
@@ -94,7 +94,7 @@ export default function WithdrawAllModal({
 
         const result = await response.json();
         toast.success({
-          heading: 'Withdarw Node Success',
+          heading: 'Withdraw Node Success',
           message: `Tx: ${result.txId}`
         });
       }

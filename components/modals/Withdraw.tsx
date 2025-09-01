@@ -164,7 +164,7 @@ export default function WithdrawModal({
 
           {/* {!isWithdrawable && (
             <p className="text-red-500 mt-4">
-              Note: You can click 'Withdarw with Boost' button to pay 50USD to
+              Note: You can click 'Withdraw with Boost' button to pay 50USD to
               withdraw the token immediately.
             </p>
           )} */}
@@ -258,7 +258,7 @@ export default function WithdrawModal({
                   />
                 </svg>
               ) : (
-                'Withdarw with Boost'
+                'Withdraw with Boost'
               )}
             </Button> */}
           </Flex>

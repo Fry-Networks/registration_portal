@@ -27,7 +27,7 @@ import { mutate as swrMutate } from 'swr';
 import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
-import WithdrawAllModal from '../components/modals/WithdarwAll';
+import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
@@ -88,7 +88,11 @@ const DevicesPage = ({
   products = [],
   rewardFallback = {},
   statusFallback = {},
-  bannerTotals
+  bannerTotals = {
+    FRY1: { pending: 0, claimable: 0 },
+    fNODE: { pending: 0, claimable: 0 },
+    tFRY: { pending: 0, claimable: 0 }
+  }
 }: {
   initialDevices: Device[];
   products: Product[];
@@ -105,7 +109,43 @@ const DevicesPage = ({
   const { openModal } = useModal();
   const { data: session } = useSession();
 
-  const [devices, setDevices] = useState<Device[]>(initialDevices);
+
+  // Enhanced sort: supports sortField and sortDirection
+  const [sortField, setSortField] = useState<'nickname' | 'miner_key' | 'created_at'>('nickname');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  function sortDevices(devices: Device[]) {
+    return [...devices].sort((a, b) => {
+      let result = 0;
+      if (sortField === 'nickname') {
+        const aHasNickname = !!a.nickname;
+        const bHasNickname = !!b.nickname;
+        if (aHasNickname && bHasNickname) {
+          result = a.nickname!.localeCompare(b.nickname!);
+        } else if (aHasNickname) {
+          result = -1;
+        } else if (bHasNickname) {
+          result = 1;
+        } else {
+          result = a.name.localeCompare(b.name);
+        }
+      } else if (sortField === 'miner_key') {
+        result = a.miner_key.localeCompare(b.miner_key);
+      } else if (sortField === 'created_at') {
+        // Fallback to string comparison if created_at is not a Date
+        result = String(a.created_at).localeCompare(String(b.created_at));
+      }
+      return sortDirection === 'asc' ? result : -result;
+    });
+  }
+
+  const [devices, setDevices] = useState<Device[]>(sortDevices(initialDevices));
+
+  // Keep devices sorted when sortField, sortDirection, or initialDevices change
+  useEffect(() => {
+    setDevices(sortDevices(initialDevices));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortField, sortDirection, initialDevices]);
 
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
@@ -571,23 +611,43 @@ const DevicesPage = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
           <div>
             <div className="text-gray-300">FRY 1.0</div>
-            <div>Pending: {bannerTotals.FRY1.pending}</div>
-            <div>Claimable: {bannerTotals.FRY1.claimable}</div>
+            <div>Pending: {bannerTotals?.FRY1?.pending ?? 0}</div>
+            <div>Claimable: {bannerTotals?.FRY1?.claimable ?? 0}</div>
           </div>
           <div>
             <div className="text-gray-300">fNode</div>
-            <div>Pending: {bannerTotals.fNODE.pending}</div>
-            <div>Claimable: {bannerTotals.fNODE.claimable}</div>
+            <div>Pending: {bannerTotals?.fNODE?.pending ?? 0}</div>
+            <div>Claimable: {bannerTotals?.fNODE?.claimable ?? 0}</div>
           </div>
           <div>
             <div className="text-gray-300">tFry (coming soon)</div>
-            <div>Pending: {bannerTotals.tFRY.pending}</div>
-            <div>Claimable: {bannerTotals.tFRY.claimable}</div>
+            <div>Pending: {bannerTotals?.tFRY?.pending ?? 0}</div>
+            <div>Claimable: {bannerTotals?.tFRY?.claimable ?? 0}</div>
           </div>
         </div>
       </div>
     </div>
     <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
+      {/* Sort controls */}
+      <div className="flex flex-row items-center gap-4 mb-4">
+        <label htmlFor="sortField" className="text-white">Sort by:</label>
+        <select
+          id="sortField"
+          value={sortField}
+          onChange={e => setSortField(e.target.value as 'nickname' | 'miner_key' | 'created_at')}
+          className="rounded p-1 text-black"
+        >
+          <option value="nickname">Nickname</option>
+          <option value="miner_key">Miner Key</option>
+          <option value="created_at">Date of Registration</option>
+        </select>
+        <button
+          onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+          className="rounded bg-gray-700 text-white px-2 py-1"
+        >
+          {sortDirection === 'asc' ? 'Ascendant ↑' : 'Descendant ↓'}
+        </button>
+      </div>
         {devices.length > 0 ? (
           devices.map((device, index) => {
             const product = findProductByMinerKey(device.miner_key, products);
