@@ -137,7 +137,7 @@ const EnergyPortal = () => {
       toast.error({
         heading: 'Error',
         message:
-          'We were unable to verify your key. Please try again later, if the problem persists, contact DevDoctor.'
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
       });
       return false;
     }
@@ -188,7 +188,7 @@ const EnergyPortal = () => {
       toast.error({
         heading: 'Error',
         message:
-          'We were unable to verify your key. Please try again later, if the problem persists, contact DevDoctor.'
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
       });
       return false;
     }
@@ -237,7 +237,7 @@ const EnergyPortal = () => {
       toast.error({
         heading: 'Error',
         message:
-          'We were unable to verify your key. Please try again later, if the problem persists, contact DevDoctor.'
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
       });
       return false;
     }

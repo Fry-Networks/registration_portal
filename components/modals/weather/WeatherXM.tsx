@@ -90,7 +90,7 @@ const WeatherXMModal: React.FC<WeatherXMModalProps> = ({
           placeholder="Enter your email"
           className="mt-2 mb-2 text-slate-900"
           error={email !== "" && !/\b^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$\b/gm.test(email)}
-          errorMessage="Invalid API key"
+          errorMessage="Invalid email format"
         />
         <TextInput
           type="password"
