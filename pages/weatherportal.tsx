@@ -358,19 +358,19 @@ const WeatherPortal = () => {
   };
 
   const handleTempest = async (
-    email: string,
-    password: string
+    stationID: string,
+    token: string
   ): Promise<boolean> => {
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_HOST}/api/submitTempestKey`,
+        `${process.env.NEXT_PUBLIC_API_HOST}/api/submitTempest`,
         {
           method: 'POST',
           headers: { 'Content-type': 'application/json' },
           body: JSON.stringify({
             miner_key: minerKey,
-            email,
-            password,
+            stationID,
+            token,
             address: session?.user.address
           })
         }
