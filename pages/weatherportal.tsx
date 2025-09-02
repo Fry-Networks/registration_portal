@@ -12,12 +12,14 @@ import ecowittLogo from '../assets/portals/ecowitt.png';
 import weatherxmLogo from '../assets/portals/weatherxm.png';
 import lacrosseLogo from '../assets/portals/lacrosse.jpg';
 import sensecapLogo from '../assets/portals/sensecap.webp';
+import tempestlogo from '../assets/portals/tempest.png';
 
 import AmbientModal from '../components/modals/weather/Ambient';
 import EcowittModal from '../components/modals/weather/Ecowitt';
 import WeatherXMModal from '../components/modals/weather/WeatherXM';
 import LacrosseModal from '../components/modals/weather/Lacrosse';
 import SensecapModal from '../components/modals/weather/Sensecap';
+import TempestModal from '../components/modals/weather/Tempest';
 
 const WeatherPortal = () => {
   const router = useRouter();
@@ -51,6 +53,12 @@ const WeatherPortal = () => {
       id: 'sensecap',
       name: 'Sensecap',
       logo: sensecapLogo
+    },
+    // adding Tempest
+    {
+      id: 'tempest',
+      name: 'Tempest',
+      logo: tempestlogo
     }
   ];
 
@@ -349,6 +357,55 @@ const WeatherPortal = () => {
     return true;
   };
 
+  const handleTempest = async (
+    email: string,
+    password: string
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_HOST}/api/submitTempestKey`,
+        {
+          method: 'POST',
+          headers: { 'Content-type': 'application/json' },
+          body: JSON.stringify({
+            miner_key: minerKey,
+            email,
+            password,
+            address: session?.user.address
+          })
+        }
+      );
+
+      const result = await response.json();
+      if (!response.ok) {
+        toast.error({ heading: 'Error', message: result.message });
+        return false;
+      } else {
+        toast.success({ heading: 'Success', message: result.message });
+      }
+
+      if (!onlyPortal) {
+        router.push({
+          pathname: '/register',
+          query: { minerKey, type: 'tempest' }
+        });
+      } else {
+        if (portalType === undefined) {
+          await setPortalType(minerKey, 'tempest');
+        }
+        router.push('/devices');
+      }
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message:
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
+      });
+      return false;
+    }
+    return true;
+  };
+
   return (
     <div className="w-full">
       <div className="relative flex">
@@ -433,6 +490,11 @@ const WeatherPortal = () => {
         modalName={'sensecap'}
         minerKey={minerKey}
         handle={handleSensecap}
+      />
+      <TempestModal
+        modalName={'tempest'}
+        minerKey={minerKey}
+        handle={handleTempest}
       />
     </div>
   );
