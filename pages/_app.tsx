@@ -2,7 +2,8 @@ import { NextPage } from 'next';
 import { AppProps } from 'next/app';
 import '../app/globals.css';
 import { useSession, SessionProvider } from 'next-auth/react';
-import React from 'react';
+import React, { useEffect } from 'react';
+import Modal from 'react-modal';
 import {
   WalletProvider,
   useInitializeProviders,
@@ -66,6 +67,12 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       { id: PROVIDER_ID.DAFFI, clientStatic: DaffiWalletConnect }
     ]
   });
+
+  // Ensure react-modal knows the app root for accessibility
+  useEffect(() => {
+    // Next.js mounts the app under #__next by default
+    Modal.setAppElement?.('#__next');
+  }, []);
 
   return (
     <ModalProvider>

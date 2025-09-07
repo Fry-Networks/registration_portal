@@ -45,9 +45,14 @@ export default function FryConversionModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
   const [selectedTokenType, setSelectedTokenType] = useState('2485314946');
+  
+  // Support-driven reconcile UI state
+  const [showReconcile, setShowReconcile] = useState(false);
+  const [reconcileTxId, setReconcileTxId] = useState('');
 
   const { data: session } = useSession();
   const toast = useToastContext();
+
 
   const transferToBurn = async (
     from: string | undefined,
@@ -220,6 +225,13 @@ export default function FryConversionModal({
                 heading: 'Conversion Successful',
                 message: `${result.message}`
               });
+              // Quick refresh of conversion state
+              if (result.user) {
+                setAccount(result.user);
+                setIsConverted(result.user.status === 'pending');
+              } else {
+                await fetchConversionStatus();
+              }
             } else {
               toast.error({
                 heading: 'Conversion Error',
@@ -236,7 +248,8 @@ export default function FryConversionModal({
         }
 
         setIsProcessing(false);
-        closeModal(modalName);
+        // Keep modal open and refresh — allows immediate claiming UI
+        await fetchConversionStatus();
         return;
       } catch (error) {
         console.error(error);
@@ -249,6 +262,40 @@ export default function FryConversionModal({
         setIsProcessing(false);
         return;
       }
+    }
+  };
+
+  // Allow users who already burned to reconcile their state without burning again
+  const handleReconcile = async () => {
+    if (!session || !session.user) return;
+    try {
+      setIsProcessing(true);
+      const response = await fetch('/api/conversion/reconcile_burn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: session.user.address, txId: reconcileTxId || undefined })
+      });
+
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        toast.error({ heading: 'Reconcile Error', message: result.message || 'Failed to reconcile previous burn.' });
+        setIsProcessing(false);
+        return;
+      }
+
+      toast.success({ heading: 'Reconciled', message: result.message || 'Previous burn verified. You can now claim.' });
+      if (result.user) {
+        setAccount(result.user);
+        setIsConverted(result.user.status === 'pending');
+      } else {
+        await fetchConversionStatus();
+      }
+      setShowReconcile(false);
+      setReconcileTxId('');
+    } catch (e) {
+      toast.error({ heading: 'Reconcile Error', message: 'Unexpected error while reconciling. Please try again.' });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -393,6 +440,17 @@ export default function FryConversionModal({
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
+            {!isConverted && (account && (account as any).supportReconcile === true) && (
+              <Button
+                className={`bg-transparent text-slate-900 border-slate-500 hover:bg-slate-500 hover:border-slate-500 ${
+                  isProcessing ? 'cursor-not-allowed' : 'cursor-default'
+                }`}
+                disabled={isProcessing}
+                onClick={() => setShowReconcile(true)}
+              >
+                Already burned? Reconcile
+              </Button>
+            )}
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
               onClick={() => !isProcessing && onClose()}
@@ -453,6 +511,56 @@ export default function FryConversionModal({
           </Flex>
         </DialogPanel>
       </Dialog>
+
+      {showReconcile && (
+        <Dialog open={true} onClose={() => !isProcessing && setShowReconcile(false)} static={true} className="z-[110]">
+          <DialogPanel className="max-w-xs sm:max-w-lg border border-red-600">
+            <div className="absolute right-0 top-0 pr-3 pt-3">
+              <button
+                type="button"
+                className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
+                onClick={() => !isProcessing && setShowReconcile(false)}
+                aria-label="Close"
+              >
+                <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
+              </button>
+            </div>
+            <Title className="mb-2 text-red-600">Reconcile Previous Burn</Title>
+            <p className="text-slate-900 mb-4">
+              Support has enabled reconciliation for your account. If you know the FRY 1.0 burn transaction ID, paste it below. Otherwise, leave it blank and we will auto-detect a matching burn.
+            </p>
+            <div className="space-y-2">
+              <label className="text-slate-800 text-sm">Burn Transaction ID (optional)</label>
+              <input
+                type="text"
+                value={reconcileTxId}
+                onChange={(e) => setReconcileTxId(e.target.value)}
+                placeholder="e.g. ABCD1234..."
+                className="w-full rounded-md border border-red-600/60 bg-transparent px-3 py-2 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-red-600"
+              />
+              <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent" />
+            </div>
+            <Flex flexDirection="row" justifyContent="end" className="gap-3 mt-5">
+              <Button
+                className="bg-transparent text-slate-900 border-slate-500 hover:bg-slate-500 hover:border-slate-500"
+                onClick={() => !isProcessing && setShowReconcile(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className={`bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
+                onClick={handleReconcile}
+                disabled={isProcessing}
+              >
+                {isProcessing ? 'Reconciling…' : 'Verify & Update'}
+              </Button>
+            </Flex>
+          </DialogPanel>
+        </Dialog>
+      )}
     </div>
   );
 }
+
+
+

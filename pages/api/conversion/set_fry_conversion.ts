@@ -51,7 +51,28 @@ export default async function handler(
       return;
     }
 
-    const response = await indexerClient.lookupTransactionByID(id).do();
+    // Retry lookup in case indexer lags behind confirmation
+    const lookupWithRetry = async (
+      txId: string,
+      maxAttempts = 8,
+      delayMs = 1000
+    ): Promise<any> => {
+      let lastErr: any = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const res = await indexerClient.lookupTransactionByID(txId).do();
+          if (res && res.transaction) return res;
+        } catch (e) {
+          lastErr = e;
+        }
+        // small delay before retrying
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+      if (lastErr) throw lastErr;
+      throw new Error('Transaction not found by indexer');
+    };
+
+    const response = await lookupWithRetry(id);
     const txn = response.transaction;
     if (txn['sender'] !== address) {
       res.status(401).json({ success: false, message: 'Unauthorized Transaction.' });
@@ -64,12 +85,23 @@ export default async function handler(
       return;
     } else {
       const assetTransfer = txn['asset-transfer-transaction'];
+      // Ensure the ASA matches FRY 1.0
+      if (
+        assetTransfer['asset-id'] !== Number(FRY_1.id) &&
+        assetTransfer['asset-id'] !== FRY_1.id
+      ) {
+        res.status(401).json({ success: false, message: 'Invalid Asset ID for burn transaction.' });
+        return;
+      }
       if (assetTransfer['receiver'] !== BURN_WALLET) {
         res.status(401).json({ success: false, message: 'Unauthorized Receiver.' });
         return;
       }
 
-      const expectedAmount = testMode ? 0 : Math.floor(parseFloat(user.amount) * Math.pow(10, FRY_1.decimals));
+      // Compute expected micro amount from DB amount
+      const baseAmount = typeof user.amount === 'number' ? user.amount : parseFloat(user.amount);
+      const expectedAmount = testMode ? 0 : Math.floor(baseAmount * Math.pow(10, FRY_1.decimals));
+
       if (assetTransfer['amount'] !== expectedAmount) {
         res.status(401).json({ success: false, message: 'Invalid Transfer Amount.' });
         return;
@@ -84,7 +116,7 @@ export default async function handler(
           claimableAmount: 0,
           pendingAmount: user.amount,
           claimableMonths: 0,
-          claimedMonths: 0,
+          claimedMonths: 0
         }
       }
     );
@@ -102,9 +134,13 @@ export default async function handler(
       return;
     }
 
+    // Return the latest user state so the UI can refresh without an extra request
+    const updated = await collection.findOne({ address });
+
     res.status(200).json({
       success: true,
-      message: `Head back to the Fry 1.0 Conversion to start your claim process`
+      message: `🔥 FRY1.0 burn complete! Your vaulted amount is unlocked and ready to claim.`,
+      user: updated
     });
   } catch (error) {
     console.log(error);

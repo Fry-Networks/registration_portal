@@ -23,6 +23,7 @@ export default function IndexPage() {
           src={bgImg}
           className="w-full h-[50vh] object-cover"
           alt="Background Image"
+          priority
         />
         <Flex
           flexDirection="col"

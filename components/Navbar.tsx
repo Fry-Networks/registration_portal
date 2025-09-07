@@ -130,7 +130,7 @@ export default () => {
             target="_blank"
             rel="noopener noreferrer"
           >
-            <Image src={fryLogo} className="logo" alt="Fry logo" />
+            <Image src={fryLogo} className="logo" alt="Fry logo" priority />
           </Link>
         </div>
         
@@ -191,7 +191,7 @@ export default () => {
               onClick={() => setIsWalletModalOpen(false)}
             >
               <svg
-                fill-rule="evenodd"
+                fillRule="evenodd"
                 viewBox="64 64 896 896"
                 focusable="false"
                 data-icon="close"
@@ -211,6 +211,7 @@ export default () => {
               src={fryLogo}
               className="logo_wallet mt-4 m-auto"
               alt="Fry logo"
+              priority
             />
             <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
           </Flex>

@@ -12,6 +12,7 @@
 
 .logo {
   width: 8rem;
+  height: auto;
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
@@ -23,6 +24,7 @@ body {
 
 .logo_wallet {
   width: 10rem;
+  height: auto;
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;

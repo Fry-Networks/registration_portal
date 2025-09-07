@@ -500,6 +500,7 @@ const DevicesPage = ({
           src={bgImg}
           className="w-full h-[30vh] object-cover"
           alt="Background Image"
+          priority
         />
         <Flex
           flexDirection="col"
