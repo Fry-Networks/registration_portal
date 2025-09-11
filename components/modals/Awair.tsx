@@ -89,7 +89,7 @@ const AwairModal: React.FC<AwairModalProps> = ({
           onChange={(e) => setDeviceId(e.target.value)}
           placeholder="Enter your device id"
           className="mt-2 mb-2 text-slate-900"
-          error={deviceId !== "" && !/\b[0-9]{5}$\b/gm.test(deviceId)}
+          error={deviceId !== "" && !/^\d{5,7}$/.test(deviceId)}
           errorMessage="Invalid Device ID"
         />
         <TextInput
@@ -116,7 +116,7 @@ const AwairModal: React.FC<AwairModalProps> = ({
             className={`bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600
               ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}
             `}
-            disabled={!/\b[0-9]{5}$\b/gm.test(deviceId) || !/\b[A-Za-z0-9._-]{108}\b/gm.test(token)}
+            disabled={!/^\d{5,7}$/.test(deviceId) || !/\b[A-Za-z0-9._-]{108}\b/gm.test(token)}
             onClick={() => {
               handleSubmit();
             }}
