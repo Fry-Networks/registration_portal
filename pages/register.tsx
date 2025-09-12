@@ -349,8 +349,24 @@ export default ({ products }: { products: Product[] }) => {
     }
   };
 
-  const handleCancel = () => {
-    router.push('/devices');
+  const handleCancel = async () => {
+    try {
+      const key = typeof minerKey === 'string' ? minerKey : Array.isArray(minerKey) ? minerKey[0] : undefined;
+      if (key && session?.user.address) {
+        await fetch('/api/registrations/cancel', {
+          method: 'POST',
+          headers: { 'Content-type': 'application/json' },
+          body: JSON.stringify({
+            miner_key: key,
+            address: session.user.address
+          })
+        });
+      }
+    } catch (e) {
+      // swallow cancel errors
+    } finally {
+      router.push('/devices');
+    }
   }
 
   const toggleSidebar = () => {

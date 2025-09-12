@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Flex, Title, TextInput } from '@tremor/react';
-import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
@@ -132,11 +131,30 @@ const NodePortal = () => {
         </Flex>
       </div>
       <div className="px-2 sm:px-20">
-        <Link href="/devices">
-          <Button className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
-            Back
-          </Button>
-        </Link>
+        <Button
+          className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+          onClick={async () => {
+            try {
+              const key = typeof minerKey === 'string' ? minerKey : Array.isArray(minerKey) ? minerKey[0] : undefined;
+              if (key && session?.user.address) {
+                await fetch('/api/registrations/cancel', {
+                  method: 'POST',
+                  headers: { 'Content-type': 'application/json' },
+                  body: JSON.stringify({
+                    miner_key: key,
+                    address: session.user.address
+                  })
+                });
+              }
+            } catch (e) {
+              // ignore cancel failures for navigation
+            } finally {
+              router.push('/devices');
+            }
+          }}
+        >
+          Back
+        </Button>
       </div>
       <Flex
         flexDirection="col"

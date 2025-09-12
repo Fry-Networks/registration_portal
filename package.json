@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next start -p 3007",
     "lint": "next lint",
-    "setup:indexes": "node scripts/create-indexes.js"
+    "setup:indexes": "node scripts/create-indexes.js",
+    "cancel:registration": "node scripts/cancel-registration.js"
   },
   "dependencies": {
     "@algo-builder/types-algosdk": "^1.1.0",
