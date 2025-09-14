@@ -9,9 +9,7 @@ import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
 import { algodClient, REWALD_WALLET } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
-import { 
-  useWallet,
- } from '@txnlab/use-wallet'
+import { useWallet } from '@txnlab/use-wallet-react';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -28,7 +26,7 @@ export default function ClaimModal({
   no?: number;
   handleClaim: (ret: boolean, message: string) => Promise<void>;
 }) {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
+  const { activeAddress, signTransactions } = useWallet();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const [stage, setStage] = useState<'idle'|'paying-fee'|'submitting'|'submitted'|'error'>('idle');
@@ -49,22 +47,27 @@ export default function ClaimModal({
       const to = REWALD_WALLET;
   
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        from: from.toString(),
-        to: to.toString(),
+        sender: from.toString(),
+        receiver: to.toString(),
         amount: Number(1000), // Amount in microAlgos
         suggestedParams: suggestedParams,
       });
   
       const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
       const signedTransactions = await signTransactions([encodedTxn]);
-      const waitRoundsToConfirm = 4;
+      
+      // Filter out null values and ensure we have valid signed transactions
+      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
+      
+      if (validSignedTxns.length === 0) {
+        throw new Error('No valid signed transactions');
+      }
   
-      const { id, txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
+      // Send using algodClient directly
+      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
+      const txId = response.txid;
   
-      console.log('Fee payment txId: ', txId, id);
+      console.log('Fee payment txId: ', txId);
   
       if (txId) {
         return true;
@@ -85,7 +88,7 @@ export default function ClaimModal({
       if (!devMode) {
         setStage('paying-fee');
         setStatusText('Paying network fee...');
-        const isFeePaid = await requestGasFee(activeAddress);
+        const isFeePaid = await requestGasFee(activeAddress || undefined);
         if (!isFeePaid) {
           toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${activeAddress}` });
           setStage('error');

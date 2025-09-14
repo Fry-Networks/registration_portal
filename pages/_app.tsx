@@ -2,19 +2,12 @@ import { NextPage } from 'next';
 import { AppProps } from 'next/app';
 import '../app/globals.css';
 import { useSession, SessionProvider } from 'next-auth/react';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Modal from 'react-modal';
-import {
-  WalletProvider,
-  useInitializeProviders,
-  PROVIDER_ID
-} from '@txnlab/use-wallet';
-import { DeflyWalletConnect } from '@blockshake/defly-connect';
-import { PeraWalletConnect } from '@perawallet/connect';
-import { DaffiWalletConnect } from '@daffiwallet/connect';
+import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
+import { WalletProvider } from '@txnlab/use-wallet-react';
 import Navbar from '../components/Navbar';
 import { ModalProvider } from '../app/modalcontext';
-import { Flex } from '@tremor/react';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
 
@@ -59,26 +52,73 @@ interface ProtectedComponentProps {
   pageProps: any; // If you have a specific type for your pageProps, you can replace `any` with that.
 }
 
-export default function MyApp({ Component, pageProps }: MyAppProps) {
-  const providers = useInitializeProviders({
-    providers: [
-      { id: PROVIDER_ID.DEFLY, clientStatic: DeflyWalletConnect },
-      { id: PROVIDER_ID.PERA, clientStatic: PeraWalletConnect },
-      { id: PROVIDER_ID.DAFFI, clientStatic: DaffiWalletConnect }
-    ]
-  });
 
-  // Ensure react-modal knows the app root for accessibility
+export default function MyApp({ Component, pageProps }: MyAppProps) {
+  const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
+
   useEffect(() => {
-    // Next.js mounts the app under #__next by default
+    // Initialize WalletManager
+    const manager = new WalletManager({
+      wallets: [
+        {
+          id: WalletId.DEFLY,
+          options: {
+            shouldShowSignTxnToast: false,
+            chainId: 416001, // Mainnet chain ID
+          }
+        },
+        {
+          id: WalletId.PERA,
+          options: {
+            shouldShowSignTxnToast: false,
+            chainId: 416001, // Mainnet chain ID
+            compactMode: false,
+          }
+        }
+      ],
+      networks: {
+        mainnet: {
+          algod: {
+            token: '',
+            baseServer: 'https://mainnet-api.algonode.cloud',
+            port: 443
+          },
+          genesisHash: 'wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
+          genesisId: 'mainnet-v1.0',
+          caipChainId: 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8='
+        },
+        testnet: {
+          algod: {
+            token: '',
+            baseServer: 'https://testnet-api.algonode.cloud',
+            port: 443
+          },
+          genesisHash: 'SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=',
+          genesisId: 'testnet-v1.0',
+          caipChainId: 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
+        }
+      },
+      defaultNetwork: NetworkId.MAINNET
+    });
+
+    setWalletManager(manager);
+
+    // Resume sessions
+    manager.resumeSessions();
+
+    // Ensure react-modal knows the app root for accessibility
     Modal.setAppElement?.('#__next');
   }, []);
+
+  if (!walletManager) {
+    return <div>Loading wallet manager...</div>;
+  }
 
   return (
     <ModalProvider>
       {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
         <QueryClientProvider client={queryClient}> */}
-          <WalletProvider value={providers}>
+          <WalletProvider manager={walletManager}>
             <SessionProvider session={pageProps.session}>
               <DevWalletProvider>
                 <ToastProvider>

@@ -1,4 +1,4 @@
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { Button, Flex, TextInput, Title } from '@tremor/react';
 import { signOut, useSession } from 'next-auth/react';
@@ -6,6 +6,7 @@ import algosdk from 'algosdk';
 import { useEffect, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import GenerateWallet from './modals/GenerateWallet';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
@@ -18,8 +19,10 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
 export default function SignIn({ signed }: SignInProps) {
-  const { devConnect, devAccount, algodClient } = useDevWallet();
-  const { activeAccount, signTransactions } = useWallet();
+  const router = useRouter();
+  const { devConnect, devAccount, algodClient: devAlgodClient } = useDevWallet();
+  const { activeAccount, algodClient, wallets, signTransactions } = useWallet();
+  const activeWallet = wallets.find(w => w.isActive);
   const { data: session, status } = useSession();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNew, setIsNew] = useState(false);
@@ -55,10 +58,10 @@ export default function SignIn({ signed }: SignInProps) {
       const message = `Sign this message to prove you own the wallet: ${nonce}`;
 
       try {
-        const suggestedParams = await algodClient.getTransactionParams().do();
+        const suggestedParams = await devAlgodClient.getTransactionParams().do();
         const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-          from: devAccount.addr,
-          to: devAccount.addr,
+          sender: devAccount.addr,
+          receiver: devAccount.addr,
           amount: 0,
           note: new Uint8Array(Buffer.from(message)),
           suggestedParams
@@ -76,23 +79,23 @@ export default function SignIn({ signed }: SignInProps) {
           });
 
           // Send this information to the server for verification
-          if (isNew) {
-            await signIn('wallet', {
-              address: devAccount.addr,
-              email: email,
-              first_name: first_name,
-              last_name: last_name,
-              signedTxn: signedTxnBase64,
-              nonce,
-              callbackUrl: '/'
-            });
+          const callbackUrl = (router.query.callbackUrl as string) || '/';
+          const res = await signIn('wallet', {
+            address: devAccount.addr,
+            email: isNew ? email : undefined,
+            first_name: isNew ? first_name : undefined,
+            last_name: isNew ? last_name : undefined,
+            signedTxn: signedTxnBase64,
+            nonce,
+            redirect: false,
+            callbackUrl
+          });
+          if (res?.error) {
+            console.error('NextAuth signIn error:', res.error);
+          } else if (res?.url) {
+            await router.push(res.url);
           } else {
-            await signIn('wallet', {
-              address: devAccount.addr,
-              signedTxn: signedTxnBase64,
-              nonce,
-              callbackUrl: '/'
-            });
+            await router.push(callbackUrl);
           }
         } else {
           throw new Error('Failed to sign the transaction');
@@ -114,8 +117,8 @@ export default function SignIn({ signed }: SignInProps) {
         // Create a transaction to sign
         const suggestedParams = await algodClient.getTransactionParams().do();
         const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-          from: activeAccount.address,
-          to: activeAccount.address,
+          sender: activeAccount.address,
+          receiver: activeAccount.address,
           amount: 0,
           note: new Uint8Array(Buffer.from(message)),
           suggestedParams
@@ -127,31 +130,32 @@ export default function SignIn({ signed }: SignInProps) {
         ]);
         console.log('Signed transaction:', signedTxn);
 
-        if (signedTxn && signedTxn.length > 0) {
-          const signedTxnBase64 = Buffer.from(signedTxn[0]).toString('base64');
+        if (signedTxn && signedTxn.length > 0 && signedTxn[0]) {
+          const first = signedTxn[0] as Uint8Array; // guarded non-null
+          const signedTxnBase64 = Buffer.from(first).toString('base64');
           console.log('Sending to server:', {
             address: activeAccount.address,
             signedTxn: signedTxnBase64,
             nonce
           });
 
-          if (isNew) {
-            await signIn('wallet', {
-              address: activeAccount.address,
-              email: email,
-              first_name: first_name,
-              last_name: last_name,
-              signedTxn: signedTxnBase64,
-              nonce,
-              callbackUrl: '/'
-            });
+          const callbackUrl = (router.query.callbackUrl as string) || '/';
+          const res = await signIn('wallet', {
+            address: activeAccount.address,
+            email: isNew ? email : undefined,
+            first_name: isNew ? first_name : undefined,
+            last_name: isNew ? last_name : undefined,
+            signedTxn: signedTxnBase64,
+            nonce,
+            redirect: false,
+            callbackUrl
+          });
+          if (res?.error) {
+            console.error('NextAuth signIn error:', res.error);
+          } else if (res?.url) {
+            await router.push(res.url);
           } else {
-            await signIn('wallet', {
-              address: activeAccount.address,
-              signedTxn: signedTxnBase64,
-              nonce,
-              callbackUrl: '/'
-            });
+            await router.push(callbackUrl);
           }
         } else {
           throw new Error('Failed to sign the transaction');
