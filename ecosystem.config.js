@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: "registration_portal",
+      name: "dashboard",
       script: "npm",
       args: "start",
       env: {
