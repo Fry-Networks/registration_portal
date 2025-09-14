@@ -1,9 +1,10 @@
 import { Button, Flex, Title } from '@tremor/react';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import algosdk from 'algosdk';
 import { useDevWallet } from '../hooks/UseDevWallet';
+import { useRouter } from 'next/router';
 
 const algodClient = new algosdk.Algodv2(
   '',
@@ -12,17 +13,18 @@ const algodClient = new algosdk.Algodv2(
 );
 
 export default function SignIn() {
+  const router = useRouter();
   const { activeAccount, signTransactions } = useWallet();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [mnemonic, setMnemonic] = useState('');
   const { devConnect } = useDevWallet();
 
   const checkUser = async () => {
-    // console.log(activeAccount, devConnect);
-    if (!activeAccount || !devConnect) {
+    if (!activeAccount) {
       return;
     }
 
@@ -39,7 +41,7 @@ export default function SignIn() {
 
   useEffect(() => {
     checkUser();
-  }, [activeAccount, devConnect]);
+  }, [activeAccount]);
 
   async function handleWalletAuth() {
     if (!activeAccount) return;
@@ -52,8 +54,8 @@ export default function SignIn() {
 
       const suggestedParams = await algodClient.getTransactionParams().do();
       const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        from: activeAccount.address,
-        to: activeAccount.address,
+        sender: activeAccount.address,
+        receiver: activeAccount.address,
         amount: 0,
         note: new Uint8Array(Buffer.from(message)),
         suggestedParams
@@ -63,29 +65,43 @@ export default function SignIn() {
         algosdk.encodeUnsignedTransaction(txn)
       ]);
 
-      if (signedTxn && signedTxn.length > 0) {
-        const signedTxnBase64 = Buffer.from(signedTxn[0]).toString('base64');
+      if (signedTxn && signedTxn.length > 0 && signedTxn[0]) {
+        const first = signedTxn[0] as Uint8Array; // guarded non-null
+        const signedTxnBase64 = Buffer.from(first).toString('base64');
 
         // Check if user is new
 
         if (isNewUser) {
           // First-time sign-in
-          if (!email || !name || !mnemonic) {
+          if (!email || !firstName || !lastName || !mnemonic) {
             alert('Please fill in all required fields');
+            setIsAuthenticating(false);
             return;
           }
         }
 
         // Sign in using NextAuth
-        await signIn('wallet', {
+        const callbackUrl =
+          (router.query.callbackUrl as string) || '/';
+        const res = await signIn('wallet', {
           address: activeAccount.address,
           signedTxn: signedTxnBase64,
           nonce,
           email,
-          name,
+          first_name: firstName,
+          last_name: lastName,
           mnemonic,
-          callbackUrl: '/'
+          redirect: false,
+          callbackUrl
         });
+        if (res?.error) {
+          console.error('NextAuth signIn error:', res.error);
+        } else if (res?.url) {
+          // Respect returned url or fallback
+          await router.push(res.url);
+        } else {
+          await router.push(callbackUrl);
+        }
       } else {
         throw new Error('Failed to sign the transaction');
       }
@@ -113,9 +129,15 @@ export default function SignIn() {
               />
               <input
                 type="text"
-                placeholder="Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                placeholder="First Name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Last Name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
               />
               <input
                 type="text"
