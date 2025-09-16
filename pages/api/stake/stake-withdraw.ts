@@ -118,7 +118,7 @@ export default async function handler(
       return;
     }
 
-    let result = 'success';
+    let result: string | null = null;
 
     const asset_id = device.staked?.asset_id ?? fryCryptoAssetId;
 
@@ -185,8 +185,8 @@ export async function withdraw(
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      from,
-      to: address,
+      sender: from,
+      receiver: address,
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
@@ -201,8 +201,8 @@ export async function withdraw(
 
     // const result = await waitForConfirmation(algodClient, tx.txid, 3);
 
-    const checking = await verifyTransaction(address, tx.txId);
-    return checking === VERIFY_RESULT.OK ? tx.txId : '';
+    const checking = await verifyTransaction(address, tx.txid);
+    return checking === VERIFY_RESULT.OK ? tx.txid : '';
   } catch (error) {
     console.error(miner_key + ':' + error);
     return null;
