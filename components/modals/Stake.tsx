@@ -15,7 +15,7 @@ import algosdk from 'algosdk';
 import { getTokenBalance } from '../../pages/api/algorand/get-token-balance';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import {
   confirmTransaction,
   SEND_TXN_RESULT,
@@ -51,7 +51,7 @@ const StakeModal = ({
   product: Product;
   handleStakingUpdate: (device: Device) => void;
 }) => {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
+  const { activeAddress, signTransactions } = useWallet();
   const { modals, openModal, closeModal } = useModal();
   const [stakeType, setStateType] = useState('one');
   const [tokenName, setTokenName] = useState('');
@@ -147,8 +147,8 @@ const StakeModal = ({
 
       const transaction =
         algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-          from,
-          to,
+          sender: from,
+          receiver: to,
           amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
           note: note,
           assetIndex: Number(product.reward.tokens!.stake ?? 'none'),
@@ -157,11 +157,17 @@ const StakeModal = ({
 
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
-      const waitRoundsToConfirm = 0;
-      const { txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
+      
+      // Filter out null values and ensure we have valid signed transactions
+      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
+      
+      if (validSignedTxns.length === 0) {
+        throw new Error('No valid signed transactions');
+      }
+
+      // Send using algodClient directly
+      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
+      const txId = response.txid;
 
       console.log('Successfully sent transaction. Transaction ID:', txId);
       return txId;
@@ -214,7 +220,7 @@ const StakeModal = ({
             stakeAmount,
             JSON.stringify(note),
             signTransactions,
-            sendTransactions,
+            null,
             false
           );
 

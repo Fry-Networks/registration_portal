@@ -13,7 +13,7 @@ import { FryConversion } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { useToastContext } from '../../hooks/ToastContext';
 import {
   algodClient,
@@ -39,7 +39,7 @@ export default function FryConversionModal({
   address: string | undefined;
   onClose: () => void;
 }) {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
+  const { activeAddress, signTransactions } = useWallet();
   const { modals, closeModal } = useModal();
   const [account, setAccount] = useState<FryConversion | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -65,8 +65,8 @@ export default function FryConversionModal({
       const to = BURN_WALLET;
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from: from.toString(),
-        to: to.toString(),
+        sender: from.toString(),
+        receiver: to.toString(),
         amount: testMode
           ? 0
           : BigInt(Math.floor(amount * Math.pow(10, FRY_1.decimals || 0))), // Amount in microAlgos
@@ -76,14 +76,19 @@ export default function FryConversionModal({
 
       const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
       const signedTransactions = await signTransactions([encodedTxn]);
-      const waitRoundsToConfirm = 4;
+      
+      // Filter out null values and ensure we have valid signed transactions
+      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
+      
+      if (validSignedTxns.length === 0) {
+        throw new Error('No valid signed transactions');
+      }
 
-      const { id, txId } = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
+      // Send using algodClient directly
+      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
+      const txId = response.txid;
 
-      console.log('Burn Transfer TxId: ', txId, id);
+      console.log('Burn Transfer TxId: ', txId);
 
       if (txId) {
         return txId;
@@ -561,6 +566,3 @@ export default function FryConversionModal({
     </div>
   );
 }
-
-
-

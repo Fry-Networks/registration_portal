@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react'
-import { useWallet } from '@txnlab/use-wallet'
+import { useWallet } from '@txnlab/use-wallet-react'
 import { Button, Flex, Select } from '@tremor/react'
 import { signOut } from 'next-auth/react';
 
 export default function ConnectMenu() {
-    const { providers, activeAccount } = useWallet()
+    const { wallets, activeAccount } = useWallet()
     useEffect(() => {
         if (activeAccount) {
             localStorage.setItem('walletAddress', activeAccount?.address);
@@ -13,37 +13,35 @@ export default function ConnectMenu() {
     return (
         <Flex flexDirection='col' justifyContent='between' alignItems='center'>
             <Flex flexDirection='row' justifyContent='between' alignItems='center'>
-                {providers?.filter(provider => {
-                    return activeAccount ? provider.metadata.id == activeAccount.providerId : true
-                }).map((provider) => (
-                    <Flex key={provider.metadata.id} flexDirection='col' justifyContent='center' alignItems='center'>
+                {wallets?.map((wallet) => (
+                    <Flex key={wallet.id} flexDirection='col' justifyContent='center' alignItems='center'>
 
 
                         <img
                             width={30}
                             height={30}
-                            alt={`${provider.metadata.name} icon`}
-                            src={provider.metadata.icon}
+                            alt={`${wallet.metadata.name} icon`}
+                            src={wallet.metadata.icon}
                         />
-                        {provider.metadata.name}
-                        <Button className='mb-2' onClick={provider.connect} disabled={provider.isConnected || !!activeAccount} color={provider.isConnected ? 'green' : 'blue'}>
-                            {provider.isConnected ? 'Connected' : 'Connect'}
+                        {wallet.metadata.name}
+                        <Button className='mb-2' onClick={wallet.connect} disabled={wallet.isConnected || !!activeAccount} color={wallet.isConnected ? 'green' : 'blue'}>
+                            {wallet.isConnected ? 'Connected' : 'Connect'}
                         </Button>
 
-                        {provider.isActive && provider.accounts.length && (
+                        {wallet.isActive && wallet.accounts.length > 0 && (
                             <>
                                 <Button onClick={() => {
-                                    provider.disconnect()
+                                    wallet.disconnect()
                                     signOut()
                                 }
-                                } disabled={!provider.isConnected} color='red' className='mb-2'>
+                                } disabled={!wallet.isConnected} color='red' className='mb-2'>
                                     Disconnect
                                 </Button>
                                 <Select
                                     value={activeAccount?.address}
-                                    onValueChange={(value) => provider.setActiveAccount(value)}
+                                    onValueChange={(value) => wallet.setActiveAccount(value)}
                                 >
-                                    {provider.accounts.map((account) => (
+                                    {wallet.accounts.map((account) => (
                                         <option key={account.address} value={account.address}>
                                             {account.address}
                                         </option>
