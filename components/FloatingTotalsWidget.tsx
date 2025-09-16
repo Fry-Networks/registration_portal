@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface FloatingTotalsWidgetProps {
@@ -26,23 +26,49 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
+  const [ribbonHeight, setRibbonHeight] = useState<number>(0);
+  const ribbonRef = useRef<HTMLDivElement | null>(null);
+  const [isDesktop, setIsDesktop] = useState(false);
 
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // Minimal scroll detection with heavy throttling
+  // Track desktop breakpoint to avoid window.innerWidth reads in render
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 768px)');
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+
+  // Measure ribbon height to keep placeholder space when collapsed (prevents layout shift)
+  useEffect(() => {
+    if (!ribbonRef.current) return;
+    const el = ribbonRef.current;
+    const measure = () => setRibbonHeight(el.offsetHeight || 0);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ribbonRef.current]);
+
+  // Minimal scroll detection with throttling + hysteresis
   useEffect(() => {
     let scrollTimeout: NodeJS.Timeout;
-    
+    const ENTER_THRESHOLD = 400; // show compact when scrolling beyond this
+    const EXIT_THRESHOLD = 300;  // revert to full only when above area cleared
+
     const handleScroll = () => {
-      // Heavy throttling to minimize updates
+      // Throttle to minimize updates
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
         const currentScrollY = window.scrollY;
-        const shouldShow = currentScrollY > 400;
-        
-        // Only update if state actually needs to change
-        if (shouldShow !== isScrolled) {
-          setIsScrolled(shouldShow);
+        // Hysteresis around the threshold to avoid rapid toggling
+        if (!isScrolled && currentScrollY > ENTER_THRESHOLD) {
+          setIsScrolled(true);
+        } else if (isScrolled && currentScrollY < EXIT_THRESHOLD) {
+          setIsScrolled(false);
         }
         setScrollY(currentScrollY);
       }, 100); // Much less frequent updates
@@ -79,26 +105,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   }, [countdown]);
 
   // Animation variants
-  const widgetVariants = {
-    full: {
-      scale: 1,
-      x: 0,
-      y: 0,
-      width: '100%',
-      height: 'auto',
-      borderRadius: '0.75rem',
-      transition: { duration: 0.5, ease: 'easeInOut' }
-    },
-    compact: {
-      scale: 0.8,
-      x: window.innerWidth > 768 ? 'calc(50vw - 120px)' : 'calc(50vw - 100px)',
-      y: window.innerWidth > 768 ? -20 : -15,
-      width: window.innerWidth > 768 ? '240px' : '200px',
-      height: '80px',
-      borderRadius: '2rem',
-      transition: { duration: 0.5, ease: 'easeInOut' }
-    }
-  };
+  // Avoid window reads in render; keep but unused variants removed
 
   const contentVariants = {
     full: {
@@ -130,10 +137,13 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
 
   return (
     <>
-      {/* Full-width ribbon (initial state) - NO animations to prevent jumping */}
-      {!isScrolled && (
-        <div className="w-full">
-          <div className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
+      {/* Full-width ribbon container with placeholder height to prevent layout shift */}
+      <div
+        className="w-full"
+        style={{ height: isScrolled ? ribbonHeight : 'auto' }}
+      >
+        {!isScrolled && (
+          <div ref={ribbonRef} className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
             <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
               {/* FRY 1.0 Totals */}
               <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
@@ -186,8 +196,8 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Floating compact widget */}
       <AnimatePresence>
@@ -206,13 +216,13 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               animate={isExpanded ? 'expanded' : 'compact'}
               variants={{
                 compact: {
-                  width: window.innerWidth > 768 ? '240px' : '200px',
+                  width: isDesktop ? '240px' : '200px',
                   height: '80px',
                   borderRadius: '2rem',
                   padding: '12px'
                 },
                 expanded: {
-                  width: window.innerWidth > 768 ? '400px' : '320px',
+                  width: isDesktop ? '400px' : '320px',
                   height: 'auto',
                   borderRadius: '1rem',
                   padding: '20px'
