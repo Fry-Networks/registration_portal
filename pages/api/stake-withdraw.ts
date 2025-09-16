@@ -86,15 +86,15 @@ async function withdraw(address: string,amount: number) {
     const FRYIndex = 924268058;
 
     const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from: account.addr,
-        to: address,
+        sender: account.addr,
+        receiver: address,
         amount: amount*1_000_000,
         note: new Uint8Array(Buffer.from("Stake withdraw" + (Math.floor(Math.random() * 1000)))),
         assetIndex: FRYIndex,
         suggestedParams: params
     });
     const signedTxn = transaction.signTxn(account.sk);
-    const {txId} = await algodClient.sendRawTransaction(signedTxn).do() as { txId: string };
-    const result = await algosdk.waitForConfirmation(algodClient, txId, 3);
-    return result ? txId : ""
+    const { txid } = await algodClient.sendRawTransaction(signedTxn).do() as { txid: string };
+    const result = await algosdk.waitForConfirmation(algodClient, txid, 3);
+    return result ? txid : ""
 }

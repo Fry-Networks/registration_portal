@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Dialog, DialogPanel, Button, Callout } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { useRouter } from 'next/router';
 import algosdk from 'algosdk';
 

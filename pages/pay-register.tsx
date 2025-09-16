@@ -7,10 +7,9 @@ import clientPromise from '../lib/mongoclient';
 import { useEffect, useState } from 'react';
 import { Device, Product } from '../lib/types';
 import { getFRYPrice } from '../lib/price';
-import { getTokenBalance } from './api/algorand/get-token-balance';
-import algosdk from 'algosdk';
-import { useWallet } from '@txnlab/use-wallet';
-import MessageUpdate from '../components/messageUpdate';
+// Removed incorrect import from API route and unused algosdk
+import { useWallet } from '@txnlab/use-wallet-react';
+// import MessageUpdate from '../components/messageUpdate';
 import {
   isNodeStaked,
   isNodeStakingNeeded,
@@ -52,7 +51,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
   const { data: session } = useSession();
 
   const [isProcessing, setIsProcessing] = useState(false);
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
+  const { activeAddress, signTransactions } = useWallet();
 
   const toast = useToastContext();
 
@@ -202,7 +201,6 @@ export default function PayRegister({ products }: { products: Product[] }) {
             amount,
             JSON.stringify(note),
             signTransactions,
-            sendTransactions,
             false
           );
 
@@ -358,7 +356,6 @@ export default function PayRegister({ products }: { products: Product[] }) {
             amount,
             JSON.stringify(note),
             signTransactions,
-            sendTransactions,
             false
           );
 

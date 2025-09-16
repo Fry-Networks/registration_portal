@@ -37,7 +37,7 @@ export default async function handler(
     to: string;
     amount: number;
   } = req.body;
-  const { miner_key, asset_id, from, to, amount } = data;
+  const { miner_key, asset_id, from: requestedFrom, to, amount } = data;
 
   if (lockSet.has(miner_key)) {
     res.status(402).json({ message: 'Too Many Request!' });
@@ -51,7 +51,7 @@ export default async function handler(
       process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC!
     );
 
-    const from = account.addr.toString();
+    const sender = account.addr.toString();
     const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id);
 
     // Fetch transaction parameters from the Algorand network
@@ -61,7 +61,7 @@ export default async function handler(
       miner_key:
         miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
       asset_id: asset_id,
-      from: from,
+      from: sender,
       to: to,
       amount: amount,
       date: new Date(Date.now())
@@ -72,8 +72,8 @@ export default async function handler(
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      from,
-      to,
+      sender: sender,
+      receiver: to,
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note,
@@ -85,7 +85,7 @@ export default async function handler(
 
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    const checking = await verifyTransaction(from, tx.txId);
+    const checking = await verifyTransaction(sender, tx.txid);
     const client = await clientPromise;
     const db = client.db('main');
     if (checking === VERIFY_RESULT.OK) {
@@ -99,10 +99,10 @@ export default async function handler(
         }
       );
       lockSet.delete(miner_key);
-      return res.status(200).json({ txId: tx.txId });
+      return res.status(200).json({ txId: tx.txid });
     } else {
       lockSet.delete(miner_key);
-      return res.status(500).json({ txId: tx.txId });
+      return res.status(500).json({ txId: tx.txid });
     }
   } catch (error) {
     lockSet.delete(miner_key);

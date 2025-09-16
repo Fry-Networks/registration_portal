@@ -36,7 +36,7 @@ export default async function handler(
   try {
     // Verify against the sender vault address
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const result = await verifyTransaction(account.addr, txId);
+    const result = await verifyTransaction(account.addr.toString(), txId);
     if (result !== VERIFY_RESULT.OK) {
       // not confirmed yet
       res.status(200).json({ success: false, code: 'NETWORK_ERROR', message: 'Not yet confirmed' });
@@ -52,6 +52,18 @@ export default async function handler(
     await collection.updateMany(
       { txId },
       { $set: { claimedAt } }
+    );
+    // Also update device-rewards entries (weekly and daily) with chain timestamp
+    const weeklyCollection = db.collection('device-rewards');
+    await weeklyCollection.updateMany(
+      { 'weekly_rewards.tx_id': txId },
+      { $set: { 'weekly_rewards.$[elem].claimed_at': claimedAt } },
+      { arrayFilters: [{ 'elem.tx_id': txId }] }
+    );
+    await weeklyCollection.updateMany(
+      { 'daily_rewards.tx_id': txId },
+      { $set: { 'daily_rewards.$[elem].claimed_at': claimedAt } },
+      { arrayFilters: [{ 'elem.tx_id': txId }] }
     );
 
     res.status(200).json({ success: true, claimedAt });

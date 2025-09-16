@@ -66,7 +66,7 @@ export default async function handler(
     }
 
     const accountInfo = await algodClient.accountInformation(address).do();
-    const isOptedIn = accountInfo.assets.some((a) => a['asset-id'] === parseInt(assetId));
+    const isOptedIn = (accountInfo.assets ?? []).some((a: any) => a['asset-id'] === parseInt(assetId));
 
     if (!isOptedIn) {
       res.status(402).json({
@@ -131,8 +131,8 @@ export default async function handler(
     const amount = user.claimableAmount;
 
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      from,
-      to: address,
+      sender: from,
+      receiver: address,
       amount: testMode ? 0 : BigInt(Math.floor(amount * Math.pow(10, decimals || 0))),
       assetIndex: Number(convertType === FRY_2.id ? FRY_2.id : fNODE.id),
       note,
@@ -148,7 +148,7 @@ export default async function handler(
       return;
     }
 
-    const result = await verifyTransaction(account.addr, tx.txId);
+    const result = await verifyTransaction(account.addr.toString(), tx.txid);
     if (result !== VERIFY_RESULT.OK) {
       res
         .status(402)

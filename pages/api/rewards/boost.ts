@@ -7,23 +7,20 @@ import { getFRYPrice } from '../../../lib/price';
 import { verifyTransaction } from '../algorand/verify-txn';
 import algosdk, { mnemonicToSecretKey, Account } from 'algosdk';
 import { fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET } from '../../../lib/utils';
-import { 
-  DEFAULT_NODE_BASEURL,
-  DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_PORT,
- } from '@txnlab/use-wallet';
 import { VERIFY_RESULT } from '../../../lib/txn';
 import { AssetWithIdAndAmount } from '@tinymanorg/tinyman-js-sdk';
 
-const algodClient = new algosdk.Algodv2(
-  DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_BASEURL,
-  DEFAULT_NODE_PORT
-);
+// Algod client configuration (align with other API routes)
+const token = '';
+const server = 'https://xna-mainnet-api.algonode.cloud/';
+const tokenToSend = { 'X-API-Key': token };
+const port = 443;
+const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 
 const swapWithInputAsset = async (acc: Account, asset: string, amount: number, rekey: Account) => {
 
@@ -58,7 +55,7 @@ export default async function handler(
 
   const data: {
     miner_key: string;
-    no: number;
+    no?: number; // optional in weekly mode
   } = req.body;
 
   const { miner_key, no } = data;
@@ -81,18 +78,69 @@ export default async function handler(
     }
     
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+    const weeklyCollection = db.collection('device-rewards');
     const bCollection = db.collection('reward-boosts');
 
-    const records = await collection
-      .find(
-        no
-          ? { miner_key: miner_key, no: no, status: 'pending' }
-          : { miner_key: miner_key, status: 'pending' }
-      )
-      .toArray();
-    if (!records || records.length <= 0) {
-      res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to boost' });
-      return;
+    let records: any[] = [];
+    let boostTargetMode: 'legacy' | 'weekly' = 'legacy';
+    if (!WEEKLY_FLAG) {
+      records = await collection
+        .find(
+          no
+            ? { miner_key: miner_key, no: no, status: 'pending' }
+            : { miner_key: miner_key, status: 'pending' }
+        )
+        .toArray();
+      if (!records || records.length <= 0) {
+        res.status(404).json({
+          success: false,
+          code: 'NO_REWARDS',
+          message: 'No pending rewards to boost. If your reward is already claimable, use Claim instead.'
+        });
+        return;
+      }
+      boostTargetMode = 'legacy';
+    } else {
+      const weeklyDoc = await weeklyCollection.findOne({ miner_key });
+      const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
+      const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
+      if (typeof no === 'number') {
+        // Prefer weekly pending by number; if not present, allow daily pending with same number
+        const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
+        if (weeklyRecords && weeklyRecords.length > 0) {
+          records = weeklyRecords;
+          boostTargetMode = 'weekly';
+        } else {
+          const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
+          if (dailyRecords && dailyRecords.length > 0) {
+            records = dailyRecords;
+            boostTargetMode = 'legacy';
+          } else {
+            res.status(404).json({
+              success: false,
+              code: 'NO_REWARDS',
+              message: 'No pending reward with that number. If it shows claimable, please use Claim.'
+            });
+            return;
+          }
+        }
+      } else {
+        // No specific number: boost all weekly pending, else any daily pending
+        if (weeklyPendings.length > 0) {
+          records = weeklyPendings;
+          boostTargetMode = 'weekly';
+        } else if (dailyPendings.length > 0) {
+          records = dailyPendings;
+          boostTargetMode = 'legacy';
+        } else {
+          res.status(404).json({
+            success: false,
+            code: 'NO_REWARDS',
+            message: 'No pending rewards to boost. If the selected reward is already claimable, please use Claim.'
+          });
+          return;
+        }
+      }
     }
 
     type Result = {
@@ -101,8 +149,8 @@ export default async function handler(
       txId?: string; // Optional field
     };
 
-    const sumByAssetId = records.reduce((acc, reward) => {
-      const asset_id = reward.asset_id ?? '924268058';
+    const sumByAssetId = records.reduce((acc: Map<number, number>, reward: any) => {
+      const asset_id = Number(reward.asset_id ?? '924268058');
       if (acc.has(asset_id)) {
         acc.set(
           asset_id,
@@ -114,19 +162,15 @@ export default async function handler(
       return acc;
     }, new Map<number, number>());
 
-    const resultArray: Result[] = Array.from(sumByAssetId.entries()).map(
-      ([asset_id, totalAmount]) => ({
-        asset_id,
-        totalAmount
-      })
-    );
+    const entries = Array.from(sumByAssetId.entries()) as Array<[number, number]>;
+    const resultArray: Result[] = entries.map(([asset_id, totalAmount]) => ({ asset_id, totalAmount }));
 
     const params = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
     const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
 
     const from = account.addr;
-    let txns: algosdk.TransactionLike[] = [];
+    let txns: algosdk.Transaction[] = [];
     let signedTxns: Uint8Array[] = [];
     let totalFeeAmount = 0;
     
@@ -140,11 +184,11 @@ export default async function handler(
           
           if (swappedAsset === undefined) {
             console.error("Failed to swap FRY1.0 asset for FRY2.0");
-            res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to swap FRY1.0 asset for FRY2.0` });
+            res.status(500).json({ success: false, code: 'SWAP_FAILED', message: `Failed to swap FRY1.0 asset for FRY2.0` });
             return;
           }
         } else {
-          res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: `Too little FRY1.0 to swap for FRY2.0` });
+          res.status(400).json({ success: false, code: 'INSUFFICIENT_SWAP_AMOUNT', message: `Too little FRY1.0 to swap for FRY2.0` });
           return;
         }
       } else if (Number(resultArray[i].asset_id) === Number(fNODE.id) || Number(resultArray[i].asset_id) === Number(fVPN.id)){
@@ -152,7 +196,7 @@ export default async function handler(
         
         if (swappedAsset === undefined) {
           console.error(`Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`);
-          res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0` });
+          res.status(500).json({ success: false, code: 'SWAP_FAILED', message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0` });
           return;
         }
       }
@@ -169,8 +213,8 @@ export default async function handler(
       const note = enc.encode(JSON.stringify(noteInfo));
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from,
-        to: FRYALGO_WALLET,
+        sender: from,
+        receiver: FRYALGO_WALLET,
         amount: testMode ? 0 : Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount * Math.pow(10, FRY_2.decimals) : Number(swappedAsset?.amount),
         note,
         assetIndex: Number(FRY_2.id),
@@ -184,35 +228,81 @@ export default async function handler(
       totalFeeAmount += Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount : Number(swappedAsset?.amount) / 10 ** FRY_2.decimals;
     }
 
-    let success = true;
-    let rewards_nos: number[] = [];
-    for (let i = 0; i < records.length; i++) {
-      const reward = records[i] as Reward;
-      const boostedAmount = Math.round((reward.amount * 100 * 70) / 100) / 100;
-      const updateResult = await collection.updateOne(
-        { no: reward.no, miner_key: reward.miner_key },
-        {
-          $set: {
-            status: 'claimable',
-            amount: boostedAmount
-          }
-        }
-      );
-
-      if (updateResult.matchedCount <= 0) {
-        success = false;
-      }
-
-      rewards_nos.push(reward.no);
-    }
-
-    if (success === false) {
-      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to boost rewards for miner ${miner_key}` });
+    algosdk.assignGroupID(txns);
+    const tx = await algodClient.sendRawTransaction(signedTxns).do();
+    if (!tx) {
+      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to submit boost transaction` });
       return;
     }
 
-    algosdk.assignGroupID(txns);
-    const tx = await algodClient.sendRawTransaction(signedTxns).do();
+    // Apply database updates only after successful submission
+    let rewards_nos: number[] = [];
+    if (boostTargetMode === 'legacy') {
+      let modifiedAny = false;
+      for (let i = 0; i < records.length; i++) {
+        const r: any = records[i];
+        const num = typeof r.no !== 'undefined' ? r.no : r.reward_number;
+        const amt = r.amount;
+        const boostedAmount = Math.round((amt * 100 * 70) / 100) / 100;
+
+        // Update legacy if present (mirror only; ignore if not found). Guard on pending.
+        const legacyRes = await collection.updateOne(
+          { no: num, miner_key, status: 'pending' },
+          { $set: { status: 'claimable', amount: boostedAmount } }
+        );
+        if (legacyRes.modifiedCount && legacyRes.modifiedCount > 0) modifiedAny = true;
+
+        // Source of truth: device-rewards.daily_rewards
+        const devRes = await weeklyCollection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              'daily_rewards.$[elem].status': 'claimable',
+              'daily_rewards.$[elem].amount': boostedAmount
+            }
+          },
+          { arrayFilters: [{ 'elem.reward_number': num, 'elem.status': 'pending' }] }
+        );
+        if (devRes.modifiedCount && devRes.modifiedCount > 0) modifiedAny = true;
+        rewards_nos.push(num);
+      }
+      // Update device-rewards totals (pending -> claimable 70%)
+      const sumOriginal = records.reduce((acc: number, r: any) => acc + (r.amount || 0), 0);
+      const sumBoosted = records.reduce((acc: number, r: any) => acc + Math.round(((r.amount || 0) * 100 * 70) / 100) / 100, 0);
+      await weeklyCollection.updateOne(
+        { miner_key },
+        { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
+      );
+      if (!modifiedAny) {
+        return res.status(409).json({
+          success: false,
+          code: 'ALREADY_TRANSITIONED',
+          message: 'Nothing to boost — selected rewards are no longer pending. Please refresh.'
+        });
+      }
+    } else {
+      // WEEKLY MODE: Update many weekly entries: pending -> claimable and 70% amount
+      const targetNos = records.map((wr: any) => wr.reward_number);
+      const sumOriginal = records.reduce((acc: number, wr: any) => acc + wr.amount, 0);
+      const sumBoosted = Math.round(sumOriginal * 0.7 * 100) / 100;
+      const updateRes = await weeklyCollection.updateOne(
+        { miner_key: data.miner_key },
+        {
+          $set: { 'weekly_rewards.$[elem].status': 'claimable' },
+          $mul: { 'weekly_rewards.$[elem].amount': 0.7 },
+          $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted }
+        },
+        { arrayFilters: [{ 'elem.reward_number': { $in: targetNos }, 'elem.status': 'pending' }] }
+      );
+      if (!updateRes.modifiedCount || updateRes.modifiedCount <= 0) {
+        return res.status(409).json({
+          success: false,
+          code: 'ALREADY_TRANSITIONED',
+          message: 'Nothing to boost — selected rewards are no longer pending. Please refresh.'
+        });
+      }
+      rewards_nos = targetNos;
+    }
 
     let boostReward = {} as RewardBoost;
     boostReward.miner_key = miner_key;
@@ -222,11 +312,11 @@ export default async function handler(
     boostReward.asset_id = FRY_2.id;
     boostReward.price = await getFRYPrice(FRY_2.id);
     boostReward.createdAt = new Date();
-    boostReward.txID = tx.txId;
+    boostReward.txID = tx.txid;
     const insertResult = await bCollection.insertOne(boostReward);
     
     // Respond immediately; confirmation handled by client background polling
-    res.status(200).json({ success: true, message: `Boost submitted for ${miner_key}`, txId: tx.txId });
+    res.status(200).json({ success: true, message: `Boost submitted for ${miner_key}`, txId: tx.txid });
   } catch (error) {
     console.error(miner_key + ':' + error);
     res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });

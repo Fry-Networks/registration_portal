@@ -34,7 +34,7 @@ export default async function handler(
     note: string;
     staking?: boolean;
   } = req.body;
-  const { asset_id, from, to, amount, note, staking } = data;
+  const { asset_id, from: _fromIgnored, to, amount, note, staking } = data;
 
   try {
     // Convert mnemonic to secret key
@@ -56,8 +56,8 @@ export default async function handler(
 
     // Create a transaction to send FRY
     const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      from,
-      to,
+      sender: from,
+      receiver: to,
       amount: testMode ? 0 : amount * 1_000_000,
       assetIndex,
       note: encodedNote,
@@ -70,7 +70,7 @@ export default async function handler(
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
 
-    return res.status(200).json({ txId: tx.txId });
+    return res.status(200).json({ txId: tx.txid });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ txId: null });
