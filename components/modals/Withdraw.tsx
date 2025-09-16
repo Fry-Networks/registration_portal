@@ -13,19 +13,7 @@ const USDAmount = process.env.NODE_ENV === 'production' ? 50 : 0.003;
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
-const fryAlgo = 'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
-import algosdk from 'algosdk';
-import { useWallet } from '@txnlab/use-wallet';
-import { getFRYPrice } from '../../lib/price';
 import { useToastContext } from '../../hooks/ToastContext';
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = '';
-
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 export default function WithdrawModal({
   modalName,
@@ -38,7 +26,6 @@ export default function WithdrawModal({
   product: Product;
   handleWithdrawUpdate: (device: Device) => void;
 }) {
-  const { activeAddress, signTransactions, sendTransactions } = useWallet();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const [isWithdrawable, setIsWithdrawable] = useState(false);

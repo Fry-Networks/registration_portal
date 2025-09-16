@@ -13,8 +13,8 @@ import {
 import { useEffect, useState } from 'react';
 import algosdk from 'algosdk';
 import { RiCloseLine } from '@remixicon/react';
-import { useWallet } from '@txnlab/use-wallet';
-import { CheckCircleIcon } from '@heroicons/react/24/outline';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { getFRYPrice } from '../../lib/price';
 import { useRouter } from 'next/router';
@@ -30,7 +30,7 @@ const FRYIndex = 924268058;
 export default function StakeVerification({ modalName, miner, byod }: { modalName: string, miner?: string, byod: boolean }) {
     const router = useRouter();
     const { modals, closeModal } = useModal();
-    const { activeAddress, signTransactions, sendTransactions } = useWallet();
+    const { activeAddress, signTransactions } = useWallet();
     const [updateSuccess, setUpdateSuccess] = useState<string>("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [paid, setPaid] = useState<boolean>(false);
@@ -78,8 +78,8 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
         try {
             const suggestedParams = await algodClient.getTransactionParams().do();
             const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-                from,
-                to,
+                sender: from,
+                receiver: to,
                 amount: amount * 1_000_000, // Amount in microAlgos
                 note: new Uint8Array(Buffer.from("Verification stake" + (Math.floor(Math.random() * 1000)))),
                 assetIndex: FRYIndex,
@@ -88,8 +88,17 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
 
             const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
             const signedTransactions = await signTransactions([encodedTransaction]);
-            const waitRoundsToConfirm = 4;
-            const { txId } = await sendTransactions(signedTransactions, waitRoundsToConfirm);
+            
+            // Filter out null values and ensure we have valid signed transactions
+            const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
+            
+            if (validSignedTxns.length === 0) {
+                throw new Error('No valid signed transactions');
+            }
+
+            // Send using algodClient directly
+            const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
+            const txId = response.txid;
 
             console.log('Successfully sent transaction. Transaction ID:', txId);
             return txId;
@@ -103,7 +112,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
         setIsLoading(true);
 
         try {
-            const FRYPrice = await getFRYPrice();
+            const FRYPrice = await getFRYPrice('924268058');
 
             if (!FRYPrice || !miner || !activeAddress) {
                 setUpdateSuccess('error');

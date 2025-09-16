@@ -112,9 +112,16 @@ export default function ClaimModal({
 
       const result = await response.json();
       if (!response.ok) {
-        toast.error({ heading: 'Claim Error', message: result.message });
+        const code = result?.code as string | undefined;
+        const friendly =
+          code === 'NO_REWARDS'
+            ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
+            : code === 'UNAUTHORIZED'
+            ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : result?.message || 'Server error';
+        toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
-        setStatusText('Claim failed: ' + (result.message || 'Server error'));
+        setStatusText('Claim failed: ' + friendly);
         setIsProcessing(false);
         return;
       }
@@ -173,9 +180,16 @@ export default function ClaimModal({
           );
         } catch {}
       } else {
-        toast.error({ heading: 'Claim Error', message: result.message });
+        const code = result?.code as string | undefined;
+        const friendly =
+          code === 'NO_REWARDS'
+            ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
+            : code === 'UNAUTHORIZED'
+            ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : result?.message || 'Unknown error';
+        toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
-        setStatusText('Claim failed: ' + (result.message || 'Unknown error'));
+        setStatusText('Claim failed: ' + friendly);
         setIsProcessing(false);
         return;
       }
@@ -186,7 +200,7 @@ export default function ClaimModal({
       setIsProcessing(false);
       return;
     }
-    setIsProcessing(false);
+    // keep processing until watcher confirms or we error
   };
 
   return (
@@ -194,8 +208,8 @@ export default function ClaimModal({
       <Dialog
         open={modals[modalName]}
         onClose={() => {
-          // Allow closing if not in critical stages
-          if (stage === 'paying-fee' || stage === 'submitting') return;
+          // Block closing while fee/submission/awaiting confirmation
+          if (isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted') return;
           closeModal(modalName);
         }}
         static={true}
@@ -206,7 +220,9 @@ export default function ClaimModal({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              onClick={() => !isProcessing && closeModal(modalName)}
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              onClick={() => { if (!(isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted')) closeModal(modalName); }}
               aria-label="Close"
             >
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
@@ -221,7 +237,12 @@ export default function ClaimModal({
           >
             <p>Do you want to claim the rewards?</p>
             {isProcessing && (
-              <p className="text-sm text-gray-700">{statusText}</p>
+              <>
+                <p className="text-sm text-gray-700">{statusText}</p>
+                <p className="text-xs text-gray-500">
+                  Please wait until you see the TxID notification. Do not close this window — it will close automatically after confirmation.
+                </p>
+              </>
             )}
           </Flex>
           <Flex
@@ -231,8 +252,10 @@ export default function ClaimModal({
           >
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
               onClick={() => {
-                if (stage === 'paying-fee' || stage === 'submitting') return;
+                if (isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted') return;
                 closeModal(modalName);
               }}
             >
@@ -242,7 +265,9 @@ export default function ClaimModal({
               className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
-              onClick={() => claimRewards()}
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              onClick={() => { if (!(isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted')) claimRewards(); }}
             >
             {isProcessing ? (
               <svg

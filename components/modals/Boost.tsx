@@ -47,13 +47,24 @@ export default function BoostModal({
       console.log("Boost without response.ok: ", result, response);
       if (!response.ok) {
         console.log("Boost within response.ok: ", response);
+        const code = result?.code as string | undefined;
+        const friendly =
+          code === 'NO_REWARDS'
+            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead.'
+          : code === 'UNAUTHORIZED'
+            ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+          : code === 'SWAP_FAILED'
+            ? 'Swap failed while converting fee to FRY 2.0. Please try again later.'
+          : code === 'INSUFFICIENT_SWAP_AMOUNT'
+            ? 'Amount too small to swap for FRY 2.0. Try a different reward or claim normally.'
+          : result?.message || 'Server error';
         toast.error({
           heading: 'Instant Claim Error',
-          message: result.message
+          message: friendly
         });
 
         setStage('error');
-        setStatusText('Instant claim failed: ' + (result.message || 'Server error'));
+        setStatusText('Instant claim failed: ' + friendly);
         setIsProcessing(false);
         return;
       }
@@ -112,12 +123,23 @@ export default function BoostModal({
           }
         } catch {}
       } else {
+        const code = result?.code as string | undefined;
+        const friendly =
+          code === 'NO_REWARDS'
+            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead.'
+          : code === 'UNAUTHORIZED'
+            ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+          : code === 'SWAP_FAILED'
+            ? 'Swap failed while converting fee to FRY 2.0. Please try again later.'
+          : code === 'INSUFFICIENT_SWAP_AMOUNT'
+            ? 'Amount too small to swap for FRY 2.0. Try a different reward or claim normally.'
+          : result?.message || 'Unknown error';
         toast.error({
           heading: 'Instant Claim Error',
-          message: result.message
+          message: friendly
         });
         setStage('error');
-        setStatusText('Instant claim failed: ' + (result.message || 'Unknown error'));
+        setStatusText('Instant claim failed: ' + friendly);
         setIsProcessing(false);
         return;
       }
@@ -132,7 +154,7 @@ export default function BoostModal({
       setIsProcessing(false);
       return;
     }
-    setIsProcessing(false);
+    // do not clear processing state here; watcher or error paths will
   };
 
   return (
@@ -140,7 +162,7 @@ export default function BoostModal({
       <Dialog
         open={modals[modalName]}
         onClose={() => {
-          if (stage === 'submitting') return;
+          if (isProcessing || stage === 'submitting' || stage === 'submitted') return;
           closeModal(modalName);
         }}
         static={true}
@@ -151,7 +173,9 @@ export default function BoostModal({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              onClick={() => !isProcessing && closeModal(modalName)}
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted')) closeModal(modalName); }}
               aria-label="Close"
             >
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
@@ -166,7 +190,12 @@ export default function BoostModal({
           >
             <p>Claim rewards instantly (30% Fee)</p>
             {isProcessing && (
-              <p className="text-sm text-gray-700">{statusText}</p>
+              <>
+                <p className="text-sm text-gray-700">{statusText}</p>
+                <p className="text-xs text-gray-500">
+                  Please wait until you see the TxID notification. Do not close this window — it will close automatically after confirmation.
+                </p>
+              </>
             )}
           </Flex>
           <Flex
@@ -176,8 +205,10 @@ export default function BoostModal({
           >
             <Button
               className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
               onClick={() => {
-                if (stage === 'submitting') return;
+                if (isProcessing || stage === 'submitting' || stage === 'submitted') return;
                 closeModal(modalName);
               }}
             >
@@ -187,7 +218,9 @@ export default function BoostModal({
               className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
-              onClick={() => boostRewards()}
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted')) boostRewards(); }}
             >
             {isProcessing ? (
               <svg

@@ -2,21 +2,21 @@ import { Button, Dialog, DialogPanel, Flex, Title, Card, Text } from '@tremor/re
 import { useModal } from '../../app/modalcontext';
 import { useState, useEffect } from 'react';
 import { RiCloseLine } from '@remixicon/react';
-import { Device } from '../../lib/types';
+import { Device, Product } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
 import { isNodeStaked, isRegistartionStaked } from '../../lib/utils';
 
-const options = ['Registration Staking', 'Node Staking'];
-
 export default function WithdrawAllModal({
 	modalName,
 	device,
+	product,
 	handleWithdrawAll
 }: {
 	modalName: string;
 	device: Device;
+	product: Product;
 	handleWithdrawAll: (device: Device) => Promise<void>;
 }) {
 	const { modals, closeModal } = useModal();
@@ -24,6 +24,11 @@ export default function WithdrawAllModal({
 	const { data: session } = useSession();
 	const toast = useToastContext();
 	const [selectedOption, setSelectedOption] = useState('');
+
+	// Options depend on product: AI Edge has no Node Staking
+	const options = (product?.name || '').toLowerCase().includes('edge')
+		? ['Registration Staking']
+		: ['Registration Staking', 'Node Staking'];
 
 	useEffect(() => {
 		const defaultOption = options.find((option) => {
