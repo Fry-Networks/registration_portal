@@ -1,9 +1,9 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import Image from 'next/image';
 import { Button, Flex, Title } from '@tremor/react';
 import Link from 'next/link';
@@ -29,14 +29,16 @@ const devMode =
 
 export default () => {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const { providers, activeAccount, getAssets, getAccountInfo } = useWallet();
-  const { devConnect, devAccount, algodClient, setDevConnect } = useDevWallet();
+  const { data: session, status } = useSession();
+  const { wallets, activeAccount, algodClient } = useWallet();
+  const activeWallet = wallets.find(w => w.isActive);
+  const { devConnect, devAccount, algodClient: devAlgodClient, setDevConnect } = useDevWallet();
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [address, setAddress] = useState('');
   const [algoBalance, setAlgoBalance] = useState('0.00');
   const [fryBalance, setFryBalance] = useState('0.00');
   const router = useRouter();
+  const [countdown, setCountdown] = useState<string>("");
 
   const handleDisconnect = () => {
     if (devMode) {
@@ -45,9 +47,9 @@ export default () => {
         signOut();
       }
     } else {
-      providers
-        ?.filter((provider) => provider.isConnected)[0]
-        .disconnect();
+      if (activeWallet) {
+        activeWallet.disconnect();
+      }
       if (session) {
         signOut();
       }
@@ -58,32 +60,39 @@ export default () => {
     if (address && address.length > 0) {
       if (devMode) {
       } else {
-        const assets = async () => {
-          const infos = await getAssets();
-          const accountInfo = await getAccountInfo();
-
-          if (!accountInfo.amount) {
-            setAlgoBalance('0.00');
-          } else {
-            setAlgoBalance(
-              (accountInfo.amount / 10 ** 6).toFixed(2).toString()
-            );
-          }
-
-          if (infos.length === 0) {
-            setFryBalance('0.00');
-          } else {
-            infos.map((info) => {
-              if (info['asset-id'] === 924268058) {
-                setFryBalance((info.amount / 10 ** 6).toFixed(2).toString());
+        const fetchBalances = async () => {
+          try {
+            // algodClient is already available from useWallet hook
+            if (activeAccount) {
+              const accountInfo = await algodClient.accountInformation(activeAccount.address).do();
+              
+              if (!accountInfo.amount) {
+                setAlgoBalance('0.00');
+              } else {
+                setAlgoBalance(
+                  (Number(accountInfo.amount) / 10 ** 6).toFixed(2).toString()
+                );
               }
-            });
-          }
 
-          return infos;
+              if (!accountInfo.assets || accountInfo.assets.length === 0) {
+                setFryBalance('0.00');
+              } else {
+                const fryAsset = accountInfo.assets.find((asset: any) => asset['asset-id'] === 924268058);
+                if (fryAsset) {
+                  setFryBalance((Number(fryAsset.amount) / 10 ** 6).toFixed(2).toString());
+                } else {
+                  setFryBalance('0.00');
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching balances:', error);
+            setAlgoBalance('0.00');
+            setFryBalance('0.00');
+          }
         };
 
-        assets();
+        fetchBalances();
       }
     }
   }, [address]);
@@ -117,6 +126,38 @@ export default () => {
       }
     }
   }, [activeAccount, devConnect]);
+
+  // Countdown to next Friday 00:05 UTC
+  useEffect(() => {
+    const getNextFridayUnlockUTC = (now: Date) => {
+      const day = now.getUTCDay(); // 0=Sun..5=Fri
+      const thisFriday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const diffToFriday = (day + 7 - 5) % 7; // days since last Friday
+      thisFriday.setUTCDate(thisFriday.getUTCDate() - diffToFriday);
+      const thisUnlock = new Date(thisFriday.getTime() + 5 * 60 * 1000);
+      if (now.getTime() >= thisUnlock.getTime()) {
+        const nextFriday = new Date(thisFriday.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return new Date(nextFriday.getTime() + 5 * 60 * 1000);
+      }
+      return thisUnlock;
+    };
+
+    const update = () => {
+      const now = new Date();
+      const target = getNextFridayUnlockUTC(now);
+      const diff = Math.max(0, target.getTime() - now.getTime());
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+      const secs = Math.floor((diff % (60 * 1000)) / 1000);
+      setCountdown(`${days}d ${hours}h ${mins}m ${secs}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // (Ribbon moved to devices page)
 
   return (
     <div>
@@ -217,30 +258,35 @@ export default () => {
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
-            {providers?.map((provider, index) => (
+            {wallets.map((wallet, index) => (
               <div
-                key={`provider ${index}`}
+                key={`wallet ${index}`}
                 className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
-                onClick={() => {
-                  provider.connect();
-                  setIsWalletModalOpen(false);
+                onClick={async () => {
+                  try {
+                    await wallet.connect();
+                    setIsWalletModalOpen(false);
+                  } catch (error) {
+                    console.error('Failed to connect wallet:', error);
+                  }
                 }}
               >
                 <Image
-                  src={provider.metadata.icon}
-                  alt="Pera logo"
+                  src={wallet.metadata.icon}
+                  alt={`${wallet.metadata.name} logo`}
                   width={32}
                   height={32}
                   className="object-contain align-middle"
                 />
                 <div className="cursor-default">
-                  {provider.metadata.name} Wallet
+                  {wallet.metadata.name} Wallet
                 </div>
               </div>
             ))}
           </Flex>
         </div>
       </Modal>
+      {/* Totals ribbon moved to devices page to appear under hero section */}
     </div>
   );
 };

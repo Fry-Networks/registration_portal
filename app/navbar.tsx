@@ -1,9 +1,10 @@
 'use client';
 
-import { Fragment } from 'react';
+import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Disclosure,  } from '@headlessui/react';
-import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline';
+import { Disclosure } from '@headlessui/react';
+// Using @heroicons/react v1 API
+import { MenuIcon, XIcon } from '@heroicons/react/outline';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Button } from '@tremor/react';
@@ -22,6 +23,39 @@ function classNames(...classes: string[]) {
 export default function Navbar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const [countdown, setCountdown] = useState<string>("");
+
+  // Countdown to next Friday 00:05 UTC
+  useEffect(() => {
+    const getNextFridayUnlockUTC = (now: Date) => {
+      const day = now.getUTCDay(); // 0=Sun..5=Fri
+      const thisFriday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const diffToFriday = (day + 7 - 5) % 7; // days since last Friday
+      thisFriday.setUTCDate(thisFriday.getUTCDate() - diffToFriday);
+      const thisUnlock = new Date(thisFriday.getTime() + 5 * 60 * 1000);
+      if (now.getTime() >= thisUnlock.getTime()) {
+        const nextFriday = new Date(thisFriday.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return new Date(nextFriday.getTime() + 5 * 60 * 1000);
+      }
+      return thisUnlock;
+    };
+
+    const update = () => {
+      const now = new Date();
+      const target = getNextFridayUnlockUTC(now);
+      const diff = Math.max(0, target.getTime() - now.getTime());
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+      const secs = Math.floor((diff % (60 * 1000)) / 1000);
+      setCountdown(`${days}d ${hours}h ${mins}m ${secs}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Totals ribbon moved to FloatingTotalsWidget on pages; no totals fetch here
 
   return (
     <Disclosure as="nav" className="bg-white shadow-sm border-b border-gray-400">
@@ -73,7 +107,11 @@ export default function Navbar() {
                   ))}
                 </div>
               </div>
-              <div className="hidden sm:ml-6 sm:flex sm:items-center">
+              <div className="hidden sm:ml-6 sm:flex sm:items-center gap-3">
+                <div className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded-md border border-gray-300">
+                  <span className="font-semibold">Next FRYday (UTC 00:05):</span>{' '}
+                  <span className="tabular-nums">{countdown}</span>
+                </div>
                 {session ? (
                   <Button
                     color="red"
@@ -88,9 +126,9 @@ export default function Navbar() {
                 <Disclosure.Button className="inline-flex items-center justify-center rounded-md bg-white p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2">
                   <span className="sr-only">Open main menu</span>
                   {open ? (
-                    <XMarkIcon className="block h-6 w-6" aria-hidden="true" />
+                    <XIcon className="block h-6 w-6" aria-hidden="true" />
                   ) : (
-                    <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
+                    <MenuIcon className="block h-6 w-6" aria-hidden="true" />
                   )}
                 </Disclosure.Button>
               </div>

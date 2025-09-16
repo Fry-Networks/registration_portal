@@ -8,11 +8,13 @@ import {
 import { useEffect, useState } from 'react';
 import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import ByodConvertModal from '../components/modals/ByodConvert';
-import { signIn, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/router';
 import RegistrationModal from '../components/modals/registrations/RegistrationModal';
 export default function NewRegistrationPage() {
+  const router = useRouter();
   const [minerKey, setMinerKey] = useState('');
   const { data: session, status } = useSession();
   const { openModal, closeModal } = useModal();
@@ -21,9 +23,9 @@ export default function NewRegistrationPage() {
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
   useEffect(() => {
     if (activeAccount && !session) {
-      signIn('wallet');
+      router.push(`/signin?callbackUrl=${encodeURIComponent('/new_registration')}`);
     }
-  }, [activeAccount, session]);
+  }, [activeAccount, session, router]);
   
   const startRegistration = async () => {
     if (!activeAccount) {

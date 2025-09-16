@@ -1,10 +1,9 @@
-import { Title, Text, Button, Card, Dialog, DialogPanel, TextInput, Callout, Flex, Select, MultiSelect, MultiSelectItem } from '@tremor/react';
-import { useWallet } from '@txnlab/use-wallet';
-import { useSession, signIn, getSession } from 'next-auth/react';
+import { Title, Text, Button, Card, TextInput, Flex, MultiSelect, MultiSelectItem } from '@tremor/react';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { useSession, getSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import clientPromise from '../lib/mongoclient';
-import { RiCloseLine } from '@remixicon/react';
-import { CheckCircleIcon, XCircleIcon, ArrowTopRightOnSquareIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ExternalLinkIcon } from '@heroicons/react/outline';
 import UpdateRewardModal from '../components/modals/rewardWallet';
 import PositionModal from '../components/modals/Position';
 import { useModal } from '../app/modalcontext';
@@ -12,7 +11,6 @@ import StakeVerification from '../components/modals/StakeVerification';
 import MessageUpdate from '../components/messageUpdate';
 import NameChangeModal from '../components/modals/NameChange';
 import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
-import mongoose from 'mongoose';
 import { Device } from '../lib/types';
 import { useRouter } from 'next/router';
 
@@ -38,10 +36,13 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
   }, [rewardWallet]);
 
   useEffect(() => {
+    // If wallet is connected but user not authenticated, send them to signin page
     if (activeAccount && !session) {
-      signIn('wallet');
+      router.push(`/signin?callbackUrl=${encodeURIComponent('/my_registrations')}`);
+      return;
     }
-    if (!activeAccount) return;
+    // Must have both wallet and session to fetch
+    if (!activeAccount || !session) return;
     const fetchMinerTypes = async () => {
       const response = await fetch('/api/get_miner_types', {
         method: 'POST',
@@ -57,7 +58,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
     };
     fetchMinerTypes();
 
-  }, [activeAccount, session]);
+  }, [activeAccount, session, router]);
 
 
   useEffect(() => {
@@ -258,7 +259,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                   {device?.hexId && (
                     <Button className="w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
                       <Flex className="flex-row">
-                        Explorer <ArrowTopRightOnSquareIcon className="ml-2" />
+                        Explorer <ExternalLinkIcon className="ml-2 h-5 w-5" />
                       </Flex>
                     </Button>
                   )}
@@ -340,4 +341,3 @@ export async function getServerSideProps(context: any) {
     };
   }
 }
-
