@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   UserIcon,
   UserAddIcon,
@@ -30,6 +30,7 @@ import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
+import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import {
   isNodeStaked,
@@ -154,6 +155,17 @@ const DevicesPage = ({
   const [addr, setAddr] = useState(session?.user.address);
   const [showFry1Check, setShowFry1Check] = useState(false);
   const [showFryConversion, setShowFryConversion] = useState(false);
+  // Ribbon state
+  const [countdown, setCountdown] = useState<string>("");
+  const [totals, setTotals] = useState<{
+    totals: {
+      fry1: { pending: number; claimable: number; claimed: number; accruing: number };
+      fnode: { pending: number; claimable: number; claimed: number; accruing: number };
+      tfry: { pending: number; claimable: number; claimed: number; accruing: number };
+    };
+    nextUnlockAt?: string;
+  } | null>(null);
+  const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const handleAdd = () => {
     openModal('addDevice');
@@ -234,6 +246,78 @@ const DevicesPage = ({
       return;
     }
   };
+
+  // Countdown to next Friday 00:05 UTC (for ribbon)
+  useEffect(() => {
+    const getNextFridayUnlockUTC = (now: Date) => {
+      const day = now.getUTCDay();
+      const thisFriday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const diffToFriday = (day + 7 - 5) % 7;
+      thisFriday.setUTCDate(thisFriday.getUTCDate() - diffToFriday);
+      const thisUnlock = new Date(thisFriday.getTime() + 5 * 60 * 1000);
+      if (now.getTime() >= thisUnlock.getTime()) {
+        const nextFriday = new Date(thisFriday.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return new Date(nextFriday.getTime() + 5 * 60 * 1000);
+      }
+      return thisUnlock;
+    };
+    const update = () => {
+      const now = new Date();
+      const target = getNextFridayUnlockUTC(now);
+      const diff = Math.max(0, target.getTime() - now.getTime());
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+      const secs = Math.floor((diff % (60 * 1000)) / 1000);
+      setCountdown(`${days}d ${hours}h ${mins}m ${secs}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Fetch totals for ribbon (only when signed in)
+  useEffect(() => {
+    let active = true;
+    let id: any;
+    const start = async () => {
+      if (!session?.user?.address) {
+        setTotals(null);
+        return;
+      }
+      const fetchTotals = async () => {
+        try {
+          const res = await fetch('/api/rewards/get-asset-totals', { method: 'POST' });
+          if (!res.ok) { if (active) setTotals(null); return; }
+          const json = await res.json();
+          if (active) setTotals(json);
+        } catch { if (active) setTotals(null); }
+      };
+      await fetchTotals();
+      id = setInterval(fetchTotals, 30000);
+    };
+    start();
+    return () => { active = false; if (id) clearInterval(id); };
+  }, [session?.user?.address]);
+
+  // Estimated weekly earnings (per asset) from current week accrual pace
+  const { estimatedFry1, estimatedFnode, estimatedTfry } = useMemo(() => {
+    if (!totals?.totals) return { estimatedFry1: 0, estimatedFnode: 0, estimatedTfry: 0 };
+    const accFry1 = totals.totals.fry1?.accruing || 0;
+    const accFnode = totals.totals.fnode?.accruing || 0;
+    const accTfry = totals.totals.tfry?.accruing || 0;
+    const now = new Date();
+    const day = now.getUTCDay();
+    const thisFriday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const diffToFriday = (day + 7 - 5) % 7;
+    thisFriday.setUTCDate(thisFriday.getUTCDate() - diffToFriday);
+    const elapsed = Math.floor((now.getTime() - thisFriday.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    const daysElapsed = Math.min(7, Math.max(1, elapsed));
+    const est1 = Math.round(((accFry1 / daysElapsed) * 7) * 100) / 100;
+    const estN = Math.round(((accFnode / daysElapsed) * 7) * 100) / 100;
+    const estT = Math.round(((accTfry / daysElapsed) * 7) * 100) / 100;
+    return { estimatedFry1: est1, estimatedFnode: estN, estimatedTfry: estT };
+  }, [totals?.totals]);
 
   const handleSetting = async (minerKey: string): Promise<void> => {
     // Redirect to an edit page where the device details can be modified
@@ -498,7 +582,7 @@ const DevicesPage = ({
       <div className="relative flex">
         <Image
           src={bgImg}
-          className="w-full h-[30vh] object-cover"
+          className="w-full h-[18vh] sm:h-[22vh] object-cover"
           alt="Background Image"
           priority
         />
@@ -515,6 +599,16 @@ const DevicesPage = ({
           </p>
         </Flex>
       </div>
+      {/* FloatingTotalsWidget - replaces old sticky ribbon */}
+      {session?.user?.address && totals && (
+        <FloatingTotalsWidget
+          totals={totals}
+          countdown={countdown}
+          estimatedFry1={estimatedFry1}
+          estimatedFnode={estimatedFnode}
+          estimatedTfry={estimatedTfry}
+        />
+      )}
       <Flex
         flexDirection="row"
         justifyContent="evenly"
@@ -605,29 +699,7 @@ const DevicesPage = ({
           </Flex>
       </Flex>
     </div>
-    {/* All devices totals banner */}
-    <div className="w-full px-2 sm:px-20 mt-4">
-      <div className="border border-red-600 rounded-md p-3 text-white">
-        <div className="font-semibold mb-2">All Devices Totals</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-          <div>
-            <div className="text-gray-300">FRY 1.0</div>
-            <div>Pending: {bannerTotals?.FRY1?.pending ?? 0}</div>
-            <div>Claimable: {bannerTotals?.FRY1?.claimable ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-gray-300">fNode</div>
-            <div>Pending: {bannerTotals?.fNODE?.pending ?? 0}</div>
-            <div>Claimable: {bannerTotals?.fNODE?.claimable ?? 0}</div>
-          </div>
-          <div>
-            <div className="text-gray-300">tFry (coming soon)</div>
-            <div>Pending: {bannerTotals?.tFRY?.pending ?? 0}</div>
-            <div>Claimable: {bannerTotals?.tFRY?.claimable ?? 0}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    {/* Totals banner removed; now provided in top Navbar ribbon */}
     <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
       {/* Sort controls */}
       <div className="flex flex-row items-center gap-4 mb-4">
@@ -725,6 +797,7 @@ const DevicesPage = ({
           <WithdrawAllModal
             modalName="withdraw_all"
             device={selectedDevice}
+            product={findProductByMinerKey(selectedDevice.miner_key, products)!}
             handleWithdrawAll={handleWithdrawAll}
           />
 

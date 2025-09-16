@@ -1,6 +1,6 @@
 import useSWR from 'swr';
 
-export type Summary = { pending: number; claimable: number };
+export type Summary = { pending: number; claimable: number; claimed?: number; accruing?: number; nextUnlockAt?: string };
 
 const fetcher = async (key: string): Promise<Summary> => {
   const [, miner_key] = key.split(':');

@@ -54,6 +54,7 @@ export default function DeviceListItem({
 }) {
   const [pendingAmount, setPendingAmount] = useState(0);
   const [claimableAmount, setClaimableAmount] = useState(0);
+  const [claimedAmount, setClaimedAmount] = useState(0);
   const [alertShow, setAlertShow] = useState(!!initialStatus);
   const [deviceStatus, setDeviceStatus] = useState<{ [key: string]: string }>(
     (initialStatus as any) || {}
@@ -79,6 +80,7 @@ export default function DeviceListItem({
   };
 
   const { data: rewardSummary } = useRewardSummary(device?.miner_key);
+  const [countdown, setCountdown] = useState<string>("");
 
   const fetchDeviceInfo = async (minerKey: string) => {
     try {
@@ -118,9 +120,31 @@ export default function DeviceListItem({
     if (rewardSummary) {
       setPendingAmount(rewardSummary.pending || 0);
       setClaimableAmount(rewardSummary.claimable || 0);
+      setClaimedAmount(rewardSummary.claimed || 0);
     }
     checkDeviceStatus(device);
   }, [device, rewardSummary]);
+
+  // Simple countdown to next unlock (Friday 00:05 UTC) if provided by API
+  useEffect(() => {
+    if (!rewardSummary?.nextUnlockAt) {
+      setCountdown("");
+      return;
+    }
+    const target = new Date(rewardSummary.nextUnlockAt).getTime();
+    const update = () => {
+      const now = Date.now();
+      const diff = Math.max(0, target - now);
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+      const secs = Math.floor((diff % (60 * 1000)) / 1000);
+      setCountdown(`${days}d ${hours}h ${mins}m ${secs}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [rewardSummary?.nextUnlockAt]);
 
   const viewHistory = async (): Promise<void> => {
     router.push({
@@ -242,6 +266,24 @@ export default function DeviceListItem({
             <strong className="text-white">Claimable Reward Amount: </strong>
             {claimableAmount}
           </p>
+          <p>
+            <strong className="text-white">Claimed Reward Amount: </strong>
+            {claimedAmount}
+          </p>
+          {rewardSummary && (
+            <div className="mt-2 p-2 rounded bg-gray-800 text-gray-200">
+              <p>
+                <strong>This Week's Accrual (preview): </strong>
+                {rewardSummary.accruing ?? 0}
+              </p>
+              {rewardSummary.nextUnlockAt && (
+                <p>
+                  <strong>Unlocks (UTC): </strong>
+                  {new Date(rewardSummary.nextUnlockAt).toUTCString()} {countdown && `• ${countdown}`}
+                </p>
+              )}
+            </div>
+          )}
           <Flex
             justifyContent="start"
             className="gap-3 mt-3 flex-wrap sm:flex-nowrap"

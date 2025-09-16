@@ -202,22 +202,38 @@ export async function getServerSideProps(context: any) {
   const { miner_key } = query;
 
   try {
+    const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
     const client = await clientPromise;
     const db = client.db('main');
-    const rewards = await db
-      .collection(testMode ? 'test-rewards' : 'rewards')
-      .find({ miner_key: miner_key })
-      .sort({ _id: -1 })
-      .limit(20)
-      .toArray();
+    if (!WEEKLY_FLAG) {
+      const rewards = await db
+        .collection(testMode ? 'test-rewards' : 'rewards')
+        .find({ miner_key: miner_key })
+        .sort({ _id: -1 })
+        .limit(20)
+        .toArray();
 
-    if (!rewards) {
       return {
         props: {
-          initialRewards: []
+          initialRewards: JSON.parse(JSON.stringify(rewards || []))
         }
       };
     } else {
+      const doc = await db.collection('device-rewards').findOne({ miner_key });
+      const rewards = (doc?.weekly_rewards || [])
+        .map((wr: any) => ({
+          _id: wr._id,
+          miner_key,
+          no: wr.reward_number,
+          status: wr.status,
+          asset_id: wr.asset_id,
+          amount: wr.amount,
+          txId: wr.tx_id,
+          createdAt: wr.unlock_at,
+          claimedAt: wr.claimed_at
+        }))
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 20);
       return {
         props: {
           initialRewards: JSON.parse(JSON.stringify(rewards))
