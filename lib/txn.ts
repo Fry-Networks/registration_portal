@@ -100,26 +100,29 @@ export async function sendAlgoTransaction(
       const enc = new TextEncoder();
       const encodedNote = enc.encode(note);
 
-      const transaction =
-        algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-          from,
-          to,
-          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
-          note: encodedNote,
-          assetIndex: Number(asset_id === 'none' ? 0 : asset_id),
-          suggestedParams
-        });
+      const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        sender: from,
+        receiver: to,
+        amount: testMode ? 0 : amount * 1_000_000,
+        note: encodedNote,
+        assetIndex: Number(asset_id === 'none' ? 0 : asset_id),
+        suggestedParams
+      });
 
       const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
       const signedTransactions = await signTransactions([encodedTransaction]);
 
-      const waitRoundsToConfirm = 0;
-      const result = await sendTransactions(
-        signedTransactions,
-        waitRoundsToConfirm
-      );
-
-      txId = result.txId;
+      // Fallback: if a dedicated send function isn't provided by the wallet hook,
+      // submit via algod directly.
+      const nonNullSigned = (signedTransactions || []).filter((b: Uint8Array | null) => !!b) as Uint8Array[];
+      if (sendTransactions) {
+        const waitRoundsToConfirm = 0;
+        const result = await sendTransactions(nonNullSigned, waitRoundsToConfirm);
+        txId = result.txId;
+      } else {
+        const sendResult = await algodClient.sendRawTransaction(nonNullSigned).do();
+        txId = sendResult.txid as string;
+      }
     }
   } catch (error) {
     console.error(error);

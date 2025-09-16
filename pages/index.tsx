@@ -2,7 +2,7 @@ import { Flex, Title } from '@tremor/react';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useDevWallet } from '../hooks/UseDevWallet';
-import { useWallet } from '@txnlab/use-wallet';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect } from 'react';
 import SignIn from '../components/SignIn';

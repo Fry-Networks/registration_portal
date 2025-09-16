@@ -11,6 +11,7 @@ import { WithId } from 'mongodb';
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -37,7 +38,7 @@ export default async function handler(
 
   const data: {
     miner_key: string;
-    no: number;
+    no?: number; // optional in weekly mode to claim all claimable
     address: string;
   } = req.body;
 
@@ -55,6 +56,7 @@ export default async function handler(
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+    const weeklyCollection = db.collection('device-rewards');
     const deviceCollection = db.collection(
       testMode ? 'test-devices' : 'devices'
     );
@@ -78,33 +80,89 @@ export default async function handler(
       return;
     }
 
-    records = await collection
-      .find(
-        no
-          ? { miner_key: miner_key, no: no, status: 'claimable' }
-          : { miner_key: miner_key, status: 'claimable' }
-      )
-      .toArray() as WithId<Reward>[];
-    if (!records || records.length <= 0) {
-      lockSet.delete(miner_key);
-      res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
-      return;
+    let claimTargetMode: 'legacy' | 'device' = 'legacy';
+    if (!WEEKLY_FLAG) {
+      records = await collection
+        .find(
+          no
+            ? { miner_key: miner_key, no: no, status: 'claimable' }
+            : { miner_key: miner_key, status: 'claimable' }
+        )
+        .toArray() as WithId<Reward>[];
+      if (!records || records.length <= 0) {
+        lockSet.delete(miner_key);
+        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
+        return;
+      }
+      claimTargetMode = 'legacy';
+    } else {
+      // WEEKLY MODE: prefer device-rewards (weekly + daily) as source of truth
+      const doc = await weeklyCollection.findOne({ miner_key });
+      const weeklyClaimables = (doc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
+      const dailyClaimables = (doc?.daily_rewards || []).filter((dr: any) => dr.status === 'claimable');
+
+      let weeklyTargets: any[] = [];
+      let dailyTargets: any[] = [];
+
+      if (typeof no === 'number') {
+        weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
+        if (weeklyTargets.length === 0) {
+          dailyTargets = dailyClaimables.filter((dr: any) => dr.reward_number === no);
+        }
+        if (weeklyTargets.length === 0 && dailyTargets.length === 0) {
+          // Final fallback: legacy specific
+          const legacyTargets = await collection.find({ miner_key, no, status: 'claimable' }).toArray();
+          if (!legacyTargets || legacyTargets.length === 0) {
+            lockSet.delete(miner_key);
+            res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
+            return;
+          }
+          records = legacyTargets as any;
+          claimTargetMode = 'legacy';
+        } else {
+          const deviceRecords: any[] = [];
+          weeklyTargets.forEach((wr: any) => deviceRecords.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
+          dailyTargets.forEach((dr: any) => deviceRecords.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
+          records = deviceRecords as any;
+          claimTargetMode = 'device';
+        }
+      } else {
+        if (weeklyClaimables.length === 0 && dailyClaimables.length === 0) {
+          // Fallback to legacy device-level
+          const legacyList = await collection.find({ miner_key, status: 'claimable' }).toArray();
+          if (!legacyList || legacyList.length === 0) {
+            lockSet.delete(miner_key);
+            res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
+            return;
+          }
+          records = legacyList as any;
+          claimTargetMode = 'legacy';
+        } else {
+          const deviceRecords: any[] = [];
+          weeklyClaimables.forEach((wr: any) => deviceRecords.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
+          dailyClaimables.forEach((dr: any) => deviceRecords.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
+          records = deviceRecords as any;
+          claimTargetMode = 'device';
+        }
+      }
     }
 
     let success = true;
-    for (let i = 0; i < records.length; i++) {
-      const reward = records[i] as Reward;
-      const updateResult = await collection.updateOne(
-        { no: reward.no, miner_key: reward.miner_key },
-        {
-          $set: {
-            status: 'claimed',
+    if (claimTargetMode === 'legacy') {
+      for (let i = 0; i < records.length; i++) {
+        const reward = records[i] as Reward;
+        const updateResult = await collection.updateOne(
+          { no: reward.no, miner_key: reward.miner_key },
+          {
+            $set: {
+              status: 'claimed',
+            }
           }
-        }
-      );
+        );
 
-      if (updateResult.matchedCount <= 0) {
-        success = false;
+        if (updateResult.matchedCount <= 0) {
+          success = false;
+        }
       }
     }
 
@@ -115,7 +173,7 @@ export default async function handler(
     }
 
     step.id = 2;
-    step.value = 'Step2: Set claimable to claimed status.';
+    step.value = 'Updated status to "claimed" for selected rewards (pre-broadcast).';
 
     type Result = {
       asset_id: number;
@@ -123,7 +181,7 @@ export default async function handler(
       txId?: string; // Optional field
     };
 
-    const sumByAssetId = records.reduce((acc, reward) => {
+    const sumByAssetId = records.reduce((acc, reward: any) => {
       const asset_id = reward.asset_id ?? '924268058';
       if (acc.has(Number(asset_id))) {
         acc.set(
@@ -143,15 +201,17 @@ export default async function handler(
       })
     );
 
+    step.value = 'Preparing network parameters';
     const suggestedParams = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
     const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
 
     const from = account.addr;
-    let txns: algosdk.TransactionLike[] = [];
+    let txns: algosdk.Transaction[] = [];
     let signedTxns: Uint8Array[] = [];
 
     for (let i = 0; i < resultArray.length; i++) {
+      step.value = 'Creating reward transactions';
       const noteInfo = {
         miner_key:
           miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
@@ -166,8 +226,8 @@ export default async function handler(
       const decimals = await getAssetDecimals(resultArray[i].asset_id);
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        from,
-        to: device.reward_wallet,
+        sender: from,
+        receiver: device.reward_wallet,
         amount: testMode ? 0 : resultArray[i].totalAmount * Math.pow(10, decimals || 0),
         assetIndex: Number(resultArray[i].asset_id),
         note,
@@ -175,11 +235,12 @@ export default async function handler(
       });
 
       txns.push(txn);
-
+      step.value = 'Signing reward transactions';
       const signedTxn = txn.signTxn(rekey.sk);
       signedTxns.push(signedTxn);
     }
 
+    step.value = 'Assigning group ID to transactions';
     algosdk.assignGroupID(txns);
     // const stx = await algodClient.simulateRawTransactions(signedTxns).do();
 
@@ -200,6 +261,7 @@ export default async function handler(
     //   return;
     // }
 
+    step.value = 'Broadcasting transactions to the network';
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
     if (!tx) {
       lockSet.delete(miner_key);
@@ -208,32 +270,106 @@ export default async function handler(
     }
 
     step.id = 3;
-    step.value = `Step3: Broadcasted reward claim transaction.`;
+    step.value = `Broadcasted reward claim transaction.`;
 
-    success = true;
-    for (let i = 0; i < records.length; i++) {
-      const reward = records[i] as Reward;
-      const updateResult = await collection.updateOne(
-        { no: reward.no, miner_key: reward.miner_key },
-        {
-          $set: {
-            txId: tx.txId,
-            // Optimistic timestamp; can be refined later by a background job
-            claimedAt: new Date(),
+    // post-broadcast updates
+    if (claimTargetMode === 'legacy') {
+      // Legacy daily: set txId/claimedAt in legacy and mirror into device-rewards.daily_rewards
+      let modifiedAny = false;
+      for (let i = 0; i < records.length; i++) {
+        const reward = records[i] as Reward;
+        const updateResult = await collection.updateOne(
+          { no: reward.no, miner_key: reward.miner_key, status: 'claimable' },
+          {
+            $set: {
+              txId: tx.txid,
+              claimedAt: new Date(),
+            }
           }
-        }
-      );
+        );
+        if (updateResult.modifiedCount && updateResult.modifiedCount > 0) modifiedAny = true;
 
-      if (updateResult.matchedCount <= 0) {
-        success = false;
+        // Mirror into device-rewards.daily_rewards
+        const upd = await weeklyCollection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              'daily_rewards.$[elem].status': 'claimed',
+              'daily_rewards.$[elem].tx_id': tx.txid,
+              'daily_rewards.$[elem].claimed_at': new Date()
+            }
+          },
+          { arrayFilters: [{ 'elem.reward_number': reward.no, 'elem.status': 'claimable' }] }
+        );
+        if (upd.modifiedCount && upd.modifiedCount > 0) modifiedAny = true;
+      }
+      // Adjust totals: claimable -> claimed
+      const sumClaimed = records.reduce((acc, r: any) => acc + r.amount, 0);
+      await weeklyCollection.updateOne(
+        { miner_key },
+        { $inc: { total_claimable: -sumClaimed, total_claimed: sumClaimed } }
+      );
+      if (!modifiedAny) {
+        lockSet.delete(miner_key);
+        return res.status(409).json({
+          success: false,
+          code: 'ALREADY_TRANSITIONED',
+          message: 'Nothing to claim — selected rewards are no longer claimable. Please refresh.'
+        });
+      }
+    } else {
+      // Device-based: mark selected weekly and/or daily entries as claimed and set tx_id
+      const weeklyNos = (records as any[]).filter(r => r.source === 'weekly').map(r => r.reward_number);
+      const dailyNos = (records as any[]).filter(r => r.source === 'daily').map(r => r.reward_number);
+      const totalAmount = resultArray.reduce((acc, r) => acc + r.totalAmount, 0);
+
+      let modifiedAny = false;
+      if (weeklyNos.length > 0) {
+        const updW = await weeklyCollection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              'weekly_rewards.$[elem].status': 'claimed',
+              'weekly_rewards.$[elem].tx_id': tx.txid,
+              'weekly_rewards.$[elem].claimed_at': new Date()
+            }
+          },
+          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
+        );
+        if (updW.modifiedCount && updW.modifiedCount > 0) modifiedAny = true;
+      }
+
+      if (dailyNos.length > 0) {
+        const updD = await weeklyCollection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              'daily_rewards.$[elem].status': 'claimed',
+              'daily_rewards.$[elem].tx_id': tx.txid,
+              'daily_rewards.$[elem].claimed_at': new Date()
+            }
+          },
+          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
+        );
+        if (updD.modifiedCount && updD.modifiedCount > 0) modifiedAny = true;
+      }
+
+      // Adjust totals
+      await weeklyCollection.updateOne(
+        { miner_key },
+        { $inc: { total_claimable: -totalAmount, total_claimed: totalAmount } }
+      );
+      if (!modifiedAny) {
+        lockSet.delete(miner_key);
+        return res.status(409).json({
+          success: false,
+          code: 'ALREADY_TRANSITIONED',
+          message: 'Nothing to claim — selected rewards are no longer claimable. Please refresh.'
+        });
       }
     }
 
-    if (success === false) {
-      lockSet.delete(miner_key);
-      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to set transaction ID for miner ${miner_key}` });
-      return;
-    }
+    // no-op: all error cases above return early with clear messages
 
     step.id = 4;
     step.value = `Step4: Recorded transaction ID in database.`;
@@ -242,7 +378,7 @@ export default async function handler(
     res.status(200).json({
       success: true,
       message: `Claim submitted for ${miner_key}`,
-      result: tx.txId
+      result: tx.txid
     });
 
   } catch (error) {
@@ -250,33 +386,46 @@ export default async function handler(
     lockSet.delete(miner_key);
 
     if (step.id === 2) {
-      const client = await clientPromise;
-      const db = client.db('main');
-      const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
-
-      let success = true;
-      for (let i = 0; i < records.length; i++) {
-        const reward = records[i] as Reward;
-        const updateResult = await collection.updateOne(
-          { no: reward.no, miner_key: reward.miner_key },
-          {
-            $set: {
-              status: 'claimable',
-            }
+      try {
+        const client = await clientPromise;
+        const db = client.db('main');
+        if (!WEEKLY_FLAG) {
+          const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
+          let ok = true;
+          for (let i = 0; i < records.length; i++) {
+            const reward = records[i] as Reward;
+            const updateResult = await collection.updateOne(
+              { no: reward.no, miner_key: reward.miner_key },
+              { $set: { status: 'claimable' } }
+            );
+            if (updateResult.matchedCount <= 0) ok = false;
           }
-        );
-  
-        if (updateResult.matchedCount <= 0) {
-          success = false;
+          if (!ok) {
+            res.status(402).json({ success: false, message: `Failed to reset claimed status for miner ${miner_key}` });
+            return;
+          }
+        } else {
+          const weeklyCollection = db.collection('device-rewards');
+          // Reset weekly entries back to claimable
+          const weeklyDoc = await weeklyCollection.findOne({ miner_key });
+          const claimables = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
+          const targetNos = typeof data.no === 'number'
+            ? claimables.filter((wr: any) => wr.reward_number === data.no).map((wr: any) => wr.reward_number)
+            : claimables.map((wr: any) => wr.reward_number);
+          await weeklyCollection.updateOne(
+            { miner_key },
+            {
+              $set: {
+                'weekly_rewards.$[elem].status': 'claimable',
+                'weekly_rewards.$[elem].tx_id': undefined,
+                'weekly_rewards.$[elem].claimed_at': undefined
+              }
+            },
+            { arrayFilters: [{ 'elem.reward_number': { $in: targetNos } }] }
+          );
         }
-      }
-
-      if (success === false) {
-        res.status(402).json({
-          success: false,
-          message: `Failed to reset claimed status for miner ${miner_key}`
-        });
-        return;
+      } catch (e) {
+        // fallthrough to generic error
       }
     }
 

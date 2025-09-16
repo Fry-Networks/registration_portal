@@ -39,6 +39,33 @@ export default function WalletAuthProvider(): Provider {
           address: credentials.address
         });
         if (exists) {
+          // If existing user lacks profile fields and credentials provide them, update the record
+          const needsUpdate =
+            !exists.email || !exists.first_name || !exists.last_name;
+          if (
+            needsUpdate &&
+            credentials.email &&
+            credentials.first_name &&
+            credentials.last_name
+          ) {
+            await collection.updateOne(
+              { address: credentials.address },
+              {
+                $set: {
+                  email: credentials.email,
+                  first_name: credentials.first_name,
+                  last_name: credentials.last_name
+                }
+              }
+            );
+            return {
+              id: credentials.address,
+              address: credentials.address,
+              email: credentials.email,
+              first_name: credentials.first_name,
+              last_name: credentials.last_name
+            };
+          }
           return {
             id: credentials.address,
             address: credentials.address,

@@ -1,5 +1,7 @@
 import { Device, Product, Asset } from './types';
 import algosdk, { Indexer, Account } from 'algosdk';
+// Use Tinyman's bundled algosdk for Tinyman operations to avoid API/type drift
+import * as TinymanAlgo from '@tinymanorg/tinyman-js-sdk/node_modules/algosdk';
 import {
   poolUtils,
   SupportedNetwork,
@@ -7,18 +9,23 @@ import {
   SwapType,
   SignerTransaction
 } from '@tinymanorg/tinyman-js-sdk';
-import {
-  DEFAULT_NODE_BASEURL,
-  DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_PORT
-} from '@txnlab/use-wallet';
+// Mainnet API endpoints for production
+const DEFAULT_NODE_BASEURL = 'https://mainnet-api.algonode.cloud';
+const DEFAULT_NODE_TOKEN = '';
+const DEFAULT_NODE_PORT = 443;
 import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
 
-const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud/';
-const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io/';
+const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud';
+const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io';
 const API_TOKEN = 'REDACTED_ROTATE_ME';
 
 export const algodClient = new algosdk.Algodv2(
+  DEFAULT_NODE_TOKEN,
+  DEFAULT_NODE_BASEURL,
+  DEFAULT_NODE_PORT
+);
+// Dedicated client instance using Tinyman's bundled algosdk (supports setIntDecoding at runtime & types)
+const tinymanAlgodClient = new TinymanAlgo.Algodv2(
   DEFAULT_NODE_TOKEN,
   DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_PORT
@@ -109,15 +116,19 @@ export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
       .accountInformation(REWALD_WALLET)
       .do();
 
+    if (!accountInfo.assets) {
+      return 0;
+    }
+
     const asset = accountInfo.assets.find(
       (a: any) => a['asset-id'] === parseInt(assetId)
     );
 
     if (asset) {
-      return asset.amount / Math.pow(10, 6);
+      return Number(asset.amount) / Math.pow(10, 6);
     } else {
-      return 0;
       console.log('Wallet does not hold this asset.');
+      return 0;
     }
   } catch (err) {
     console.error('Error fetching balance:', err);
@@ -265,28 +276,31 @@ export const computeDeviceStatus = (
 };
 
 export const getTransactionTime = async (
-  txId: string | undefined
+  txId: string | undefined,
+  opts?: { retries?: number; delayMs?: number }
 ): Promise<Date> => {
-  try {
-    // Fetch the transaction details
-    if (txId !== undefined) {
-      const txInfo = await indexerClient.lookupTransactionByID(txId).do();
+  const retries = opts?.retries ?? 3;
+  const delayMs = opts?.delayMs ?? 1000;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+  if (!txId) return new Date();
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const txInfo = await indexerClient.lookupTransactionByID(txId).do();
       if (txInfo.transaction && txInfo.transaction['round-time']) {
-        const transactionTime = new Date(
-          txInfo.transaction['round-time'] * 1000
-        );
-        // console.log('transactionTime : ', transactionTime, new Date());
-        return transactionTime;
-      } else {
-        return new Date();
+        return new Date(txInfo.transaction['round-time'] * 1000);
+      }
+    } catch (error: any) {
+      const status = error?.status || error?.response?.status;
+      // 404 is common while indexer is catching up; avoid noisy logs unless verbose enabled
+      if (status !== 404 && process.env.NEXT_PUBLIC_VERBOSE_INDEXER_LOGS === 'true') {
+        console.error('getTransactionTime:', error);
       }
     }
-    return new Date();
-  } catch (error) {
-    console.error('getTransactionTime: ', error);
-    return new Date();
+    if (i < retries - 1) await sleep(delayMs);
   }
+  return new Date();
 };
 
 // export const requestGasFee = async (from: string | undefined, signTransactions: any, sendTransactions: any): Promise<boolean> => {
@@ -333,8 +347,9 @@ export const getTransactionTime = async (
 export const signerWithSecretKey = (account: Account, rekey: Account) => {
   return function (txGroups: SignerTransaction[][]): Promise<Uint8Array[]> {
     // Filter out transactions that don't need to be signed by the account
+    const signerAddr = account.addr.toString();
     const txnsToBeSigned = txGroups.flatMap((txGroup) =>
-      txGroup.filter((item) => item.signers?.includes(account.addr))
+      txGroup.filter((item) => item.signers?.includes(signerAddr))
     );
     // Sign all transactions that need to be signed by the account
     const signedTxns: Uint8Array[] = txnsToBeSigned.map(({ txn }) =>
@@ -369,10 +384,10 @@ export const fixedInputSwap = async ({
   rekey: Account;
 }) => {
   try {
-    const initiatorAddr = account.addr;
+    const initiatorAddr = account.addr.toString();
     const pool = await poolUtils.v2.getPoolInfo({
       network: 'mainnet' as SupportedNetwork,
-      client: algodClient,
+      client: tinymanAlgodClient,
       asset1ID: Number(asset_1.id),
       asset2ID: Number(asset_2.id)
     });
@@ -402,7 +417,7 @@ export const fixedInputSwap = async ({
     });
 
     let fixedInputSwapTxns = await Swap.v2.generateTxns({
-      client: algodClient,
+      client: tinymanAlgodClient,
       network: 'mainnet' as SupportedNetwork,
       quote: fixedInputSwapQuote,
       swapType: SwapType.FixedInput,
@@ -423,7 +438,7 @@ export const fixedInputSwap = async ({
       if (txStatus && txStatus['confirmed-round']) {
         while (true) {
           fixedInputSwapTxns = await Swap.v2.generateTxns({
-            client: algodClient,
+            client: tinymanAlgodClient,
             network: 'mainnet' as SupportedNetwork,
             quote: fixedInputSwapQuote,
             swapType: SwapType.FixedInput,
@@ -453,7 +468,7 @@ export const fixedInputSwap = async ({
     });
 
     const swapExecutionResponse = await Swap.v2.execute({
-      client: algodClient,
+      client: tinymanAlgodClient,
       quote: fixedInputSwapQuote,
       signedTxns,
       txGroup: fixedInputSwapTxns
