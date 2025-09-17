@@ -76,39 +76,7 @@ export default async function handler(
       return;
     }
 
-    if (!WEEKLY_FLAG) {
-      const collection = testMode
-        ? db.collection('test-rewards')
-        : db.collection('rewards');
-
-      // Aggregate totals for pending and claimable in one pass
-      const pipeline = [
-        { $match: { miner_key, status: { $in: ['pending', 'claimable'] } } },
-        {
-          $group: {
-            _id: '$status',
-            total: { $sum: { $toDouble: '$amount' } }
-          }
-        }
-      ];
-
-      const grouped = (await collection
-        .aggregate(pipeline)
-        .toArray()) as Array<{ _id: string; total: number }>;
-
-      const summary = grouped.reduce(
-        (acc: Record<string, number>, cur) => {
-          acc[cur._id] = Math.round((cur.total || 0) * 100) / 100;
-          return acc;
-        },
-        { pending: 0, claimable: 0 }
-      );
-
-      res.status(200).json({ success: true, summary });
-      return;
-    }
-
-    // WEEKLY MODE (device-centric)
+    // Device-rewards is the single source of truth
     const devRewardsCol = db.collection('device-rewards');
     const doc = await devRewardsCol.findOne({ miner_key });
     let pending = 0;
@@ -141,7 +109,7 @@ export default async function handler(
         }
       }
 
-      // Sum daily accruals within this week for preview
+      // Sum daily accruals within this week for preview (always from device-rewards)
       const { dateStrings, nextUnlockAt: nua } = getCurrentWeekWindow(new Date());
       nextUnlockAt = nua.toISOString();
       if (Array.isArray(doc.daily_rewards)) {

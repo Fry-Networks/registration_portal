@@ -202,44 +202,53 @@ export async function getServerSideProps(context: any) {
   const { miner_key } = query;
 
   try {
-    const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
     const client = await clientPromise;
     const db = client.db('main');
-    if (!WEEKLY_FLAG) {
-      const rewards = await db
-        .collection(testMode ? 'test-rewards' : 'rewards')
-        .find({ miner_key: miner_key })
-        .sort({ _id: -1 })
-        .limit(20)
-        .toArray();
+    const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
+    const CUTOFF_DATE = new Date(CUTOFF_ISO);
 
-      return {
-        props: {
-          initialRewards: JSON.parse(JSON.stringify(rewards || []))
-        }
-      };
-    } else {
-      const doc = await db.collection('device-rewards').findOne({ miner_key });
-      const rewards = (doc?.weekly_rewards || [])
-        .map((wr: any) => ({
-          _id: wr._id,
-          miner_key,
-          no: wr.reward_number,
-          status: wr.status,
-          asset_id: wr.asset_id,
-          amount: wr.amount,
-          txId: wr.tx_id,
-          createdAt: wr.unlock_at,
-          claimedAt: wr.claimed_at
-        }))
-        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 20);
-      return {
-        props: {
-          initialRewards: JSON.parse(JSON.stringify(rewards))
-        }
-      };
+    const doc = await db.collection('device-rewards').findOne({ miner_key });
+    if (!doc) {
+      return { props: { initialRewards: [] } };
     }
+
+    const weekly = (doc?.weekly_rewards || [])
+      .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
+      .map((wr: any) => ({
+        _id: wr._id,
+        miner_key,
+        no: wr.reward_number,
+        status: wr.status,
+        asset_id: wr.asset_id,
+        amount: wr.amount,
+        txId: wr.tx_id,
+        createdAt: wr.unlock_at,
+        claimedAt: wr.claimed_at
+      }));
+
+    const daily = (doc?.daily_rewards || [])
+      .filter((dr: any) => dr.created_at && new Date(dr.created_at) < CUTOFF_DATE)
+      .map((dr: any) => ({
+        _id: dr._id,
+        miner_key,
+        no: dr.reward_number,
+        status: dr.status,
+        asset_id: dr.asset_id,
+        amount: dr.amount,
+        txId: dr.tx_id,
+        createdAt: dr.created_at,
+        claimedAt: dr.claimed_at
+      }));
+
+    const rewards = weekly.concat(daily)
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 20);
+
+    return {
+      props: {
+        initialRewards: JSON.parse(JSON.stringify(rewards))
+      }
+    };
   } catch (error) {}
 
   return {

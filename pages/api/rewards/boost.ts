@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { Reward, RewardBoost, Asset } from '../../../lib/types';
+import { RewardBoost, Asset } from '../../../lib/types';
 import { getFRYPrice } from '../../../lib/price';
 import { verifyTransaction } from '../algorand/verify-txn';
 import algosdk, { mnemonicToSecretKey, Account } from 'algosdk';
@@ -76,70 +76,40 @@ export default async function handler(
       res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
     }
-    
-    const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
     const weeklyCollection = db.collection('device-rewards');
     const bCollection = db.collection('reward-boosts');
 
-    let records: any[] = [];
-    let boostTargetMode: 'legacy' | 'weekly' = 'legacy';
-    if (!WEEKLY_FLAG) {
-      records = await collection
-        .find(
-          no
-            ? { miner_key: miner_key, no: no, status: 'pending' }
-            : { miner_key: miner_key, status: 'pending' }
-        )
-        .toArray();
-      if (!records || records.length <= 0) {
-        res.status(404).json({
-          success: false,
-          code: 'NO_REWARDS',
-          message: 'No pending rewards to boost. If your reward is already claimable, use Claim instead.'
-        });
-        return;
-      }
-      boostTargetMode = 'legacy';
-    } else {
-      const weeklyDoc = await weeklyCollection.findOne({ miner_key });
-      const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
-      const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
-      if (typeof no === 'number') {
-        // Prefer weekly pending by number; if not present, allow daily pending with same number
-        const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
-        if (weeklyRecords && weeklyRecords.length > 0) {
-          records = weeklyRecords;
-          boostTargetMode = 'weekly';
-        } else {
-          const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
-          if (dailyRecords && dailyRecords.length > 0) {
-            records = dailyRecords;
-            boostTargetMode = 'legacy';
-          } else {
-            res.status(404).json({
-              success: false,
-              code: 'NO_REWARDS',
-              message: 'No pending reward with that number. If it shows claimable, please use Claim.'
-            });
-            return;
-          }
-        }
+    type BoostRecord = { reward_number: number; asset_id: string; amount: number };
+    let records: BoostRecord[] = [];
+    let mode: 'weekly' | 'daily' = 'weekly';
+    const weeklyDoc = await weeklyCollection.findOne({ miner_key });
+    const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
+    const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
+    if (typeof no === 'number') {
+      const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
+      if (weeklyRecords && weeklyRecords.length > 0) {
+        records = weeklyRecords;
+        mode = 'weekly';
       } else {
-        // No specific number: boost all weekly pending, else any daily pending
-        if (weeklyPendings.length > 0) {
-          records = weeklyPendings;
-          boostTargetMode = 'weekly';
-        } else if (dailyPendings.length > 0) {
-          records = dailyPendings;
-          boostTargetMode = 'legacy';
+        const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
+        if (dailyRecords && dailyRecords.length > 0) {
+          records = dailyRecords;
+          mode = 'daily';
         } else {
-          res.status(404).json({
-            success: false,
-            code: 'NO_REWARDS',
-            message: 'No pending rewards to boost. If the selected reward is already claimable, please use Claim.'
-          });
+          res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No pending reward with that number. If it shows claimable, please use Claim.' });
           return;
         }
+      }
+    } else {
+      if (weeklyPendings.length > 0) {
+        records = weeklyPendings;
+        mode = 'weekly';
+      } else if (dailyPendings.length > 0) {
+        records = dailyPendings;
+        mode = 'daily';
+      } else {
+        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No pending rewards to boost. If the selected reward is already claimable, please use Claim.' });
+        return;
       }
     }
 
@@ -237,20 +207,13 @@ export default async function handler(
 
     // Apply database updates only after successful submission
     let rewards_nos: number[] = [];
-    if (boostTargetMode === 'legacy') {
+    if (mode === 'daily') {
       let modifiedAny = false;
       for (let i = 0; i < records.length; i++) {
-        const r: any = records[i];
-        const num = typeof r.no !== 'undefined' ? r.no : r.reward_number;
+        const r = records[i];
+        const num = r.reward_number;
         const amt = r.amount;
         const boostedAmount = Math.round((amt * 100 * 70) / 100) / 100;
-
-        // Update legacy if present (mirror only; ignore if not found). Guard on pending.
-        const legacyRes = await collection.updateOne(
-          { no: num, miner_key, status: 'pending' },
-          { $set: { status: 'claimable', amount: boostedAmount } }
-        );
-        if (legacyRes.modifiedCount && legacyRes.modifiedCount > 0) modifiedAny = true;
 
         // Source of truth: device-rewards.daily_rewards
         const devRes = await weeklyCollection.updateOne(

@@ -2,11 +2,9 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { Device, Reward } from '../../../lib/types';
-import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
+import { Device } from '../../../lib/types';
+import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { getAssetDecimals } from '../../../lib/utils';
-import { VERIFY_RESULT } from '../../../lib/txn';
-import { WithId } from 'mongodb';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -20,6 +18,13 @@ const port = 443;
 const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 const lockSet: Set<string> = new Set();
+
+type DeviceClaimTarget = {
+  source: 'weekly' | 'daily';
+  reward_number: number;
+  asset_id: string; // stored as string in device-rewards; cast to number where needed
+  amount: number;
+};
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,13 +54,12 @@ export default async function handler(
   }
   lockSet.add(miner_key);
 
-  let records: WithId<Reward>[] = [];
+  let records: DeviceClaimTarget[] = [];
   let step = { id: 1, value: 'Step1: Initialization' };
 
   try {
     const client = await clientPromise;
     const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
     const weeklyCollection = db.collection('device-rewards');
     const deviceCollection = db.collection(
       testMode ? 'test-devices' : 'devices'
@@ -80,100 +84,33 @@ export default async function handler(
       return;
     }
 
-    let claimTargetMode: 'legacy' | 'device' = 'legacy';
-    if (!WEEKLY_FLAG) {
-      records = await collection
-        .find(
-          no
-            ? { miner_key: miner_key, no: no, status: 'claimable' }
-            : { miner_key: miner_key, status: 'claimable' }
-        )
-        .toArray() as WithId<Reward>[];
-      if (!records || records.length <= 0) {
+    // Always use device-rewards (weekly + daily) as source of truth
+    const doc = await weeklyCollection.findOne({ miner_key });
+    const weeklyClaimables = (doc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
+    const dailyClaimables = (doc?.daily_rewards || []).filter((dr: any) => dr.status === 'claimable');
+
+    if (typeof no === 'number') {
+      const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
+      const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
+      if (weeklyTargets.length === 0 && dailyTargets.length === 0) {
         lockSet.delete(miner_key);
         res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
         return;
       }
-      claimTargetMode = 'legacy';
+      weeklyTargets.forEach((wr: any) => records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
+      dailyTargets.forEach((dr: any) => records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
     } else {
-      // WEEKLY MODE: prefer device-rewards (weekly + daily) as source of truth
-      const doc = await weeklyCollection.findOne({ miner_key });
-      const weeklyClaimables = (doc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
-      const dailyClaimables = (doc?.daily_rewards || []).filter((dr: any) => dr.status === 'claimable');
-
-      let weeklyTargets: any[] = [];
-      let dailyTargets: any[] = [];
-
-      if (typeof no === 'number') {
-        weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
-        if (weeklyTargets.length === 0) {
-          dailyTargets = dailyClaimables.filter((dr: any) => dr.reward_number === no);
-        }
-        if (weeklyTargets.length === 0 && dailyTargets.length === 0) {
-          // Final fallback: legacy specific
-          const legacyTargets = await collection.find({ miner_key, no, status: 'claimable' }).toArray();
-          if (!legacyTargets || legacyTargets.length === 0) {
-            lockSet.delete(miner_key);
-            res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
-            return;
-          }
-          records = legacyTargets as any;
-          claimTargetMode = 'legacy';
-        } else {
-          const deviceRecords: any[] = [];
-          weeklyTargets.forEach((wr: any) => deviceRecords.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
-          dailyTargets.forEach((dr: any) => deviceRecords.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
-          records = deviceRecords as any;
-          claimTargetMode = 'device';
-        }
-      } else {
-        if (weeklyClaimables.length === 0 && dailyClaimables.length === 0) {
-          // Fallback to legacy device-level
-          const legacyList = await collection.find({ miner_key, status: 'claimable' }).toArray();
-          if (!legacyList || legacyList.length === 0) {
-            lockSet.delete(miner_key);
-            res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
-            return;
-          }
-          records = legacyList as any;
-          claimTargetMode = 'legacy';
-        } else {
-          const deviceRecords: any[] = [];
-          weeklyClaimables.forEach((wr: any) => deviceRecords.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
-          dailyClaimables.forEach((dr: any) => deviceRecords.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
-          records = deviceRecords as any;
-          claimTargetMode = 'device';
-        }
+      if (weeklyClaimables.length === 0 && dailyClaimables.length === 0) {
+        lockSet.delete(miner_key);
+        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
+        return;
       }
-    }
-
-    let success = true;
-    if (claimTargetMode === 'legacy') {
-      for (let i = 0; i < records.length; i++) {
-        const reward = records[i] as Reward;
-        const updateResult = await collection.updateOne(
-          { no: reward.no, miner_key: reward.miner_key },
-          {
-            $set: {
-              status: 'claimed',
-            }
-          }
-        );
-
-        if (updateResult.matchedCount <= 0) {
-          success = false;
-        }
-      }
-    }
-
-    if (success === false) {
-      lockSet.delete(miner_key);
-      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to set claimed status for miner ${miner_key}` });
-      return;
+      weeklyClaimables.forEach((wr: any) => records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
+      dailyClaimables.forEach((dr: any) => records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
     }
 
     step.id = 2;
-    step.value = 'Updated status to "claimed" for selected rewards (pre-broadcast).';
+    step.value = 'Prepared selected rewards for claim (pre-broadcast).';
 
     type Result = {
       asset_id: number;
@@ -181,16 +118,10 @@ export default async function handler(
       txId?: string; // Optional field
     };
 
-    const sumByAssetId = records.reduce((acc, reward: any) => {
-      const asset_id = reward.asset_id ?? '924268058';
-      if (acc.has(Number(asset_id))) {
-        acc.set(
-          Number(asset_id),
-          Math.round((acc.get(Number(asset_id))! + reward.amount) * 100) / 100
-        );
-      } else {
-        acc.set(Number(asset_id), reward.amount);
-      }
+    const sumByAssetId = records.reduce((acc: Map<number, number>, reward: DeviceClaimTarget) => {
+      const idNum = Number(reward.asset_id);
+      const prev = acc.get(idNum) || 0;
+      acc.set(idNum, Math.round((prev + reward.amount) * 100) / 100);
       return acc;
     }, new Map<number, number>());
 
@@ -272,55 +203,10 @@ export default async function handler(
     step.id = 3;
     step.value = `Broadcasted reward claim transaction.`;
 
-    // post-broadcast updates
-    if (claimTargetMode === 'legacy') {
-      // Legacy daily: set txId/claimedAt in legacy and mirror into device-rewards.daily_rewards
-      let modifiedAny = false;
-      for (let i = 0; i < records.length; i++) {
-        const reward = records[i] as Reward;
-        const updateResult = await collection.updateOne(
-          { no: reward.no, miner_key: reward.miner_key, status: 'claimable' },
-          {
-            $set: {
-              txId: tx.txid,
-              claimedAt: new Date(),
-            }
-          }
-        );
-        if (updateResult.modifiedCount && updateResult.modifiedCount > 0) modifiedAny = true;
-
-        // Mirror into device-rewards.daily_rewards
-        const upd = await weeklyCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'daily_rewards.$[elem].status': 'claimed',
-              'daily_rewards.$[elem].tx_id': tx.txid,
-              'daily_rewards.$[elem].claimed_at': new Date()
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': reward.no, 'elem.status': 'claimable' }] }
-        );
-        if (upd.modifiedCount && upd.modifiedCount > 0) modifiedAny = true;
-      }
-      // Adjust totals: claimable -> claimed
-      const sumClaimed = records.reduce((acc, r: any) => acc + r.amount, 0);
-      await weeklyCollection.updateOne(
-        { miner_key },
-        { $inc: { total_claimable: -sumClaimed, total_claimed: sumClaimed } }
-      );
-      if (!modifiedAny) {
-        lockSet.delete(miner_key);
-        return res.status(409).json({
-          success: false,
-          code: 'ALREADY_TRANSITIONED',
-          message: 'Nothing to claim — selected rewards are no longer claimable. Please refresh.'
-        });
-      }
-    } else {
+    // post-broadcast updates (device-rewards only)
       // Device-based: mark selected weekly and/or daily entries as claimed and set tx_id
-      const weeklyNos = (records as any[]).filter(r => r.source === 'weekly').map(r => r.reward_number);
-      const dailyNos = (records as any[]).filter(r => r.source === 'daily').map(r => r.reward_number);
+      const weeklyNos = records.filter(r => r.source === 'weekly').map(r => r.reward_number);
+      const dailyNos = records.filter(r => r.source === 'daily').map(r => r.reward_number);
       const totalAmount = resultArray.reduce((acc, r) => acc + r.totalAmount, 0);
 
       let modifiedAny = false;
@@ -367,7 +253,6 @@ export default async function handler(
           message: 'Nothing to claim — selected rewards are no longer claimable. Please refresh.'
         });
       }
-    }
 
     // no-op: all error cases above return early with clear messages
 
@@ -389,41 +274,24 @@ export default async function handler(
       try {
         const client = await clientPromise;
         const db = client.db('main');
-        if (!WEEKLY_FLAG) {
-          const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
-          let ok = true;
-          for (let i = 0; i < records.length; i++) {
-            const reward = records[i] as Reward;
-            const updateResult = await collection.updateOne(
-              { no: reward.no, miner_key: reward.miner_key },
-              { $set: { status: 'claimable' } }
-            );
-            if (updateResult.matchedCount <= 0) ok = false;
-          }
-          if (!ok) {
-            res.status(402).json({ success: false, message: `Failed to reset claimed status for miner ${miner_key}` });
-            return;
-          }
-        } else {
-          const weeklyCollection = db.collection('device-rewards');
-          // Reset weekly entries back to claimable
-          const weeklyDoc = await weeklyCollection.findOne({ miner_key });
-          const claimables = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
-          const targetNos = typeof data.no === 'number'
-            ? claimables.filter((wr: any) => wr.reward_number === data.no).map((wr: any) => wr.reward_number)
-            : claimables.map((wr: any) => wr.reward_number);
-          await weeklyCollection.updateOne(
-            { miner_key },
-            {
-              $set: {
-                'weekly_rewards.$[elem].status': 'claimable',
-                'weekly_rewards.$[elem].tx_id': undefined,
-                'weekly_rewards.$[elem].claimed_at': undefined
-              }
-            },
-            { arrayFilters: [{ 'elem.reward_number': { $in: targetNos } }] }
-          );
-        }
+        const weeklyCollection = db.collection('device-rewards');
+        // Reset weekly entries back to claimable
+        const weeklyDoc = await weeklyCollection.findOne({ miner_key });
+        const claimables = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
+        const targetNos = typeof data.no === 'number'
+          ? claimables.filter((wr: any) => wr.reward_number === data.no).map((wr: any) => wr.reward_number)
+          : claimables.map((wr: any) => wr.reward_number);
+        await weeklyCollection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              'weekly_rewards.$[elem].status': 'claimable',
+              'weekly_rewards.$[elem].tx_id': undefined,
+              'weekly_rewards.$[elem].claimed_at': undefined
+            }
+          },
+          { arrayFilters: [{ 'elem.reward_number': { $in: targetNos } }] }
+        );
       } catch (e) {
         // fallthrough to generic error
       }

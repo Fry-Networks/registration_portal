@@ -70,14 +70,8 @@ export default async function handler(
     const doc = await devRewardsCol.findOne({ miner_key });
 
     if (!doc) {
-      // Fallback to legacy only when device-rewards doc is missing
-      const legacy = testMode
-        ? db.collection('test-rewards')
-        : db.collection('rewards');
-      const targetRecords = date
-        ? await legacy.find({ miner_key, status, createdAt: date }).toArray()
-        : await legacy.find({ miner_key, status }).toArray();
-      res.status(200).json({ success: true, records: targetRecords });
+      // Strict device-rewards only: return empty if not yet migrated
+      res.status(200).json({ success: true, records: [] });
       return;
     }
 

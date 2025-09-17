@@ -48,12 +48,7 @@ export default async function handler(
 
     const client = await clientPromise;
     const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-rewards' : 'rewards');
-    await collection.updateMany(
-      { txId },
-      { $set: { claimedAt } }
-    );
-    // Also update device-rewards entries (weekly and daily) with chain timestamp
+    // Update device-rewards entries (weekly and daily) with chain timestamp
     const weeklyCollection = db.collection('device-rewards');
     await weeklyCollection.updateMany(
       { 'weekly_rewards.tx_id': txId },

@@ -38,17 +38,8 @@ export default async function handler(
     const devRewardsCol = db.collection('device-rewards');
     const doc = await devRewardsCol.findOne({ miner_key });
     if (!doc) {
-      // Soft fallback to legacy only if device-rewards doc is missing
-      const legacyCol = db.collection(testMode ? 'test-rewards' : 'rewards');
-      const total = await legacyCol.countDocuments({ miner_key });
-      const totalPages = Math.ceil(total / pageSize) || 1;
-      const items = await legacyCol
-        .find({ miner_key })
-        .sort({ _id: -1 })
-        .skip((Number(page) - 1) * pageSize)
-        .limit(pageSize)
-        .toArray();
-      res.status(200).json({ success: true, items, totalPages });
+      // Strict device-rewards only: if no doc, return empty dataset
+      res.status(200).json({ success: true, items: [], totalPages: 1 });
       return;
     }
     const weekly = (doc?.weekly_rewards || [])

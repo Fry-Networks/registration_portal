@@ -19,16 +19,23 @@ export default function RewardListItem({
   handleBoostButton: (reward: Reward) => void;
 }) {
 
-  const[claimedTime, setClaimedTime] = useState<string>();
+  const [claimedTime, setClaimedTime] = useState<string | undefined>();
 
-  useEffect (() => {
-    const fetchData = async () => {
-      const t = await getTransactionTime(reward.txId);
-      setClaimedTime(t.toDateString());
+  useEffect(() => {
+    if (reward.claimedAt) {
+      setClaimedTime(new Date(reward.claimedAt).toDateString());
+      return;
     }
-
+    const fetchData = async () => {
+      if (!reward.txId) {
+        setClaimedTime(undefined);
+        return;
+      }
+      const t = await getTransactionTime(reward.txId, { retries: 1, delayMs: 500 });
+      setClaimedTime(t.toDateString());
+    };
     fetchData();
-  }, [reward.status]);
+  }, [reward.status, reward.txId, reward.claimedAt]);
 
   return (
     <>
@@ -57,11 +64,22 @@ export default function RewardListItem({
             <>
               <p>
                 <strong className="text-white">Claimed TxId: </strong>
-                {reward.txId}
+                {reward.txId ? (
+                  <a
+                    href={`https://explorer.perawallet.app/tx/${reward.txId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:underline break-all"
+                  >
+                    {reward.txId}
+                  </a>
+                ) : (
+                  '-'
+                )}
               </p>
               <p>
                 <strong className="text-white">Claimed Time: </strong>
-                {claimedTime}
+                {claimedTime || '-'}
               </p>
             </>
           )}
