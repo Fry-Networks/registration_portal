@@ -80,8 +80,8 @@ function getMinerCategory(miner_key: string): MinerCategory | null {
 }
 
 function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; minerDevices?: Device[]; nodeDevices?: Device[] }) {
-  const miners = minerDevices ?? devices.filter(d => !['RDN','SVN','SDN'].includes(d.miner_key.split('-')[0]));
-  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN'].includes(d.miner_key.split('-')[0]));
+  const miners = minerDevices ?? devices.filter(d => !['RDN','SVN','SDN','CN'].includes(d.miner_key.split('-')[0]));
+  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN','CN'].includes(d.miner_key.split('-')[0]));
   const countNotLinked = (arr: Device[]) => arr.filter(d => !d.registered_portal_model || d.registered_portal_model === '').length;
 
   const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
@@ -665,7 +665,7 @@ const DevicesPage = ({
 
   function isNodeDevice(d: Device): boolean {
     const prefix = d.miner_key.split('-')[0];
-    return ['RDN', 'SVN', 'SDN'].includes(prefix);
+    return ['RDN', 'SVN', 'SDN', 'CN'].includes(prefix);
   }
 
   function isMinerDevice(d: Device): boolean {
