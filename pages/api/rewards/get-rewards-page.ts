@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { getFRYPrice } from '../../../lib/price';
 
 export default async function handler(
   req: NextApiRequest,
@@ -29,7 +30,7 @@ export default async function handler(
     return;
   }
 
-  const pageSize = 20;
+  const pageSize = 10;
 
   try {
     const client = await clientPromise;
@@ -42,6 +43,25 @@ export default async function handler(
       res.status(200).json({ success: true, items: [], totalPages: 1 });
       return;
     }
+    const daysBetween = (a: Date, b: Date): number => {
+      const ms = Math.max(0, b.getTime() - a.getTime());
+      return Math.min(30, Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24))));
+    };
+
+    const dayMs = 24 * 60 * 60 * 1000;
+    const formatRange = (start: Date, end: Date): string => {
+      const fmt = (d: Date) =>
+        d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+      return `${fmt(start)} – ${fmt(end)}`;
+    };
+    const getThisFridayStartUTC = (ref: Date): Date => {
+      const d = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0, 0));
+      const day = d.getUTCDay();
+      const diffToFriday = (day + 7 - 5) % 7;
+      d.setUTCDate(d.getUTCDate() - diffToFriday);
+      return d;
+    };
+
     const weekly = (doc?.weekly_rewards || [])
       .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
       .map((wr: any) => ({
@@ -53,7 +73,16 @@ export default async function handler(
         amount: wr.amount,
         txId: wr.tx_id,
         createdAt: wr.unlock_at,
-        claimedAt: wr.claimed_at
+        claimedAt: wr.claimed_at,
+        // derived fields for UI
+        isWeekly: true,
+        progressDays: daysBetween(new Date(wr.unlock_at), new Date()),
+        etaDate: new Date(new Date(wr.unlock_at).getTime() + 30 * dayMs),
+        weekLabel: (() => {
+          const wkStart = wr.week_start ? new Date(wr.week_start) : new Date(getThisFridayStartUTC(new Date(wr.unlock_at)).getTime() - 7 * dayMs);
+          const wkEnd = wr.week_end ? new Date(wr.week_end) : new Date(wkStart.getTime() + 6 * dayMs);
+          return formatRange(wkStart, wkEnd);
+        })()
       }));
 
     const daily = (doc?.daily_rewards || [])
@@ -67,7 +96,11 @@ export default async function handler(
         amount: dr.amount,
         txId: dr.tx_id,
         createdAt: dr.created_at,
-        claimedAt: dr.claimed_at
+        claimedAt: dr.claimed_at,
+        // derived fields for UI
+        isWeekly: false,
+        progressDays: daysBetween(new Date(dr.created_at), new Date()),
+        etaDate: new Date(new Date(dr.created_at).getTime() + 30 * dayMs)
       }));
 
     const all = weekly.concat(daily)
@@ -76,7 +109,29 @@ export default async function handler(
     const totalPages = Math.ceil(total / pageSize) || 1;
     const start = (Number(page) - 1) * pageSize;
     const items = all.slice(start, start + pageSize);
-    res.status(200).json({ success: true, items, totalPages });
+
+    // Attach fiatValue using cached prices per asset for this page only.
+    const priceCache: Record<string, { ts: number; usd: number }> = {};
+    const nowTs = Date.now();
+    const TTL = 5 * 60 * 1000; // 5 minutes
+    const uniqueAssetIds: string[] = Array.from(new Set<string>(items.map((it: any) => String(it.asset_id))));
+    for (const aid of uniqueAssetIds) {
+      try {
+        // Basic in-function cache; in real app consider process-level memo
+        if (!priceCache[aid] || (nowTs - priceCache[aid].ts) > TTL) {
+          const p = await getFRYPrice(aid);
+          priceCache[aid] = { ts: nowTs, usd: Number(p || 0) };
+        }
+      } catch {
+        priceCache[aid] = { ts: nowTs, usd: 0 };
+      }
+    }
+    const itemsWithFiat = items.map((it: any) => ({
+      ...it,
+      fiatValue: priceCache[it.asset_id]?.usd ? Number(it.amount || 0) * priceCache[it.asset_id].usd : undefined
+    }));
+
+    res.status(200).json({ success: true, items: itemsWithFiat, totalPages });
   } catch (error) {
     console.error('get-rewards-page error:', error);
     res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });

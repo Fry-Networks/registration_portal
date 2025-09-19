@@ -75,6 +75,15 @@ export default async function handler(
       return;
     }
 
+    const daysBetween = (a: Date, b: Date): number => {
+      const ms = Math.max(0, b.getTime() - a.getTime());
+      return Math.min(30, Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24))));
+    };
+    const weekLabelForRange = (start: Date, end: Date): string => {
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      return `${fmt(start)} – ${fmt(end)}`;
+    };
+
     if (mode === 'weekly') {
       // Weekly entries (post-cutoff) + daily historical entries (pre-cutoff)
       const weeklyList = (doc.weekly_rewards || [])
@@ -88,7 +97,11 @@ export default async function handler(
           amount: wr.amount,
           txId: wr.tx_id,
           createdAt: wr.unlock_at,
-          claimedAt: wr.claimed_at
+          claimedAt: wr.claimed_at,
+          isWeekly: true,
+          progressDays: daysBetween(new Date(wr.unlock_at), new Date()),
+          etaDate: new Date(new Date(wr.unlock_at).getTime() + 30 * 24 * 60 * 60 * 1000),
+          weekLabel: weekLabelForRange(new Date(wr.week_start), new Date(wr.week_end))
         }));
 
       const dailyList = (doc.daily_rewards || [])
@@ -102,7 +115,10 @@ export default async function handler(
           amount: dr.amount,
           txId: dr.tx_id,
           createdAt: dr.created_at,
-          claimedAt: dr.claimed_at
+          claimedAt: dr.claimed_at,
+          isWeekly: false,
+          progressDays: daysBetween(new Date(dr.created_at), new Date()),
+          etaDate: new Date(new Date(dr.created_at).getTime() + 30 * 24 * 60 * 60 * 1000)
         }));
 
       const list = weeklyList.concat(dailyList)
@@ -129,7 +145,10 @@ export default async function handler(
         amount: dr.amount,
         txId: dr.tx_id,
         createdAt: dr.created_at,
-        claimedAt: dr.claimed_at
+        claimedAt: dr.claimed_at,
+        isWeekly: false,
+        progressDays: daysBetween(new Date(dr.created_at), new Date()),
+        etaDate: new Date(new Date(dr.created_at).getTime() + 30 * 24 * 60 * 60 * 1000)
       }))
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.status(200).json({ success: true, records: list });

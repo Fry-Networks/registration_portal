@@ -69,6 +69,101 @@ const minerType = {
 type MinerCategory = keyof typeof minerType;
 type MinerType = (typeof minerType)[MinerCategory][number];
 
+function getMinerCategory(miner_key: string): MinerCategory | null {
+  const prefix = miner_key.split('-')[0];
+  for (const key of Object.keys(minerType) as MinerCategory[]) {
+    if (minerType[key].includes(prefix)) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; minerDevices?: Device[]; nodeDevices?: Device[] }) {
+  const miners = minerDevices ?? devices.filter(d => !['RDN','SVN','SDN'].includes(d.miner_key.split('-')[0]));
+  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN'].includes(d.miner_key.split('-')[0]));
+  const countNotLinked = (arr: Device[]) => arr.filter(d => !d.registered_portal_model || d.registered_portal_model === '').length;
+
+  const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
+    const colorMap: Record<typeof color, string> = {
+      gray: 'bg-gray-900/40 text-gray-300',
+      red: 'bg-red-900/30 text-red-300',
+      green: 'bg-green-900/30 text-green-300',
+      yellow: 'bg-yellow-900/30 text-yellow-300'
+    } as any;
+    return (
+      <div className={`flex flex-col items-center justify-center rounded-md p-2 ${colorMap[color]} text-xs`}>
+        <div className="opacity-90">{label}</div>
+        <div className="text-white text-sm">{value}</div>
+      </div>
+    );
+  };
+
+  const CategoryPanel = ({ title, items }: { title: string; items: Device[] }) => {
+    if (!items || items.length === 0) return null;
+    const total = items.length;
+    const unverified = items.filter(d => !d.verified).length;
+    const verified = items.filter(d => d.verified).length;
+    const notLinked = countNotLinked(items);
+    return (
+      <div className="border border-gray-800 rounded-xl p-4 w-full">
+        <div className="text-white text-sm font-semibold mb-2">{title}</div>
+        <div className="grid grid-cols-4 gap-2">
+          <SummaryRow label="Registered" value={total} color="gray" />
+          <SummaryRow label="Unverified" value={unverified} color="red" />
+          <SummaryRow label="Verified" value={verified} color="green" />
+          <SummaryRow label="Not linked" value={notLinked} color="yellow" />
+        </div>
+      </div>
+    );
+  };
+
+  const CombinedPanel = () => {
+    // Renders on small screens only; shows one panel combining categories
+    if ((miners?.length || 0) + (nodes?.length || 0) === 0) return null;
+    const Sec = ({ title, items }: { title: string; items: Device[] }) => {
+      if (!items || items.length === 0) return null;
+      const total = items.length;
+      const unverified = items.filter(d => !d.verified).length;
+      const verified = items.filter(d => d.verified).length;
+      const notLinked = countNotLinked(items);
+      return (
+        <div>
+          <div className="text-white text-sm font-medium mb-2">{title}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <SummaryRow label="Registered" value={total} color="gray" />
+            <SummaryRow label="Unverified" value={unverified} color="red" />
+            <SummaryRow label="Verified" value={verified} color="green" />
+            <SummaryRow label="Not linked" value={notLinked} color="yellow" />
+          </div>
+        </div>
+      );
+    };
+    return (
+      <div className="border border-gray-800 rounded-xl p-4 w-full">
+        <div className="space-y-4">
+          <Sec title="Miners" items={miners} />
+          <Sec title="Nodes" items={nodes} />
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Desktop/tables: two panels side-by-side; hide if panel has no items */}
+      <div className="hidden sm:grid grid-cols-1 md:grid-cols-2 gap-4 px-2 sm:px-20 mt-6">
+        <CategoryPanel title="Miners" items={miners} />
+        <CategoryPanel title="Nodes" items={nodes} />
+      </div>
+      {/* Mobile: single combined panel */}
+      <div className="block sm:hidden px-2 mt-6">
+        <CombinedPanel />
+      </div>
+    </>
+  );
+}
+
 export function isProductStakeAvailable(product: Product) {
   let result = false;
   if (product.reward.tokens && product.reward.tokens.stake !== 'none') {
@@ -175,15 +270,7 @@ const DevicesPage = ({
     setShowFry1Check(true);
   };
 
-  function getMinerCategory(miner_key: string): MinerCategory | null {
-    const prefix = miner_key.split('-')[0];
-    for (const key of Object.keys(minerType) as MinerCategory[]) {
-      if (minerType[key].includes(prefix)) {
-        return key;
-      }
-    }
-    return null;
-  }
+  
 
   // const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
   //   const account = getWalletAddress(mnemonic);
@@ -576,6 +663,18 @@ const DevicesPage = ({
   //   console.log('Selected Withdraw: ', device);
   // }
 
+  function isNodeDevice(d: Device): boolean {
+    const prefix = d.miner_key.split('-')[0];
+    return ['RDN', 'SVN', 'SDN'].includes(prefix);
+  }
+
+  function isMinerDevice(d: Device): boolean {
+    return !isNodeDevice(d);
+  }
+
+  const minerDevices = useMemo(() => devices.filter(isMinerDevice), [devices]);
+  const nodeDevices = useMemo(() => devices.filter(isNodeDevice), [devices]);
+
   return (
     <SWRConfig value={{ fallback: rewardFallback }}>
     <div className="w-full">
@@ -590,12 +689,11 @@ const DevicesPage = ({
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-6"
         >
-          <Title className="text-white text-4xl sm:text-5xl w-full text-center">
-            Onboard your miners to Fry Networks
+          <Title className="text-white text-4xl sm:text-5xl w-full text-center font-extralight tracking-wide">
+            Onboard your miners and nodes to Fry Networks
           </Title>
           <p className="text-lg text-center px-2 text-gray-300">
-            You can register your miners to onboard on Fry Networks and can
-            verify and manage miner information here.
+            Register and manage miners and nodes: verify details, link portals, and handle rewards.
           </p>
         </Flex>
       </div>
@@ -609,34 +707,11 @@ const DevicesPage = ({
           estimatedTfry={estimatedTfry}
         />
       )}
-      <Flex
-        flexDirection="row"
-        justifyContent="evenly"
-        className="flex-wrap gap-6 px-2 sm:px-20 mt-10"
-      >
-        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-gray-600 min-w-[200px] w-full sm:w-auto gap-2">
-          <Title className="text-white">Registered Miners</Title>
-          <p className="flex text-gray-300 text-lg">{devices.length}</p>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-red-600 min-w-[200px]  w-full sm:w-auto gap-2">
-          <Title className="text-white">Unverified Miners</Title>
-          <p className="flex text-gray-300 text-lg">
-            {devices.filter((device) => !device.verified).length}
-          </p>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-green-600 min-w-[200px] w-full sm:w-auto gap-2">
-          <Title className="text-white">Verified Miners</Title>
-          <p className="flex text-gray-300 text-lg">
-            {devices.filter((device) => device.verified).length}
-          </p>
-        </div>
-        <div className="flex flex-col items-center justify-center rounded-xl p-5 shadow-md shadow-yellow-600 min-w-[200px] w-full sm:w-auto gap-2">
-          <Title className="text-white">Miners not linked</Title>
-          <p className="flex text-yellow-300 text-lg">
-            {devices.filter((device) => !device.registered_portal_model || device.registered_portal_model === '').length}
-          </p>
-        </div>
-      </Flex>
+      <StatsGrid
+        devices={devices}
+        minerDevices={minerDevices}
+        nodeDevices={nodeDevices}
+      />
 
       <div className="w-full mt-10 px-2 sm:px-20">
         <Flex

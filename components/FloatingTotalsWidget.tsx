@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface FloatingTotalsWidgetProps {
@@ -26,49 +26,38 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
-  const [ribbonHeight, setRibbonHeight] = useState<number>(0);
-  const ribbonRef = useRef<HTMLDivElement | null>(null);
-  const [isDesktop, setIsDesktop] = useState(false);
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
 
+  // Token amount formatting (2 decimals)
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Fiat formatting with up to 8 decimals, trimming trailing zeros; keep at least 2 decimals
+  const fmtUSD = (v?: number) => {
+    const n = Number(v || 0);
+    if (!isFinite(n)) return '$0.00';
+    if (n >= 1) return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    let s = n.toFixed(8); // up to 8 decimals
+    s = s.replace(/0+$/,''); // strip trailing zeros
+    if (s.endsWith('.')) s = s.slice(0, -1);
+    if (!s.includes('.')) s = `${s}.00`;
+    const [int, dec] = s.split('.');
+    const dec2 = dec.length < 2 ? dec + '0'.repeat(2 - dec.length) : dec;
+    return `$${int}.${dec2}`;
+  };
 
-  // Track desktop breakpoint to avoid window.innerWidth reads in render
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(min-width: 768px)');
-    const update = () => setIsDesktop(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
-  }, []);
-
-  // Measure ribbon height to keep placeholder space when collapsed (prevents layout shift)
-  useEffect(() => {
-    if (!ribbonRef.current) return;
-    const el = ribbonRef.current;
-    const measure = () => setRibbonHeight(el.offsetHeight || 0);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ribbonRef.current]);
-
-  // Minimal scroll detection with throttling + hysteresis
+  // Minimal scroll detection with heavy throttling
   useEffect(() => {
     let scrollTimeout: NodeJS.Timeout;
-    const ENTER_THRESHOLD = 400; // show compact when scrolling beyond this
-    const EXIT_THRESHOLD = 300;  // revert to full only when above area cleared
-
+    
     const handleScroll = () => {
-      // Throttle to minimize updates
+      // Heavy throttling to minimize updates
       clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
         const currentScrollY = window.scrollY;
-        // Hysteresis around the threshold to avoid rapid toggling
-        if (!isScrolled && currentScrollY > ENTER_THRESHOLD) {
-          setIsScrolled(true);
-        } else if (isScrolled && currentScrollY < EXIT_THRESHOLD) {
-          setIsScrolled(false);
+        const shouldShow = currentScrollY > 400;
+        
+        // Only update if state actually needs to change
+        if (shouldShow !== isScrolled) {
+          setIsScrolled(shouldShow);
         }
         setScrollY(currentScrollY);
       }, 100); // Much less frequent updates
@@ -84,7 +73,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   // Auto-collapse expanded state when scrolling
   useEffect(() => {
     if (isScrolled && isExpanded && scrollY > 0) {
-      const timer = setTimeout(() => setIsExpanded(false), 10000);
+      const timer = setTimeout(() => setIsExpanded(false), 3000);
       return () => clearTimeout(timer);
     }
   }, [scrollY, isScrolled, isExpanded]);
@@ -105,7 +94,26 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   }, [countdown]);
 
   // Animation variants
-  // Avoid window reads in render; keep but unused variants removed
+  const widgetVariants = {
+    full: {
+      scale: 1,
+      x: 0,
+      y: 0,
+      width: '100%',
+      height: 'auto',
+      borderRadius: '0.75rem',
+      transition: { duration: 0.5, ease: 'easeInOut' }
+    },
+    compact: {
+      scale: 0.8,
+      x: window.innerWidth > 768 ? 'calc(50vw - 120px)' : 'calc(50vw - 100px)',
+      y: window.innerWidth > 768 ? -20 : -15,
+      width: window.innerWidth > 768 ? '240px' : '200px',
+      height: '80px',
+      borderRadius: '2rem',
+      transition: { duration: 0.5, ease: 'easeInOut' }
+    }
+  };
 
   const contentVariants = {
     full: {
@@ -133,21 +141,45 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     }
   };
 
+  // Fetch current prices (FRY 1.0, FRY 2.0 and fNode)
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      try {
+        const res = await fetch('/api/price/get', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asset_ids: ['924268058','2485314946', '2485202024'] }) });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!active) return;
+        setPrices({ fry1: json?.prices?.['924268058'] ?? 0, fry2: json?.prices?.['2485314946'] ?? 0, fnode: json?.prices?.['2485202024'] ?? 0 });
+      } catch {}
+    };
+    run();
+    const id = setInterval(run, 300000);
+    return () => { active = false; clearInterval(id); };
+  }, []);
+
   if (!totals?.totals) return null;
 
   return (
     <>
-      {/* Full-width ribbon container with placeholder height to prevent layout shift */}
-      <div
-        className="w-full"
-        style={{ height: isScrolled ? ribbonHeight : 'auto' }}
-      >
-        {!isScrolled && (
-          <div ref={ribbonRef} className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
+      {/* Full-width ribbon (initial state) - NO animations to prevent jumping */}
+      {!isScrolled && (
+        <div className="w-full">
+          <div className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
+            {/* Live prices row */}
+            <div className="text-white text-xs mb-2 flex items-center justify-center gap-4">
+              <span>FRY 1.0 (924268058): {fmtUSD(prices.fry1)}</span>
+              <span className="opacity-40">|</span>
+              <span>FRY 2.0 (2485314946): {fmtUSD(prices.fry2)}</span>
+              <span className="opacity-40">|</span>
+              <span>fNode (2485202024): {fmtUSD(prices.fnode)}</span>
+              <span className="opacity-40">|</span>
+              <a href="https://docs.frynetworks.com/dashboard/registration" target="_blank" rel="noreferrer" className="underline text-gray-300">Registration Guide</a>
+            </div>
             <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
               {/* FRY 1.0 Totals */}
               <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">FRY 1.0 Totals</div>
+                <div className="text-xs uppercase tracking-wide text-gray-300">FRY 1.0 Totals (924268058)</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div></div>
                   <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
@@ -158,7 +190,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
 
               {/* fNode Totals */}
               <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">fNode Totals</div>
+                <div className="text-xs uppercase tracking-wide text-gray-300">fNode Totals (2485202024)</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div></div>
                   <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.pending)}</div></div>
@@ -170,7 +202,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               {/* tFry Totals */}
               <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
                 <div className="text-xs uppercase tracking-wide text-gray-300">tFry Totals 
-                  <span className="ml-2 px-2 py-1 text-xs bg-blue-600/30 text-blue-300 rounded-full">Coming Soon</span>
+                  <span className="ml-2 px-2 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full">Coming Soon</span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
@@ -183,7 +215,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               {/* Countdown */}
               <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
                 <div className="text-xs uppercase tracking-wide text-gray-300">Next FRYday (UTC 00:05)</div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums">{countdown}</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/,''); return countdown; })()}</div>
                 <div className="text-xs text-gray-400">{totals.nextUnlockAt ? new Date(totals.nextUnlockAt).toUTCString() : ''}</div>
                 <div className="mt-2 text-sm text-gray-200">
                   <div className="grid grid-cols-1 gap-1">
@@ -191,13 +223,13 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     <div><span className="font-semibold">Est. fNode:</span> {fmt(estimatedFnode)}</div>
                     <div><span className="font-semibold">Est. tFry:</span> {fmt(estimatedTfry)}</div>
                   </div>
-                <div className="text-xs text-gray-400 mt-1">Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.</div>
+                  <div className="text-xs text-gray-400 mt-1">Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.</div>
                 </div>
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Floating compact widget */}
       <AnimatePresence>
@@ -216,13 +248,13 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               animate={isExpanded ? 'expanded' : 'compact'}
               variants={{
                 compact: {
-                  width: isDesktop ? '240px' : '200px',
+                  width: window.innerWidth > 768 ? '240px' : '200px',
                   height: '80px',
                   borderRadius: '2rem',
                   padding: '12px'
                 },
                 expanded: {
-                  width: isDesktop ? '400px' : '320px',
+                  width: window.innerWidth > 768 ? '400px' : '320px',
                   height: 'auto',
                   borderRadius: '1rem',
                   padding: '20px'
@@ -305,12 +337,16 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     </svg>
                   </button>
                 </div>
+                {/* Prices */}
+                <div className="text-xs text-gray-300 mb-3 text-center">
+                  FRY 1.0 (924268058): {fmtUSD(prices.fry1)} • FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
+                </div>
 
                 {/* Expanded Totals */}
                 <div className="space-y-3 text-xs">
                   {/* FRY 1.0 */}
                   <div>
-                    <div className="text-gray-400 mb-1">FRY 1.0 Totals</div>
+                    <div className="text-gray-400 mb-1">FRY 1.0 Totals (924268058)</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
                         <span className="text-gray-500">Accruing:</span>
@@ -333,7 +369,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
 
                   {/* fNode */}
                   <div>
-                    <div className="text-gray-400 mb-1">fNode Totals</div>
+                    <div className="text-gray-400 mb-1">fNode Totals (2485202024)</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
                         <span className="text-gray-500">Accruing:</span>
@@ -357,7 +393,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                   {/* tFry */}
                   <div>
                     <div className="text-gray-400 mb-1">tFry Totals 
-                      <span className="ml-2 px-1 py-0.5 text-xs bg-blue-600/30 text-blue-300 rounded">Soon</span>
+                      <span className="ml-2 px-1 py-0.5 text-xs bg-gray-700/50 text-gray-300 rounded">Soon</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
