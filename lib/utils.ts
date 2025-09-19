@@ -162,6 +162,22 @@ export const getAssetName = (assetId: string) => {
   }
 };
 
+/**
+ * Returns display string combining friendly name and id, e.g. "fnode (2485202024)".
+ */
+export const getAssetDisplay = (assetId: string) => {
+  const name = getAssetName(assetId);
+  return name ? `${name} (${assetId})` : assetId;
+};
+
+/**
+ * Whether Boost (Instant Claim) is supported for the given asset.
+ * Matches existing backend constraints: FRY 1.0, fNODE, fVPN; excludes FRY 2.0.
+ */
+export const isBoostAssetSupported = (assetId: string): boolean => {
+  return assetId === FRY_1.id || assetId === fNODE.id || assetId === fVPN.id;
+};
+
 export const getAlgoBalance = async (address: string) => {
   try {
     const response = await fetch('api/algorand/get-algo-balance', {
