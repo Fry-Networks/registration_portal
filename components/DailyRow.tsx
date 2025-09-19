@@ -1,0 +1,89 @@
+import React from 'react';
+import ProgressPill from './ProgressPill';
+import { getAssetName, isBoostAssetSupported } from '../lib/utils';
+
+export type DailyRewardView = {
+  _id: string;
+  miner_key: string;
+  no: number;
+  status: string;
+  asset_id: string;
+  amount: number;
+  txId?: string;
+  createdAt: string | Date;
+  claimedAt?: string | Date;
+  isWeekly: false;
+  progressDays: number;
+  etaDate: string | Date;
+  fiatValue?: number;
+};
+
+export default function DailyRow({
+  item,
+  onClaim,
+  onBoost
+}: {
+  item: DailyRewardView;
+  onClaim: (item: any) => void;
+  onBoost: (item: any) => void;
+}) {
+  const [expanded, setExpanded] = React.useState(true);
+  const status = item.status;
+  const canClaim = status === 'claimable';
+  const canBoost = status === 'pending' && isBoostAssetSupported(item.asset_id);
+  const assetName = getAssetName(item.asset_id) || item.asset_id;
+
+  return (
+    <div className="border border-gray-800 rounded-md p-3 text-gray-300 bg-[#0b0f16]">
+      <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpanded(e => !e)}>
+        <div>
+          <div className="text-sm text-gray-400">Date</div>
+          <div className="text-white font-semibold">{new Date(item.createdAt).toDateString()}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-sm text-gray-400">Amount</div>
+          <div className="text-white font-semibold">{item.amount} {assetName}</div>
+        </div>
+      </div>
+      {expanded && (
+      <div className="mt-2 flex items-center gap-2">
+        <span className={`px-2 py-1 text-xs rounded ${status === 'pending' ? 'bg-amber-900/40 text-amber-300' : status === 'claimable' ? 'bg-green-900/40 text-green-300' : 'bg-gray-800 text-gray-400'}`}>
+          {status.toUpperCase()}
+        </span>
+        {item.txId && (
+          <a href={`https://explorer.perawallet.app/tx/${item.txId}`} target="_blank" rel="noreferrer" className="text-xs text-blue-400 hover:underline">View Tx</a>
+        )}
+        {status === 'claimable' && (
+          <span className="text-xs text-green-300">• Ready to claim •</span>
+        )}
+        {status === 'claimed' && item.claimedAt && (
+          <span className="text-xs text-gray-400">Claimed: {new Date(item.claimedAt).toUTCString()}</span>
+        )}
+      </div>
+      )}
+      {expanded && status === 'pending' && (
+        <div className="mt-2">
+          <ProgressPill progressDays={item.progressDays} etaDate={new Date(item.etaDate)} />
+        </div>
+      )}
+      {expanded && (
+      <div className="mt-3 flex gap-2">
+        <button
+          className={`px-3 py-1 border rounded ${canClaim ? 'border-green-500 text-green-300' : 'border-gray-700 text-gray-500 cursor-not-allowed'}`}
+          disabled={!canClaim}
+          onClick={() => onClaim(item)}
+        >
+          Claim
+        </button>
+        <button
+          className={`px-3 py-1 border rounded ${canBoost ? 'border-amber-500 text-amber-300' : 'border-gray-700 text-gray-500 cursor-not-allowed'}`}
+          disabled={!canBoost}
+          onClick={() => onBoost(item)}
+        >
+          Instant Claim
+        </button>
+      </div>
+      )}
+    </div>
+  );
+}
