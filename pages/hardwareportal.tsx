@@ -8,7 +8,7 @@ import { useToastContext } from '../hooks/ToastContext';
 import Image from 'next/image';
 import bgImg from '../assets/background.png';
 
-const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}-){5}[0-9A-F]{2}$/i;
+const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i;
 
 const HardwarePortal = () => {
   const router = useRouter();
