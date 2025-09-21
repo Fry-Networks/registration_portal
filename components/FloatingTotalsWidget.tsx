@@ -162,9 +162,16 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
 
   return (
     <>
-      {/* Full-width ribbon (initial state) - NO animations to prevent jumping */}
-      {!isScrolled && (
-        <div className="w-full">
+      {/* Full-width ribbon (initial state) - keep layout height while scrolled */}
+      <div
+        className="w-full transition-opacity duration-300"
+        style={{
+          opacity: isScrolled ? 0 : 1,
+          visibility: isScrolled ? 'hidden' : 'visible',
+          pointerEvents: isScrolled ? 'none' : 'auto'
+        }}
+        aria-hidden={isScrolled}
+      >
           <div className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
             {/* Live prices row */}
             <div className="text-white text-xs mb-2 flex items-center justify-center gap-4">
@@ -229,7 +236,6 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
             </div>
           </div>
         </div>
-      )}
 
       {/* Floating compact widget */}
       <AnimatePresence>
