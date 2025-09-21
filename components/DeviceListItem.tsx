@@ -300,14 +300,14 @@ export default function DeviceListItem({
                 </Button>
               )}
               <Button
-                className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                className={`w-full sm:w-auto bg-transparent transition-colors duration-150 ${!isProductStakeAvailable(product) ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20' : isStaked() ? 'border-green-500 text-green-300 hover:bg-green-600/10' : 'border-red-500 text-red-300 hover:bg-red-600/10'}`}
                 disabled={claimableAmount <= 0}
                 onClick={() => handleClaimButton(device)}
               >
                 Claim Reward
               </Button>
               <Button
-                className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                className={`w-full sm:w-auto bg-transparent transition-colors duration-150 ${!isProductStakeAvailable(product) ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20 cursor-not-allowed' : pendingAmount > 0 ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200' : isStaked() ? 'border-green-500 text-green-300 cursor-not-allowed' : 'border-gray-500 text-gray-500 cursor-not-allowed'}`}
                 disabled={pendingAmount <= 0}
                 onClick={() => handleBoostButton(device)}
               >

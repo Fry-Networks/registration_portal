@@ -41,7 +41,7 @@ export default function RewardListItem({
     <>
       {
         <div
-          className={`w-full border-2 m-1 rounded-lg p-4 text-gray-400 shadow-lg ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
+          className={`w-full border-2 m-1 rounded-lg p-4 text-gray-300 bg-black/40 backdrop-blur-sm shadow-lg ${reward.status === 'pending' ? 'border-red-500/70' : reward.status === 'claimable' ? 'border-green-500/70' : 'border-gray-700/70'}`}
         >
           <div className="w-full flex flex-row justify-between">
             <Title className="text-white font-bold text-2xl mb-2 hidden sm:block">
@@ -95,7 +95,7 @@ export default function RewardListItem({
               >
                 <>
                   <Button
-                    className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
+                    className={`bg-transparent transition-colors duration-150 ${reward.status === 'pending' ? 'border-red-500 text-red-300 hover:bg-red-600/10' : reward.status === 'claimable' ? 'border-green-500 text-green-300 hover:bg-green-600/10' : 'border-gray-500 text-gray-500 cursor-not-allowed'}`}
                     disabled={
                       reward.status === 'pending' || reward.status === 'claimed'
                     }
@@ -104,7 +104,7 @@ export default function RewardListItem({
                     Claim Reward
                   </Button>
                   <Button
-                    className={`bg-transparent ${reward.status === 'pending' ? 'border-red-500' : reward.status === 'claimable' ? 'border-green-500' : 'border-gray-500'}`}
+                    className={`bg-transparent transition-colors duration-150 ${reward.status === 'pending' ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200' : reward.status === 'claimable' ? 'border-green-500 text-green-300 hover:bg-green-600/10 cursor-not-allowed' : 'border-gray-500 text-gray-500 cursor-not-allowed'}`}
                     disabled={reward.status !== 'pending'}
                     onClick={() => handleBoostButton(reward)}
                   >

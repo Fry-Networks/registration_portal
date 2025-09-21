@@ -32,9 +32,11 @@ export default function DailyRow({
   const canClaim = status === 'claimable';
   const canBoost = status === 'pending' && isBoostAssetSupported(item.asset_id);
   const assetName = getAssetName(item.asset_id) || item.asset_id;
+  const claimBtnClass = canClaim ? 'border-green-500 text-green-300 hover:bg-green-600/10' : 'border-gray-700 text-gray-500 cursor-not-allowed';
+  const boostBtnClass = canBoost ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200' : 'border-gray-700 text-gray-500 cursor-not-allowed';
 
   return (
-    <div className="border border-gray-800 rounded-md p-3 text-gray-300 bg-[#0b0f16]">
+    <div className="border border-gray-800/70 rounded-md p-3 text-gray-300 bg-black/40 backdrop-blur-sm">
       <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpanded(e => !e)}>
         <div>
           <div className="text-sm text-gray-400">Date</div>
@@ -69,18 +71,18 @@ export default function DailyRow({
       {expanded && (
       <div className="mt-3 flex gap-2">
         <button
-          className={`px-3 py-1 border rounded ${canClaim ? 'border-green-500 text-green-300' : 'border-gray-700 text-gray-500 cursor-not-allowed'}`}
+          className={`px-3 py-1 border rounded transition-colors duration-150 ${claimBtnClass}`}
           disabled={!canClaim}
           onClick={() => onClaim(item)}
         >
           Claim
         </button>
         <button
-          className={`px-3 py-1 border rounded ${canBoost ? 'border-amber-500 text-amber-300' : 'border-gray-700 text-gray-500 cursor-not-allowed'}`}
+          className={`px-3 py-1 border rounded transition-colors duration-150 ${boostBtnClass}`}
           disabled={!canBoost}
           onClick={() => onBoost(item)}
         >
-          Instant Claim
+          Instant Claim (30% Fee)
         </button>
       </div>
       )}
