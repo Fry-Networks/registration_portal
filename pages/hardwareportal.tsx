@@ -8,6 +8,8 @@ import { useToastContext } from '../hooks/ToastContext';
 import Image from 'next/image';
 import bgImg from '../assets/background.png';
 
+const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}-){5}[0-9A-F]{2}$/i;
+
 const HardwarePortal = () => {
   const router = useRouter();
   const { data: session } = useSession();
@@ -66,6 +68,9 @@ const HardwarePortal = () => {
     fetchData();
   }, [minerKey]);
 
+  const trimmedDeviceMac = deviceMac.trim();
+  const isDeviceMacValid = trimmedDeviceMac !== '' && MAC_ADDRESS_REGEX.test(trimmedDeviceMac);
+
   const handleSubmit = async (): Promise<boolean> => {
     try {
       const response = await fetch(
@@ -75,7 +80,7 @@ const HardwarePortal = () => {
           headers: { 'Content-type': 'application/json' },
           body: JSON.stringify({
             miner_key: minerKey,
-            device_id: deviceMac,
+            device_id: trimmedDeviceMac,
             address: session?.user.address
           })
         }
@@ -167,16 +172,13 @@ const HardwarePortal = () => {
           onChange={(e) => setDeviceMac(e.target.value)}
           placeholder="Enter your device MAC address"
           className="mt-2 mb-2"
-          // error={deviceMac !=="" && !/^[A-Z0-9]+$/.test(deviceMac)}
-          // errorMessage="Invalid Mac address for Device"
+          error={trimmedDeviceMac !== '' && !isDeviceMacValid}
+          errorMessage="Invalid MAC address format"
         />
         <Button
           className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
           onClick={handleSubmit}
-          disabled={
-            deviceMac === ''
-            // deviceMac === '' || !/^[A-Z0-9]+$/.test(deviceMac)
-          }
+          disabled={!isDeviceMacValid}
         >
           Register
         </Button>
