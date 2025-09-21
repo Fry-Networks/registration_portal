@@ -19,15 +19,19 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
+const PAGE_SIZE = 10;
+
 export default function History({
-  initialRewards
+  initialRewards,
+  initialTotalPages = 0
 }: {
   initialRewards: Reward[];
+  initialTotalPages?: number;
 }) {
   type RewardView = WeeklyRewardView | DailyRewardView;
   const [rewards, setRewards] = useState<RewardView[]>(initialRewards as unknown as RewardView[]);
   const [page, setPage] = useState(1); // Current page
-  const [totalPages, setTotalPages] = useState(0); // Total pages
+  const [totalPages, setTotalPages] = useState(initialTotalPages); // Total pages
   const [selReward, setSelReward] = useState<Reward | undefined>(undefined);
   const { openModal } = useModal();
   const router = useRouter();
@@ -51,43 +55,47 @@ export default function History({
     return `$${int}.${dec2}`;
   };
 
-  const pageSize = 20;
-
   const { miner_key } = router.query;
-  const { data: summary } = useRewardSummary(
-    typeof miner_key === 'string' ? miner_key : undefined
-  );
+  const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
+  const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
 
   const fetchData = async (nextPage: number) => {
+    if (!minerKey) return;
     if (nextPage <= lastLoadedPage.current) return;
     if (loadingRef.current) return;
     loadingRef.current = true;
     setIsLoading(true);
-    const response = await fetch('api/rewards/get-rewards-page', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        miner_key: miner_key,
-        page: nextPage
-      })
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-      setRewards((prev) => {
-        if (nextPage === 1) return result.items;
-        const existing = new Set(prev.map((p: any) => p._id));
-        const deduped = (result.items || []).filter((it: any) => !existing.has(it._id));
-        return [...prev, ...deduped];
+    try {
+      const response = await fetch('api/rewards/get-rewards-page', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          miner_key: minerKey,
+          page: nextPage
+        })
       });
-      setTotalPages(result.totalPages);
-      lastLoadedPage.current = nextPage;
-      setPage(nextPage);
+
+      if (response.ok) {
+        const result = await response.json();
+        setRewards((prev) => {
+          if (nextPage === 1) return result.items;
+          const existing = new Set(prev.map((p: any) => p._id));
+          const deduped = (result.items || []).filter((it: any) => !existing.has(it._id));
+          return [...prev, ...deduped];
+        });
+        setTotalPages(result.totalPages);
+        lastLoadedPage.current = nextPage;
+        setPage(nextPage);
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to fetch rewards page', error);
+    } finally {
+      setIsLoading(false);
+      loadingRef.current = false;
     }
-    setIsLoading(false);
-    loadingRef.current = false;
   };
 
   const handleClaimButton = (reward: Reward) => {
@@ -98,9 +106,14 @@ export default function History({
 
   const handleClaim = async (ret: boolean, message: string): Promise<void> => {
     console.log('Claim Action');
+    if (!minerKey) return;
+    lastLoadedPage.current = 0;
+    loadingRef.current = false;
     setPage(1);
+    setTotalPages(0);
     setRewards([]);
     await fetchData(1);
+    if (mutateSummary) await mutateSummary();
   };
 
   const handleBoostButton = (reward: Reward) => {
@@ -111,9 +124,14 @@ export default function History({
 
   const handleBoost = async (ret: boolean, message: string): Promise<void> => {
     console.log('Boost Action');
+    if (!minerKey) return;
+    lastLoadedPage.current = 0;
+    loadingRef.current = false;
     setPage(1);
+    setTotalPages(0);
     setRewards([]);
     await fetchData(1);
+    if (mutateSummary) await mutateSummary();
   };
 
   // Reset and fetch on miner_key change (use SSR payload if present)
@@ -122,12 +140,14 @@ export default function History({
     if (Array.isArray(initialRewards) && initialRewards.length > 0) {
       setRewards(initialRewards as unknown as RewardView[]);
       lastLoadedPage.current = 1;
+      setTotalPages(initialTotalPages || Math.max(1, Math.ceil(initialRewards.length / PAGE_SIZE)));
       return;
     }
     setRewards([]);
     lastLoadedPage.current = 0;
-    if (miner_key) fetchData(1);
-  }, [miner_key, initialRewards]);
+    setTotalPages(initialTotalPages || 0);
+    if (minerKey) fetchData(1);
+  }, [minerKey, initialRewards, initialTotalPages]);
 
   // Fetch live prices for header context
   useEffect(() => {
@@ -259,6 +279,7 @@ export default function History({
       // Avoid churning through pages when current tab has no results
       const currentTabCount = tab === 'weekly' ? weeklyList.length : dailyList.length;
       if (currentTabCount === 0) return;
+      if (totalPages && lastLoadedPage.current >= totalPages) return;
       const next = (lastLoadedPage.current || (rewards.length > 0 ? 1 : 0)) + 1;
       if (totalPages && next > totalPages) return;
       if (!loadingRef.current) {
@@ -267,7 +288,7 @@ export default function History({
     }, { rootMargin: '200px 0px' });
     io.observe(el);
     return () => io.disconnect();
-  }, [rewards.length, totalPages, tab, weeklyList.length, dailyList.length]);
+  }, [rewards.length, totalPages, tab, weeklyList.length, dailyList.length, minerKey]);
 
   return (
     <div className="w-full">
@@ -505,14 +526,14 @@ export async function getServerSideProps(context: any) {
 
   if (!session || !session.user) {
     return {
-      props: {}
+      props: { initialRewards: [], initialTotalPages: 0 }
     };
   }
 
   const query = context.query;
   if (!query) {
     return {
-      props: {}
+      props: { initialRewards: [], initialTotalPages: 0 }
     };
   }
 
@@ -526,7 +547,7 @@ export async function getServerSideProps(context: any) {
 
     const doc = await db.collection('device-rewards').findOne({ miner_key });
     if (!doc) {
-      return { props: { initialRewards: [] } };
+      return { props: { initialRewards: [], initialTotalPages: 0 } };
     }
 
     const dayMs = 24 * 60 * 60 * 1000;
@@ -589,14 +610,18 @@ export async function getServerSideProps(context: any) {
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, 10);
 
+    const totalRewards = weekly.length + daily.length;
+    const totalPages = totalRewards > 0 ? Math.ceil(totalRewards / PAGE_SIZE) || 1 : 0;
+
     return {
       props: {
-        initialRewards: JSON.parse(JSON.stringify(rewards))
+        initialRewards: JSON.parse(JSON.stringify(rewards)),
+        initialTotalPages: totalPages
       }
     };
   } catch (error) {}
 
   return {
-    props: {}
+    props: { initialRewards: [], initialTotalPages: 0 }
   };
 }

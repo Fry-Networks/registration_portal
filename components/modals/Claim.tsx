@@ -133,7 +133,6 @@ export default function ClaimModal({
         setStage('submitted');
         setStatusText('Transaction broadcasted. Waiting for confirmation...');
         setTxIdState(txId);
-        toast.success({ heading: 'Claim Successful', message: `${theMsg}` });
         // Keep modal open to show countdown; optimistically refresh device totals
         setIsProcessing(true);
         await handleClaim(true, theMsg);
@@ -148,7 +147,7 @@ export default function ClaimModal({
                 content: (
                   <div>
                     <div>
-                      TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txId}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+                      TxId: <a className="underline break-all" href={`https://explorer.perawallet.app/tx/${txId}`} target="_blank" rel="noreferrer">Claim Successful: {txId}</a>
                     </div>
                   </div>
                 )
@@ -310,7 +309,7 @@ export default function ClaimModal({
                 <div>Next retry in {secondsLeft}s</div>
               )}
               <div>
-                TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txIdState}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+                TxId: <a className="underline break-all" href={`https://explorer.perawallet.app/tx/${txIdState}`} target="_blank" rel="noreferrer">{txIdState}</a>
               </div>
             </div>
           )}

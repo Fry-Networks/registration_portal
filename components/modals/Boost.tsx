@@ -93,7 +93,7 @@ export default function BoostModal({
                       <div>30% fee paid in FRY 2.0.</div>
                       <div>70% moved to Claimable.</div>
                       <div>
-                        TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txId}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+                        TxId: <a className="underline break-all" href={`https://explorer.perawallet.app/tx/${txId}`} target="_blank" rel="noreferrer">{txId}</a>
                       </div>
                     </div>
                   )
@@ -188,7 +188,14 @@ export default function BoostModal({
             justifyContent="center"
             className="gap-3 w-full mt-5 text-slate-900"
           >
-            <p>Claim rewards instantly (30% Fee)</p>
+            <div className="space-y-2 text-sm text-gray-800">
+              <p>
+                Are you sure you want to claim this reward instantly? A <span className="font-semibold text-red-600">30% fee</span> is deducted, while the remaining 70% moves straight to your Claimable.
+              </p>
+              <p className="text-xs text-gray-600">
+                This action cannot be undone.
+              </p>
+            </div>
             {isProcessing && (
               <>
                 <p className="text-sm text-gray-700">{statusText}</p>
@@ -263,7 +270,7 @@ export default function BoostModal({
                 <div>Next retry in {secondsLeft}s</div>
               )}
               <div>
-                TxId: <a className="underline" href={`https://explorer.perawallet.app/tx/${txIdState}`} target="_blank" rel="noreferrer">View on Pera Explorer</a>
+                TxId: <a className="underline break-all" href={`https://explorer.perawallet.app/tx/${txIdState}`} target="_blank" rel="noreferrer">{txIdState}</a>
               </div>
             </div>
           )}
