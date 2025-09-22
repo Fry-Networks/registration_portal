@@ -5,14 +5,8 @@ import { authOptions } from '../auth/[...nextauth]';
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
 const port = 443;
-import {
-  Algodv2,
-  Indexer,
-  makeAssetTransferTxnWithSuggestedParamsFromObject,
-  mnemonicToSecretKey,
-  Account
-} from 'algosdk';
-import { getSession } from 'next-auth/react';
+import { Algodv2 } from 'algosdk';
+
 const tokenToSend = {
   'X-API-Key': token
 };
@@ -22,7 +16,7 @@ export async function getTokenBalance(address: string): Promise<number | null> {
   try {
     // Fetch account information
     const accountInfo = await client.accountInformation(address).do();
-    const balance = accountInfo.amount / 1e6; // Convert microAlgos to Algos
+    const balance = Number(accountInfo.amount) / 1e6; // Convert microAlgos to Algos
 
     // console.log(`Wallet Address: ${address}`);
     // console.log(`Algo Balance: ${balance} Algos`);

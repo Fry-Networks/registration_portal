@@ -1,19 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
+import type { indexerModels } from 'algosdk'; // Reuse Algorand indexer typings to satisfy strict TypeScript checks
 import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
 import {
   Algodv2,
   Indexer,
-  makeAssetTransferTxnWithSuggestedParamsFromObject,
-  mnemonicToSecretKey,
-  Account
 } from 'algosdk';
-import { check } from 'prettier';
 
 const token = '';
 const port = 443;
@@ -102,17 +97,14 @@ export default async function handler(
     let checking = false;
     let checkingRetry = 0;
     while (!checking) {
-      const lastTransactions = await indexer
+      const lastTransactions = (await indexer
         .lookupAccountTransactions(address)
         .limit(50)
-        .do();
+        .do()) as indexerModels.TransactionsResponse; // Cast the raw indexer response so we can access the typed transactions list safely
 
       if (lastTransactions !== undefined) {
-        const targetTx = lastTransactions.transactions.find(
-          (transaction: Transaction) => {
-            return transaction.id === txId;
-          }
-        );
+        const transactions = lastTransactions.transactions ?? []; // Guard against missing transaction arrays when the account is empty
+        const targetTx = transactions.find((transaction) => transaction.id === txId); // Search for the target transaction using the SDK-provided model
 
         if (targetTx) {
           checking = true;

@@ -1,4 +1,5 @@
-import algosdk, { Account, Indexer, Transaction } from 'algosdk';
+import algosdk, { Account, Indexer } from 'algosdk';
+import type { indexerModels } from 'algosdk';
 
 const token = '';
 const tokenToSend = { 'X-API-Key': token };
@@ -17,11 +18,10 @@ export const optInForAsset = async (
   toAddress: string,
   assetId: number
 ): Promise<void> => {
-  const enc = new TextEncoder();
   const params = await algodClient.getTransactionParams().do();
   const optInTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-    from: fromAccount.addr,
-    to: toAddress,
+    sender: fromAccount.addr,
+    receiver: toAddress,
     amount: 0,
     assetIndex: assetId,
     suggestedParams: params,
@@ -42,23 +42,36 @@ export const hasOptedInForAsset = async (
   return assets.some((asset: any) => asset['asset-id'] === assetId);
 };
 
-export default async (address: string, note: Uint8Array) => {
+export default async (address: string, note: Uint8Array): Promise<boolean> => {
   console.log('[KING', address, note);
-  const lastTxns = await indexer
+  const lastTxns = (await indexer
     .lookupAccountTransactions(address)
     .limit(30)
-    .do();
+    .do()) as indexerModels.TransactionsResponse;
 
   console.log('[KING]', lastTxns);
   const fiveSecAgo = new Date(Date.now() - 5 * 1000);
-  let transaction: Transaction;
-  for (transaction of lastTxns.transactions) {
-    const txnDate = new Date(transaction['round-time'] * 1000);
+  const transactions = lastTxns.transactions ?? [];
+  const targetNoteBase64 = Buffer.from(note).toString('base64');
+
+  for (const transaction of transactions) {
+    const roundTimeValue =
+      (transaction as { roundTime?: number | bigint }).roundTime ??
+      (transaction as { ['round-time']?: number | bigint })['round-time'];
+    if (!roundTimeValue) continue;
+    const txnDate = new Date(Number(roundTimeValue) * 1000);
 
     if (txnDate < fiveSecAgo) continue;
 
-    const tmpNote = transaction.note;
-    if (tmpNote && tmpNote === note) {
+    const tmpNote = transaction.note as Uint8Array | string | undefined;
+    if (!tmpNote) continue;
+
+    const txnNoteBase64 =
+      typeof tmpNote === 'string'
+        ? tmpNote
+        : Buffer.from(tmpNote).toString('base64');
+
+    if (txnNoteBase64 === targetNoteBase64) {
       return true;
     }
   }

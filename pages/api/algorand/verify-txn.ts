@@ -3,6 +3,7 @@ import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
+import type { indexerModels } from 'algosdk'; // Use Algorand indexer typings for safer transaction access
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
@@ -55,17 +56,14 @@ export default async function handler(
     let checking = false;
     let checkingRetry = 0;
     while (!checking) {
-      const lastTransactions = await indexer
+      const lastTransactions = (await indexer
         .lookupAccountTransactions(address)
         .limit(50)
-        .do();
+        .do()) as indexerModels.TransactionsResponse; // Cast the API response to the official indexer type to expose its shape
 
       if (lastTransactions !== undefined) {
-        const targetTx = lastTransactions.transactions.find(
-          (transaction: Transaction) => {
-            return transaction.id === txId;
-          }
-        );
+        const transactions = lastTransactions.transactions ?? []; // Default to an empty list when the account has no transactions
+        const targetTx = transactions.find((transaction) => transaction.id === txId); // Locate a transaction whose id matches the requested txId
 
         if (targetTx) {
           checking = true;
@@ -100,17 +98,14 @@ export async function verifyTransaction(address: string, txId: string) {
 
   try {
     while (!checking) {
-      const lastTransactions = await indexer
+      const lastTransactions = (await indexer
         .lookupAccountTransactions(address)
         .limit(50)
-        .do();
+        .do()) as indexerModels.TransactionsResponse; // Reuse the typed response so both loops share the same safety guarantees
 
       if (lastTransactions !== undefined) {
-        const targetTx = lastTransactions.transactions.find(
-          (transaction: Transaction) => {
-            return transaction.id === txId;
-          }
-        );
+        const transactions = lastTransactions.transactions ?? []; // Guard against undefined arrays before searching
+        const targetTx = transactions.find((transaction) => transaction.id === txId); // Match by txId using the SDK-provided transaction shape
 
         if (targetTx) {
           checking = true;

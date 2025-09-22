@@ -43,14 +43,16 @@ export async function getTokenBalance(
     const correctAssetId = assetId === 'none' ? 0 : Number(assetId);
 
     // Find the asset in the account's assets list
-    const asset = accountInfo.assets.find((asset: any) => {
-      return asset['asset-id'] === correctAssetId;
-    });
+    const assets = (accountInfo.assets ?? []) as Array<Record<string, any>>;
+    const asset = assets.find(asset => asset['asset-id'] === correctAssetId);
 
     if (asset) {
       // Return the asset balance (converted to base units, if needed)
       const decimals = await getAssetDecimals(asset['asset-id']);
-      return Number((asset.amount / Math.pow(10, decimals || 0)).toFixed(2)); // Adjust for decimals
+      const amount = Number(asset.amount ?? 0);
+      const divisor = Math.pow(10, decimals ?? 0);
+      const normalizedBalance = divisor === 0 ? amount : amount / divisor;
+      return Number(normalizedBalance.toFixed(2)); // Adjust for decimals
     } else {
       console.log(`Asset ID ${correctAssetId} not found for this account.`);
       return null;
