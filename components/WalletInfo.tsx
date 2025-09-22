@@ -9,8 +9,6 @@ import MessageUpdate from './messageUpdate';
 import { Button, Flex } from '@tremor/react';
 import PasteAddress from './PasteAddress';
 import WalletIcon from './WalletIcon';
-import { useModal } from '../app/modalcontext';
-import GenerateWallet from './modals/GenerateWallet';
 import { getWalletAddress } from '../lib/utils';
 import { useToastContext } from '../hooks/ToastContext';
 
@@ -46,7 +44,6 @@ const WalletInfo = ({
   const [lackBalance, setLackBalance] = useState(0);
   const { data: session } = useSession();
   const [connectivityFocus, setConnectivityFocus] = useState(false);
-  const { openModal } = useModal();
   const toast = useToastContext();
 
   async function hasOptedInForAsset(
@@ -125,15 +122,6 @@ const WalletInfo = ({
     setData({ ...data, reward_wallet: session?.user.address });
   };
 
-  const handleGenWallet = () => {
-    console.log('Generate new wallet');
-    openModal('generate_wallet');
-  };
-
-  const saveGenerateWallet = (mnemonic: string) => {
-  // ...existing code...
-  };
-
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
@@ -203,10 +191,6 @@ const WalletInfo = ({
           </div>
         </div>
       </div>
-      <GenerateWallet
-        modalName="generate_wallet"
-        saveGenerateWallet={saveGenerateWallet}
-      />
     </div>
   );
 };

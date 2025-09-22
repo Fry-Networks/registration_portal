@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import GenerateWallet from './modals/GenerateWallet';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
 interface SignInProps {
