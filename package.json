@@ -82,7 +82,6 @@
     "react-quill": "^2.0.0",
     "react-responsive": "^9.0.2",
     "react-router-dom": "^6.22.0",
-    "react-scripts": "^5.0.1",
     "react-select": "^5.8.0",
     "react-toastify": "^10.0.4",
     "rtsp-client": "^1.4.5",

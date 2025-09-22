@@ -31,7 +31,7 @@ const RegistrationModal: React.FC<REGModalProps> = ({
             return "https://camera.frynetworks.com";
         } else if (['HWM', 'LWM'].includes(minerType)) {
             return "https://weather.frynetworks.com";
-        } else if (['OLWQM', 'OHWQM'.includes(minerType)]) {
+        } else if (['OLWQM', 'OHWQM'].includes(minerType)) {
             return "https://water.frynetworks.com";
         } else if (minerType === 'EM') {
             return "https://energy.frynetworks.com";
