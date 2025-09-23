@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Sidebar from '../components/Sidebar';
 import DeviceInfo from '../components/DeviceInfo';
@@ -22,71 +22,121 @@ export default ({ products }: { products: Product[] }) => {
   const [stakeStatus, setStakeStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
   const { minerKey, clickable, type } = router.query;
+  const hasFetchedRef = useRef(false);
+  const savingRef = useRef(false);
+  const lastAttemptRef = useRef<string | null>(null);
+
+  const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
+
+  const resolvedMinerKey = useMemo(() => {
+    if (typeof minerKey === 'string') {
+      return minerKey;
+    }
+
+    if (Array.isArray(minerKey) && minerKey.length > 0) {
+      return minerKey[0];
+    }
+
+    return undefined;
+  }, [minerKey]);
+
+  const resolvedPortalType = useMemo(() => {
+    if (typeof type === 'string') {
+      return type;
+    }
+
+    if (Array.isArray(type) && type.length > 0) {
+      return type[0];
+    }
+
+    return undefined;
+  }, [type]);
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const [product, setProduct] = useState<Product | undefined>(undefined);
   const toast = useToastContext();
   const { data: session } = useSession();
 
-  console.log(`MinerKey: ${minerKey}`);
-
+  // Effect A: fetch device when identity changes
   useEffect(() => {
-    if (!minerKey || typeof minerKey !== 'string') {
-      return;
-    }
+    if (!resolvedMinerKey || !session?.user?.address) return;
 
-    const fetchDeviceInfo = async (minerKey: string) => {
+    hasFetchedRef.current = false; // reset when identity changes
+
+    (async () => {
       try {
-        const response = await fetch(`/api/devices/${minerKey}`, {
+        const res = await fetch(`/api/devices/${resolvedMinerKey}`, {
           method: 'POST',
-          headers: {'Content-type': 'application/json'},
-          body: JSON.stringify({address: session?.user.address})
+          headers: { 'Content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ address: session.user.address }),
         });
-        if (response.ok) {
-          const data = await response.json();
+        if (res.ok) {
+          const data = await res.json();
           setDevice(data.device as Device);
         } else {
           setDevice(undefined);
         }
-      } catch (error) {
-        console.error(error);
+      } catch (e) {
+        console.error(e);
         setDevice(undefined);
+      } finally {
+        hasFetchedRef.current = true; // <-- important
       }
-    };
+    })();
+  }, [resolvedMinerKey, session?.user?.address]);
 
-    const setPortalType = async (minerKey: string, type: string | string[]) => {
+  // Effect B: only save portal type if it actually needs saving
+  useEffect(() => {
+    if (!resolvedMinerKey || !session?.user?.address || !resolvedPortalType) return;
+
+    // wait until we fetched at least once for this identity
+    if (!hasFetchedRef.current) return;
+
+    const desired = norm(resolvedPortalType);
+    const current = norm(device?.registered_portal_model);
+
+    // already matches? do nothing
+    if (current === desired) return;
+
+    // avoid concurrent saves or repeating the same attempt
+    const attemptKey = `${resolvedMinerKey}|${desired}`;
+    if (savingRef.current) return;
+    if (lastAttemptRef.current === attemptKey) return;
+
+    savingRef.current = true;
+    lastAttemptRef.current = attemptKey;
+
+    (async () => {
       try {
-        const response = await fetch(`/api/devices/save-portal-type`, {
+        const res = await fetch(`/api/devices/save-portal-type`, {
           method: 'POST',
-          headers: {'Content-type': 'application/json'},
-          body: JSON.stringify({miner_key: minerKey, type, address: session?.user.address})
+          headers: { 'Content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            miner_key: resolvedMinerKey,
+            type: desired, // send normalized
+            address: session.user.address,
+          }),
         });
-        if (response.ok) {
-          const data = await response.json();
-          setDevice(data.device as Device);
-          toast.success({
-            heading: 'Success',
-            message: 'Device information updated successfully'
-          });
-        } else {
-          toast.error({
-            heading: 'Error',
-            message: 'Failed to update device information for portal type'
-          });
-        }
-      } catch (error) {
-        console.error(error);
-        toast.error({
-          heading: 'Error',
-          message: 'Failed to update device information for portal type'
-        });
-      }
-    }
 
-    if (type) {
-      setPortalType(minerKey, type);
-    }
-    fetchDeviceInfo(minerKey);
-  }, [minerKey]);
+        if (res.ok) {
+          const data = await res.json();
+          setDevice(data.device as Device); // should now echo registered_portal_model
+          toast.success({ heading: 'Success', message: 'Device information updated successfully' });
+        } else {
+          lastAttemptRef.current = null; // allow retry
+          toast.error({ heading: 'Error', message: 'Failed to update device information for portal type' });
+        }
+      } catch (e) {
+        console.error(e);
+        lastAttemptRef.current = null; // allow retry
+        toast.error({ heading: 'Error', message: 'Failed to update device information for portal type' });
+      } finally {
+        savingRef.current = false;
+      }
+    })();
+  }, [resolvedMinerKey, resolvedPortalType, session?.user?.address, device?.registered_portal_model]);
+
 
   const findProduct = (minerKey: string) => {
     const key = minerKey.split('-')[0];
@@ -137,10 +187,10 @@ export default ({ products }: { products: Product[] }) => {
         nickname: ''
       });
 
-  // ...existing code...
+      // ...existing code...
     }
 
-  // ...existing code...
+    // ...existing code...
   }, [device]);
 
   // State for each form's data
@@ -166,73 +216,126 @@ export default ({ products }: { products: Product[] }) => {
   ];
 
   const saveDeviceInformation = async (): Promise<boolean> => {
+    if (!resolvedMinerKey) {
+      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+
+      return false;
+    }
+
+    if (!session?.user.address) {
+      toast.error({
+        heading: 'Error',
+        message: 'Your wallet session has expired.'
+      });
+
+      return false;
+    }
+
     const saveData = {
-      miner_key: minerKey,
+      miner_key: resolvedMinerKey,
+
       email: deviceInfoData.email,
+
       names: {
         first_name: deviceInfoData.firstName,
+
         last_name: deviceInfoData.lastName
       },
+
       nickname: deviceInfoData.nickname,
-      address: session?.user.address
+
+      address: session.user.address
     };
 
     const response = await fetch('/api/devices/save-device-info', {
       method: 'POST',
+
       headers: {
         'Content-Type': 'application/json'
       },
+
+      credentials: 'include',
+
       body: JSON.stringify(saveData)
     });
 
     if (response.ok) {
       toast.success({
         heading: 'Success',
+
         message: 'Device information saved successfully'
       });
+
       return true;
-    } else {
+    }
+
+    toast.error({
+      heading: 'Error',
+
+      message: 'Failed to save device information'
+    });
+
+    return false;
+  };
+
+  const saveWalletInformation = async (): Promise<boolean> => {
+    if (!resolvedMinerKey) {
+      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+
+      return false;
+    }
+
+    if (!session?.user.address) {
       toast.error({
         heading: 'Error',
-        message: 'Failed to save device information'
+        message: 'Your wallet session has expired.'
       });
 
       return false;
     }
-  };
 
-  const saveWalletInformation = async (): Promise<boolean> => {
     try {
       const saveData = {
-        miner_key: minerKey,
+        miner_key: resolvedMinerKey,
+
         reward_wallet: walletInfoData.reward_wallet,
-        address: session?.user.address
+
+        address: session.user.address
       };
+
       const response = await fetch('/api/devices/save-wallet-info', {
         method: 'POST',
+
         headers: {
           'Content-Type': 'application/json'
         },
+
+        credentials: 'include',
+
         body: JSON.stringify(saveData)
       });
 
       if (response.ok) {
         toast.success({
           heading: 'Success',
+
           message: 'Save wallet information successfully'
         });
-        return true;
-      } else {
-        toast.error({
-          heading: 'Error',
-          message: 'Failed to save wallet information'
-        });
 
-        return false;
+        return true;
       }
+
+      toast.error({
+        heading: 'Error',
+
+        message: 'Failed to save wallet information'
+      });
+
+      return false;
     } catch (error) {
       toast.error({
         heading: 'Error',
+
         message: 'Failed to save wallet information'
       });
 
@@ -241,83 +344,141 @@ export default ({ products }: { products: Product[] }) => {
   };
 
   const saveMapInformation = async (): Promise<boolean> => {
+    if (!resolvedMinerKey) {
+      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+
+      return false;
+    }
+
+    if (!session?.user.address) {
+      toast.error({
+        heading: 'Error',
+        message: 'Your wallet session has expired.'
+      });
+
+      return false;
+    }
+
     try {
       const saveData = {
-        miner_key: minerKey,
+        miner_key: resolvedMinerKey,
+
         position: {
           lat: mapInfoData.latitude,
+
           lng: mapInfoData.longitude
         },
-        address: session?.user.address
+
+        address: session.user.address
       };
-      // Optionally send to backend
+
       const response = await fetch('/api/devices/save-map-info', {
         method: 'POST',
+
         body: JSON.stringify(saveData),
-        headers: { 'Content-Type': 'application/json' }
+
+        headers: { 'Content-Type': 'application/json' },
+
+        credentials: 'include'
       });
 
       if (response.ok) {
         toast.success({
           heading: 'Success',
+
           message: 'Save map information successfully'
         });
-      } else {
-        toast.error({
-          heading: 'Error',
-          message: 'Failed to save wallet information'
-        });
 
-        return false;
+        return true;
       }
+
+      toast.error({
+        heading: 'Error',
+
+        message: 'Failed to save map information'
+      });
+
+      return false;
     } catch (error) {
       toast.error({
         heading: 'Error',
-        message: 'Failed to save wallet information'
+
+        message: 'Failed to save map information'
       });
+
       return false;
     }
-
-    return true;
   };
 
   const registerDevice = async () => {
-    let result = true;
-    result = await saveDeviceInformation();
-    result = result && (await saveWalletInformation());
-    result = result && (await saveMapInformation());
+    if (!resolvedMinerKey) {
+      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
 
-    console.log('Saving information result: ' + result);
+      return;
+    }
 
-    if (result) {
-      if(!clickable) {
-        const response = await fetch('api/registrations/register', {
-          method: 'POST',
-          body: JSON.stringify({
-            miner_key: minerKey,
-            address: session?.user.address,
-            type
-          }),
-          headers: { 'Content-Type': 'application/json' }
+    const stepsSucceeded =
+      (await saveDeviceInformation()) &&
+      (await saveWalletInformation()) &&
+      (await saveMapInformation());
+
+    if (!stepsSucceeded) {
+      return;
+    }
+
+    if (!clickable) {
+      if (!session?.user.address) {
+        toast.error({
+          heading: 'Error',
+          message: 'Your wallet session has expired.'
         });
-  
-        if (!response.ok) {
-          toast.error({
-            heading: 'Error',
-            message: 'Failed to register device'
-          });
-  
-          return;
-        }
+
+        return;
       }
 
-      const product = findProductByMinerKey(device!.miner_key, products);
-      if (product && (isRegistrationNeeded(product) || isNodeStakingNeeded(product))) {
-        router.push({ pathname: '/pay-register', query: { minerKey } });
-      } else {
-        router.push('/devices');
+      const response = await fetch('/api/registrations/register', {
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+
+        credentials: 'include',
+
+        body: JSON.stringify({
+          miner_key: resolvedMinerKey,
+
+          address: session.user.address,
+
+          type: resolvedPortalType
+        })
+      });
+
+      if (!response.ok) {
+        toast.error({
+          heading: 'Error',
+
+          message: 'Failed to register device'
+        });
+
+        return;
       }
     }
+
+    const product = device && findProductByMinerKey(device.miner_key, products);
+
+    if (
+      product &&
+      (isRegistrationNeeded(product) || isNodeStakingNeeded(product))
+    ) {
+      router.push({
+        pathname: '/pay-register',
+
+        query: { minerKey: resolvedMinerKey }
+      });
+
+      return;
+    }
+
+    router.push('/devices');
   };
 
   const handleNext = () => {
@@ -351,13 +512,17 @@ export default ({ products }: { products: Product[] }) => {
 
   const handleCancel = async () => {
     try {
-      const key = typeof minerKey === 'string' ? minerKey : Array.isArray(minerKey) ? minerKey[0] : undefined;
-      if (key && session?.user.address) {
+      if (resolvedMinerKey && session?.user.address) {
         await fetch('/api/registrations/cancel', {
           method: 'POST',
+
           headers: { 'Content-type': 'application/json' },
+
+          credentials: 'include',
+
           body: JSON.stringify({
-            miner_key: key,
+            miner_key: resolvedMinerKey,
+
             address: session.user.address
           })
         });
@@ -367,7 +532,7 @@ export default ({ products }: { products: Product[] }) => {
     } finally {
       router.push('/devices');
     }
-  }
+  };
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -405,7 +570,7 @@ export default ({ products }: { products: Product[] }) => {
           <div className="flex-shrink-0 w-full h-full">
             <DeviceInfo
               status={deviceStatus}
-              minerKey={minerKey}
+              minerKey={resolvedMinerKey ?? ''}
               data={deviceInfoData}
               setData={setDeviceInfoData}
               onNext={handleNext}
@@ -415,7 +580,7 @@ export default ({ products }: { products: Product[] }) => {
           <div className="flex-shrink-0 w-full h-full">
             <WalletInfo
               status={walletStatus}
-              minerKey={minerKey}
+              minerKey={resolvedMinerKey ?? ''}
               data={walletInfoData}
               setData={setWalletInfoData}
               onNext={handleNext}
@@ -427,7 +592,7 @@ export default ({ products }: { products: Product[] }) => {
           <div className="flex-shrink-0 w-full h-full">
             <MapInfo
               status={locationStatus}
-              minerKey={minerKey}
+              minerKey={resolvedMinerKey ?? ''}
               data={mapInfoData}
               setData={setMapInfoData}
               onNext={handleNext}
