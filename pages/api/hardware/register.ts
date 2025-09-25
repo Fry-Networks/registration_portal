@@ -8,6 +8,13 @@ const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i;
 const HARDWARE_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const HARDWARE_COLLECTION = process.env.MONGO_CREDS_COLLECTION ?? 'hardware';
 
+const LINKED_MINER_TYPES: Record<string, string[]> = {
+  ISM: ['OSM'],
+  OSM: ['ISM'],
+  IDM: ['ODM'],
+  ODM: ['IDM']
+};
+
 type SuccessResponse = { message: string };
 type ConflictResponse = {
   message: string;
@@ -113,6 +120,34 @@ export default async function handler(
         return;
       }
 
+      const linkedTypes = LINKED_MINER_TYPES[minerType] ?? [];
+      if (linkedTypes.length > 0) {
+        const minerKeySuffix = miner_key.slice(minerType.length);
+        const linkedMinerKeys = linkedTypes
+          .map((linkedType) => `${linkedType}${minerKeySuffix}`)
+          .filter((key) => key !== miner_key);
+
+        if (linkedMinerKeys.length > 0) {
+          const linkedMiners = await collection
+            .find({ miner_key: { $in: linkedMinerKeys } })
+            .toArray();
+
+          for (const linkedMiner of linkedMiners) {
+            const linkedMac =
+              typeof linkedMiner.miner_mac === 'string'
+                ? linkedMiner.miner_mac.toUpperCase()
+                : '';
+
+            if (linkedMac && linkedMac !== normalizedMac) {
+              res.status(409).json({
+                message: 'MAC address conflicts with linked miner registration.',
+                conflictMinerKey: linkedMiner.miner_key
+              });
+              return;
+            }
+          }
+        }
+      }
       const conflictingMac = await collection.findOne({
         miner_type: minerType,
         miner_mac: { $regex: `^${normalizedMac}$`, $options: 'i' },
@@ -206,3 +241,5 @@ export default async function handler(
     res.status(500).json({ message });
   }
 }
+
+
