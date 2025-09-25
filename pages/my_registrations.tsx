@@ -14,13 +14,20 @@ import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerific
 import { Device } from '../lib/types';
 import { useRouter } from 'next/router';
 
-export default function MyRegistrationsPage({ devices = [] }: { devices: Device[] }) {
+type DeviceWithMeta = Device & {
+  registration?: Device['registration'] | null;
+  node?: Device['node'] | null;
+  verificationLocked?: boolean;
+  verificationDisabledReason?: string | null;
+};
+
+export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceWithMeta[] }) {
   const router = useRouter();
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
   const { openModal, closeModal } = useModal();
 
-  const [currentDevice, setCurrentDevice] = useState<Device | null>(null);
+  const [currentDevice, setCurrentDevice] = useState<DeviceWithMeta | null>(null);
   const [rewardWallet, setRewardWallet] = useState('');
   const [isValid, setIsValid] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
@@ -28,7 +35,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
   const [typeFilter, setTypeFilter] = useState(['ALL']);
   const [miscFilter, setMiscFilter] = useState(['ALL']);
   const [filter, setFilter] = useState('');
-  const [filteredDevices, setFilteredDevices] = useState<Device[]>(devices);
+  const [filteredDevices, setFilteredDevices] = useState<DeviceWithMeta[]>(devices);
 
   useEffect(() => {
     const regex = /^[A-Z0-9]{58}$/;
@@ -200,7 +207,15 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
 
           {/* Devices section */}
           {filteredDevices && filteredDevices.length > 0 ? (
-            filteredDevices.map((device) => (
+            filteredDevices.map((device) => {
+              const verificationDisabled =
+                device.is_registered === false || device.verificationLocked;
+              const verificationReason = device.verificationLocked
+                ? device.verificationDisabledReason ??
+                  'Complete the required staking steps before verification.'
+                : undefined;
+
+              return (
               <Card key={device._id} className="mb-4 relative p-4 md:p-6">
                 <Title>{device.nickname ? device.nickname : device.name}</Title>
                 <Text>Miner Key: {device.miner_key}</Text>
@@ -243,7 +258,12 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                       Withdraw stake
                     </Button>
                   ) : (
-                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'stakeVerification')} disabled={device.is_registered === false}>
+                    <Button
+                      className="w-full md:w-auto"
+                      onClick={() => handleOpenModal(device, 'stakeVerification')}
+                      disabled={verificationDisabled}
+                      title={verificationReason}
+                    >
                       Verify (stake)
                     </Button>
                   )}
@@ -264,8 +284,14 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: Device[
                     </Button>
                   )}
                 </Flex>
+                {device.verificationLocked && verificationReason && (
+                  <Text className="text-amber-500 text-sm mt-2">
+                    {verificationReason}
+                  </Text>
+                )}
               </Card>
-            ))
+              );
+            })
           ) : (
             <p>No devices found</p>
           )}
@@ -305,35 +331,84 @@ export async function getServerSideProps(context: any) {
     const db = client.db('main');
 
     const devices = await db.collection('devices').find({ address: session.user.address}).toArray();
+    const products = await db.collection('products').find({}).toArray();
+
     if (!devices) {
       return {
         props: {
           devices: [],
         },
       };
-    } else {
-      return {
-        props: {
-          devices: JSON.parse(JSON.stringify(devices.map((device) => {
-            return {
-              address: device.address,
-              byod: device.byod,
-              is_registered: device.is_registered,
-              miner_key: device.miner_key,
-              name: device.name,
-              nickname: device.nickname,
-              position: device.position,
-              reward_wallet: device.reward_wallet,
-              staked: device.staked,
-              stake_type: device.stake_type,
-              verified: device.verified,
-              hexId: device.hexId,
-              created_at: device.created_at,
-            };
-          })))
-        }
-      };
     }
+
+    const productMap = new Map(
+      products.map((product: any) => [product.key, product])
+    );
+
+    const serializedDevices = devices.map((device: any) => {
+      const productKey = device.miner_key?.split('-')[0];
+      const product = productMap.get(productKey);
+
+      const registerStakeRequired = Boolean(
+        product?.reward?.tokens?.register &&
+          product?.reward?.tokens?.register !== 'none' &&
+          product?.reward?.stake?.register &&
+          product?.reward?.stake?.register > 0
+      );
+
+      const nodeStakeRequired = Boolean(
+        product?.reward?.tokens?.node &&
+          product?.reward?.tokens?.node !== 'none' &&
+          product?.reward?.stake?.node &&
+          product?.reward?.stake?.node > 0
+      );
+
+      const hasRegistrationStake = Boolean(
+        Number(device?.registration?.amount ?? 0) > 0
+      );
+
+      const hasNodeStake = Boolean(Number(device?.node?.amount ?? 0) > 0);
+
+      const missingRequirements: string[] = [];
+      if (registerStakeRequired && !hasRegistrationStake) {
+        missingRequirements.push('registration stake');
+      }
+      if (nodeStakeRequired && !hasNodeStake) {
+        missingRequirements.push('node operation stake');
+      }
+
+      const verificationLocked = missingRequirements.length > 0;
+      const verificationDisabledReason = verificationLocked
+        ? `Complete the ${missingRequirements.join(' and ')} before verification staking.`
+        : null;
+
+      return {
+        _id: device._id?.toString?.() ?? device._id,
+        address: device.address,
+        byod: device.byod,
+        is_registered: device.is_registered,
+        miner_key: device.miner_key,
+        name: device.name,
+        nickname: device.nickname,
+        position: device.position,
+        reward_wallet: device.reward_wallet,
+        staked: device.staked,
+        stake_type: device.stake_type,
+        verified: device.verified,
+        hexId: device.hexId,
+        created_at: device.created_at,
+        registration: device.registration ?? null,
+        node: device.node ?? null,
+        verificationLocked,
+        verificationDisabledReason
+      };
+    });
+
+    return {
+      props: {
+        devices: JSON.parse(JSON.stringify(serializedDevices))
+      }
+    };
   } catch (e) {
     console.error(e);
     return {
