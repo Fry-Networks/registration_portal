@@ -1,5 +1,6 @@
 import algosdk, { Account, Indexer } from 'algosdk';
 import type { indexerModels } from 'algosdk';
+import { normalizeAssetId } from './utils';
 
 const token = '';
 const tokenToSend = { 'X-API-Key': token };
@@ -35,11 +36,17 @@ export const optInForAsset = async (
 
 export const hasOptedInForAsset = async (
   address: string,
-  assetId: number
+  assetId: number | string
 ): Promise<boolean> => {
   const accountInfo = await algodClient.accountInformation(address).do();
-  const assets = accountInfo['assets'] || [];
-  return assets.some((asset: any) => asset['asset-id'] === assetId);
+  // Treat asset ids consistently to handle bigint values returned by the SDK.
+  const assets = (accountInfo['assets'] || []) as Array<{
+    ['asset-id']?: number | bigint | string;
+  }>;
+  const normalizedTarget = normalizeAssetId(assetId);
+  return assets.some(
+    (asset) => normalizeAssetId(asset['asset-id']) === normalizedTarget
+  );
 };
 
 export default async (address: string, note: Uint8Array): Promise<boolean> => {

@@ -183,6 +183,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
         created_at: new Date(Date.now())
       };
 
+      toast.info({
+        heading: 'Signature required',
+        message: 'Please approve the registration stake in your wallet.'
+      });
+
       const sendResult = devMode
         ? await sendAlgoTransaction(
             session?.user.address!,
@@ -337,6 +342,11 @@ export default function PayRegister({ products }: { products: Product[] }) {
         amount: amount,
         created_at: new Date(Date.now())
       };
+
+      toast.info({
+        heading: 'Signature required',
+        message: 'Please approve the node stake in your wallet.'
+      });
 
       const sendResult = devMode
         ? await sendAlgoTransaction(

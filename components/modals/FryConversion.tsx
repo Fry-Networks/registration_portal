@@ -64,6 +64,11 @@ export default function FryConversionModal({
       const suggestedParams = await algodClient.getTransactionParams().do();
       const to = BURN_WALLET;
 
+      toast.info({
+        heading: 'Signature required',
+        message: 'Approve the burn transaction in your wallet to continue.'
+      });
+
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         sender: from.toString(),
         receiver: to.toString(),

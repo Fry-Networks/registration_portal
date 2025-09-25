@@ -230,6 +230,11 @@ const StakeModal = ({
         created_at: new Date(Date.now())
       };
 
+      toast.info({
+        heading: 'Signature required',
+        message: 'Please approve the staking transaction in your wallet.'
+      });
+
       const sendResult = devMode
         ? await sendAlgoTransaction(
             session?.user.address!,

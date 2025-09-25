@@ -18,6 +18,7 @@ import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { getFRYPrice } from '../../lib/price';
 import { useRouter } from 'next/router';
+import { useToastContext } from '../../hooks/ToastContext';
 
 const algodClient = new algosdk.Algodv2(
     "",
@@ -31,6 +32,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
     const router = useRouter();
     const { modals, closeModal } = useModal();
     const { activeAddress, signTransactions } = useWallet();
+    const toast = useToastContext();
     const [updateSuccess, setUpdateSuccess] = useState<string>("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [paid, setPaid] = useState<boolean>(false);
@@ -87,6 +89,11 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
             });
 
             const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
+            toast.info({
+                heading: 'Signature required',
+                message: 'Approve the verification stake in your wallet to continue.'
+            });
+
             const signedTransactions = await signTransactions([encodedTransaction]);
             
             // Filter out null values and ensure we have valid signed transactions

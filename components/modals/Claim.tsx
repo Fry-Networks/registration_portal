@@ -42,6 +42,11 @@ export default function ClaimModal({
   
       if (from === undefined)
         return false;
+
+      toast.info({
+        heading: 'Signature required',
+        message: 'Approve the fee transaction in your wallet to continue.'
+      });
   
       const suggestedParams = await algodClient.getTransactionParams().do();
       const to = REWALD_WALLET;

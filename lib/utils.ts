@@ -37,6 +37,24 @@ export const indexerClient = new Indexer(
   DEFAULT_NODE_PORT
 );
 
+// Normalize Algorand asset identifiers so bigint responses compare correctly across the app.
+export const normalizeAssetId = (value: unknown): number => {
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.length > 0) {
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  return Number(value ?? 0);
+};
+
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
@@ -120,8 +138,13 @@ export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
       return 0;
     }
 
-    const asset = accountInfo.assets.find(
-      (a: any) => a['asset-id'] === parseInt(assetId)
+    const normalizedTarget = normalizeAssetId(assetId);
+    const assets = (accountInfo.assets ?? []) as Array<{
+      ['asset-id']?: number | string | bigint;
+      amount?: number | string | bigint;
+    }>;
+    const asset = assets.find(
+      (a) => normalizeAssetId(a['asset-id']) === normalizedTarget
     );
 
     if (asset) {
