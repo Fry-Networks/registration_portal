@@ -51,11 +51,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return;
         }
         const amount = device.staked.amount;
+        const assetId = device.staked.asset_id; // Track the original staking asset so we withdraw the exact same token
         if(!amount) {
             res.status(401).json({ message: "Unauthorized 5" });
             return;
         }
-        const result = await withdraw(address, amount);
+        if(!assetId){
+            res.status(500).json({ message: "Missing staking asset" });
+            return;
+        }
+
+        const result = await withdraw(address, amount, assetId); // Pass through the staking asset to keep withdrawals consistent
         if(!result) {
             res.status(500).json({ message: "error" });
             return;
@@ -69,9 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 };
 
-
-
-async function withdraw(address: string,amount: number) {
+async function withdraw(address: string,amount: number, assetId: string) {
     const mnemonic = process.env.STAKE_MNEMONIC;
     if (!mnemonic) {
         throw new Error("No STAKE_MNEMONIC in env");
@@ -83,14 +87,13 @@ async function withdraw(address: string,amount: number) {
     );
     const account = algosdk.mnemonicToSecretKey(mnemonic);
     const params = await algodClient.getTransactionParams().do();
-    const FRYIndex = 924268058;
 
     const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         sender: account.addr,
         receiver: address,
         amount: amount*1_000_000,
         note: new Uint8Array(Buffer.from("Stake withdraw" + (Math.floor(Math.random() * 1000)))),
-        assetIndex: FRYIndex,
+        assetIndex: assetId === 'none' ? 0 : Number(assetId), // Use the original staking asset instead of hard-coding FRY 1.0
         suggestedParams: params
     });
     const signedTxn = transaction.signTxn(account.sk);

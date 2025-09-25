@@ -29,7 +29,6 @@ const devMode =
 const indexServer = 'https://mainnet-idx.algonode.cloud/';
 const indexer = new Indexer(tokenToSend, indexServer, port);
 
-const fryCryptoAssetId = '924268058';
 const lockSet: Set<string> = new Set();
 export default async function handler(
   req: NextApiRequest,
@@ -112,6 +111,7 @@ export default async function handler(
       return;
     }
     const amount = device.staked.amount;
+    const assetId = device.staked.asset_id; // Preserve the staking asset identifier for the withdrawal transaction
     if (!amount) {
       lockSet.delete(miner_key);
       res.status(401).json({ message: 'Unauthorized 5' });
@@ -120,9 +120,13 @@ export default async function handler(
 
     let result: string | null = null;
 
-    const asset_id = device.staked?.asset_id ?? fryCryptoAssetId;
+    if (!assetId) {
+      lockSet.delete(miner_key);
+      res.status(500).json({ message: 'Missing staking asset' });
+      return;
+    }
 
-    result = await withdraw(miner_key, address, amount, asset_id);
+    result = await withdraw(miner_key, address, amount, assetId); // Send back the same asset that was originally staked
     if (!result) {
       lockSet.delete(miner_key);
       res.status(500).json({ message: 'error' });
@@ -166,7 +170,7 @@ export async function withdraw(
 
     const from = account.addr.toString();
 
-    const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id);
+    const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id); // Respect the stored asset id instead of falling back to FRY 1.0
 
     // Fetch transaction parameters from the Algorand network
     const suggestedParams = await algodClient.getTransactionParams().do();

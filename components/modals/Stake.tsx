@@ -12,7 +12,8 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import algosdk from 'algosdk';
-import { getTokenBalance } from '../../pages/api/algorand/get-token-balance';
+import { getTokenBalance as getStakeAssetBalance } from '../../pages/api/algorand/get-token-balance';
+import { getTokenBalance as getAlgoBalance } from '../../pages/api/algorand/get-algo-balance';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import { useWallet } from '@txnlab/use-wallet-react';
@@ -59,6 +60,8 @@ const StakeModal = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const { data: session } = useSession();
   const toast = useToastContext();
+
+  const MINIMUM_ALGO_BUFFER = 0.01; // Require a tiny Algo reserve to cover network fees
 
   const fetchTokenInformation = async (asset_id: string | undefined) => {
     console.log(asset_id);
@@ -188,6 +191,29 @@ const StakeModal = ({
       }
 
       const asset_id = product.reward.tokens?.stake ?? 'none';
+
+      const [stakeTokenBalance, algoBalance] = await Promise.all([
+        getStakeAssetBalance(session?.user.address!, asset_id), // Pull the stake asset balance before building the transaction
+        getAlgoBalance(session?.user.address!) // Ensure the wallet still has Algo to pay the fee
+      ]);
+
+      if (stakeTokenBalance === null || stakeTokenBalance < stakeAmount) {
+        toast.error({
+          heading: 'Verification Error',
+          message: 'Insufficient staking balance in your wallet'
+        });
+        setIsProcessing(false);
+        return;
+      }
+
+      if (algoBalance === null || algoBalance < MINIMUM_ALGO_BUFFER) {
+        toast.error({
+          heading: 'Verification Error',
+          message: 'Not enough ALGO to cover network fees'
+        });
+        setIsProcessing(false);
+        return;
+      }
 
       const note = {
         action: 'Verify Staking',

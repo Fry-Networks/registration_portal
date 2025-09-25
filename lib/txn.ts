@@ -125,7 +125,7 @@ export async function sendAlgoTransaction(
       }
     }
   } catch (error) {
-    console.error(error);
+    console.error(error); // Algorand returns "underflow on subtracting ..." when the sender lacks the requested asset amount
     return { result: SEND_TXN_RESULT.INTERNAL_ERROR };
   }
 
