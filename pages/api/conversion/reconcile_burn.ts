@@ -2,7 +2,12 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { indexerClient, BURN_WALLET, FRY_1 } from '../../../lib/utils';
+import {
+  indexerClient,
+  BURN_WALLET,
+  FRY_1,
+  normalizeAssetId
+} from '../../../lib/utils';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -109,11 +114,13 @@ export default async function handler(
         .limit(50)
         .do();
 
+      // Ensure transaction searches work regardless of bigint asset ids.
+      const normalizedFryId = normalizeAssetId(FRY_1.id);
       const candidates = (search.transactions || []).filter((t: any) => {
         const ax = t['asset-transfer-transaction'];
         return (
           ax &&
-          (ax['asset-id'] === Number(FRY_1.id) || ax['asset-id'] === FRY_1.id) &&
+          normalizeAssetId(ax['asset-id']) === normalizedFryId &&
           ax['receiver'] === BURN_WALLET &&
           ax['amount'] === expectedMicro
         );

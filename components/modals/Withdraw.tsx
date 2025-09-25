@@ -6,7 +6,6 @@ import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import axios from 'axios';
-import { getTokenBalance } from '../../pages/api/algorand/get-token-balance';
 
 const fry2AssetId = '2485314946';
 const USDAmount = process.env.NODE_ENV === 'production' ? 50 : 0.003;

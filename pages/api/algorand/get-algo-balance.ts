@@ -1,31 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
-
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const port = 443;
-import { Algodv2 } from 'algosdk';
-
-const tokenToSend = {
-  'X-API-Key': token
-};
-const client = new Algodv2(tokenToSend, server, port);
-
-export async function getTokenBalance(address: string): Promise<number | null> {
-  try {
-    // Fetch account information
-    const accountInfo = await client.accountInformation(address).do();
-    const balance = Number(accountInfo.amount) / 1e6; // Convert microAlgos to Algos
-
-    // console.log(`Wallet Address: ${address}`);
-    // console.log(`Algo Balance: ${balance} Algos`);
-    return balance;
-  } catch (error) {
-    console.error('Error fetching account information:', error);
-    return null;
-  }
-}
+import { getAlgoBalance } from '../../../lib/algorand/balances';
 
 export default async function handler(
   req: NextApiRequest,
@@ -38,23 +14,21 @@ export default async function handler(
     return;
   }
 
-  const { address } = req.body;
+  const { address } = req.body as { address?: string };
 
   if (!address) {
     res.status(400).json({ message: 'Invalid input param' });
     return;
   }
 
-  const tokenAmountInWallet = await getTokenBalance(address);
-  console.log(tokenAmountInWallet);
+  const balance = await getAlgoBalance(address);
 
-  if (!tokenAmountInWallet) {
+  if (balance === null) {
     res
       .status(200)
-      .json({ success: false, message: 'No asset_id opted-in the wallet' });
-  } else {
-    res
-      .status(200)
-      .json({ success: true, balance: tokenAmountInWallet.toFixed(3) });
+      .json({ success: false, message: 'Unable to fetch ALGO balance' });
+    return;
   }
+
+  res.status(200).json({ success: true, balance: balance.toFixed(3) });
 }

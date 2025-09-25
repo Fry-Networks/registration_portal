@@ -5,7 +5,12 @@ import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { VERIFY_RESULT } from '../../../lib/txn';
-import { FRY_2, fNODE, getFRYAssetBalances } from '../../../lib/utils';
+import {
+  FRY_2,
+  fNODE,
+  getFRYAssetBalances,
+  normalizeAssetId
+} from '../../../lib/utils';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -66,7 +71,14 @@ export default async function handler(
     }
 
     const accountInfo = await algodClient.accountInformation(address).do();
-    const isOptedIn = (accountInfo.assets ?? []).some((a: any) => a['asset-id'] === parseInt(assetId));
+    // Keep comparisons stable even when indexer returns bigint ids.
+    const normalizedTarget = normalizeAssetId(assetId);
+    const assets = (accountInfo.assets ?? []) as Array<{
+      ['asset-id']?: number | string | bigint;
+    }>;
+    const isOptedIn = assets.some(
+      (a) => normalizeAssetId(a['asset-id']) === normalizedTarget
+    );
 
     if (!isOptedIn) {
       res.status(402).json({

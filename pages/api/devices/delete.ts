@@ -3,7 +3,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
-import { getTokenBalance } from '../algorand/get-token-balance';
 import { withdraw } from '../stake/stake-withdraw';
 import { Product } from '../../../lib/types';
 

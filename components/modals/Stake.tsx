@@ -12,8 +12,10 @@ import {
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
 import algosdk from 'algosdk';
-import { getTokenBalance as getStakeAssetBalance } from '../../pages/api/algorand/get-token-balance';
-import { getTokenBalance as getAlgoBalance } from '../../pages/api/algorand/get-algo-balance';
+import {
+  getAssetBalance as getStakeAssetBalance,
+  getAlgoBalance
+} from '../../lib/algorand/balances';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import { useWallet } from '@txnlab/use-wallet-react';

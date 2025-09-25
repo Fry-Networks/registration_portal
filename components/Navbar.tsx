@@ -13,6 +13,7 @@ import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
+import { normalizeAssetId } from '../lib/utils';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -74,12 +75,23 @@ export default () => {
                 );
               }
 
-              if (!accountInfo.assets || accountInfo.assets.length === 0) {
+              // Normalize asset ids returned by algod (they may come back as bigint).
+              const assets = (accountInfo.assets ?? []) as Array<{
+                ['asset-id']?: number | bigint | string;
+              }>;
+
+              if (!assets.length) {
                 setFryBalance('0.00');
               } else {
-                const fryAsset = accountInfo.assets.find((asset: any) => asset['asset-id'] === 924268058);
+                const fryAsset = assets.find(
+                  (asset) => normalizeAssetId(asset['asset-id']) === 924268058
+                );
                 if (fryAsset) {
-                  setFryBalance((Number(fryAsset.amount) / 10 ** 6).toFixed(2).toString());
+                  setFryBalance(
+                    (Number((fryAsset as any).amount ?? 0) / 10 ** 6)
+                      .toFixed(2)
+                      .toString()
+                  );
                 } else {
                   setFryBalance('0.00');
                 }

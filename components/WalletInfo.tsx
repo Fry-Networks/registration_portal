@@ -4,27 +4,12 @@ import Sidebar from './Sidebar'; // Ensure this component is properly imported
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import algosdk, { Account, Algodv2 } from 'algosdk';
 import MessageUpdate from './messageUpdate';
 import { Button, Flex } from '@tremor/react';
 import PasteAddress from './PasteAddress';
 import WalletIcon from './WalletIcon';
-import { getWalletAddress } from '../lib/utils';
+import { normalizeAssetId } from '../lib/utils';
 import { useToastContext } from '../hooks/ToastContext';
-
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-
-const port = 443;
-const tokenToSend = {
-  'X-API-Key': token
-};
-
-const algodClient = new algosdk.Algodv2(
-  '',
-  'https://mainnet-api.algonode.cloud',
-  ''
-);
 
 const WalletInfo = ({
   minerKey,
@@ -46,20 +31,71 @@ const WalletInfo = ({
   const [connectivityFocus, setConnectivityFocus] = useState(false);
   const toast = useToastContext();
 
+  // FIXED: Improved hasOptedInForAsset function with better error handling and debugging
+  // This function checks if a wallet has opted-in to a specific Algorand asset (token)
   async function hasOptedInForAsset(
     address: string,
-    assetId: number
+    assetId: number | string
   ): Promise<boolean> {
-    const devMode =
-      process.env.NEXT_PUBLIC_DEV_MODE &&
-      process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+    console.log(`Checking opt-in status for address: ${address}, assetId: ${assetId}`);
 
     try {
-      const accountInfo = await algodClient.accountInformation(address).do();
-      const assets = accountInfo['assets'] || [];
-      return assets.some((asset: any) => asset['asset-id'] === assetId);
+      const normalizedTarget = normalizeAssetId(assetId);
+
+      if (!Number.isFinite(normalizedTarget) || normalizedTarget <= 0) {
+        console.warn('Invalid asset id supplied to hasOptedInForAsset', {
+          assetId
+        });
+        return false;
+      }
+
+      // Ask the server to confirm opt-in so we avoid browser-side algod quirks.
+      const response = await fetch('/api/algorand/get-token-balance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          address,
+          asset_id: normalizedTarget.toString()
+        })
+      });
+
+      if (!response.ok) {
+        console.error('Failed to verify opt-in status', {
+          status: response.status,
+          statusText: response.statusText
+        });
+        return false;
+      }
+
+      const result = await response.json();
+
+      if (result?.success) {
+        return true;
+      }
+
+      console.log('Opt-in check response', result);
+      return false;
     } catch (error) {
-      console.error(`Error: ${error}`);
+      // IMPROVED: Better error logging to help debug wallet package issues
+      console.error(`Error checking opt-in status for asset ${assetId} on address ${address}:`, error);
+      
+      // FIXED: Properly handle TypeScript error typing
+      const errorDetails = error instanceof Error ? {
+        message: error.message,
+        stack: error.stack,
+        assetId,
+        address
+      } : {
+        message: 'Unknown error occurred',
+        error: String(error),
+        assetId,
+        address
+      };
+      
+      console.error('Full error details:', errorDetails);
       return false;
     }
   }
@@ -70,7 +106,7 @@ const WalletInfo = ({
     if (!data.reward_wallet) {
       newErrors.reward_wallet = 'Reward wallet address is required';
     } else if (
-      (await hasOptedInForAsset(data.reward_wallet, Number(asset_id))) == false
+      (await hasOptedInForAsset(data.reward_wallet, asset_id)) === false
     ) {
       const response = await fetch('/api/tokens/get-one', {
         method: 'POST',
