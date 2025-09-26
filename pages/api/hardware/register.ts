@@ -223,6 +223,31 @@ export default async function handler(
       return;
     }
 
+    const testMode =
+      process.env.NEXT_PUBLIC_TEST_MODE &&
+      process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+    const devicesCollection = client
+      .db('main')
+      .collection(testMode ? 'test-devices' : 'devices');
+
+    const linkedDevice = await devicesCollection.findOne({
+      miner_key: deleteMinerKey
+    });
+
+    if (
+      linkedDevice?.address &&
+      linkedDevice.address !== session.user.address
+    ) {
+      res.status(403).json({ message: 'Forbidden' });
+      return;
+    }
+
+    await devicesCollection.updateOne(
+      { miner_key: deleteMinerKey },
+      { $unset: { registered_portal_model: '' } }
+    );
+
     await collection.deleteOne({ miner_key: deleteMinerKey });
 
     res.status(200).json({ message: 'Hardware credentials deleted.' });
@@ -241,5 +266,4 @@ export default async function handler(
     res.status(500).json({ message });
   }
 }
-
 
