@@ -1,10 +1,10 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
+import { authOptions } from '../../auth/[...nextauth]';
 import {
   reconcileFryBurn,
   ReconcileBurnError
-} from '../../../lib/conversion/reconcileBurn';
+} from '../../../../lib/conversion/reconcileBurn';
 
 export default async function handler(
   req: NextApiRequest,
@@ -31,16 +31,11 @@ export default async function handler(
   const data: {
     address?: string;
     txId?: string;
-    id?: string;
   } = req.body;
 
   const address = typeof data?.address === 'string' ? data.address.trim() : '';
   const txId =
-    typeof data?.txId === 'string' && data.txId.length > 0
-      ? data.txId
-      : typeof data?.id === 'string' && data.id.length > 0
-      ? data.id
-      : undefined;
+    typeof data?.txId === 'string' && data.txId.length > 0 ? data.txId : undefined;
 
   if (!address) {
     res.status(400).json({ success: false, message: 'Wallet address is required.' });
@@ -52,7 +47,6 @@ export default async function handler(
       address,
       txId
     });
-
     res.status(200).json(result);
   } catch (error) {
     if (error instanceof ReconcileBurnError) {
