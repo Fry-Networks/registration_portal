@@ -23,6 +23,9 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.first_name = user.first_name;
         token.last_name = user.last_name;
+        token.admin = Boolean((user as any)?.admin);
+      } else if (typeof token.admin === 'undefined') {
+        token.admin = false;
       }
       return token;
     },
@@ -33,7 +36,8 @@ export const authOptions: NextAuthOptions = {
           address: token.address as string,
           email: token.email as string,
           first_name: token.first_name as string,
-          last_name: token.last_name as string
+          last_name: token.last_name as string,
+          admin: Boolean(token.admin)
         };
       }
       return session;

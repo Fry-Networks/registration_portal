@@ -39,6 +39,7 @@ export default function WalletAuthProvider(): Provider {
           address: credentials.address
         });
         if (exists) {
+          const admin = Boolean(exists.admin);
           // If existing user lacks profile fields and credentials provide them, update the record
           const needsUpdate =
             !exists.email || !exists.first_name || !exists.last_name;
@@ -63,7 +64,8 @@ export default function WalletAuthProvider(): Provider {
               address: credentials.address,
               email: credentials.email,
               first_name: credentials.first_name,
-              last_name: credentials.last_name
+              last_name: credentials.last_name,
+              admin
             };
           }
           return {
@@ -71,21 +73,24 @@ export default function WalletAuthProvider(): Provider {
             address: credentials.address,
             email: exists.email,
             first_name: exists.first_name,
-            last_name: exists.last_name
+            last_name: exists.last_name,
+            admin
           };
         } else {
           await collection.insertOne({
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,
-            last_name: credentials.last_name
+            last_name: credentials.last_name,
+            admin: false
           });
           return {
             id: credentials.address,
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,
-            last_name: credentials.last_name
+            last_name: credentials.last_name,
+            admin: false
           };
         }
       }
