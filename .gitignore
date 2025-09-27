@@ -39,3 +39,7 @@ package-lock.json
 
 /data
 
+AGENTS.md
+docker-compose.yml
+Dockerfile
+scripts/check-vault.js
