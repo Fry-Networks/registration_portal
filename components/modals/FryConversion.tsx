@@ -54,12 +54,19 @@ export default function FryConversionModal({
   const toast = useToastContext();
 
 
+  type BurnResult =
+    | { status: 'success'; txId: string }
+    | { status: 'cancelled' }
+    | { status: 'error'; reason?: string };
+
   const transferToBurn = async (
     from: string | undefined,
     amount: number
-  ): Promise<string | null> => {
+  ): Promise<BurnResult> => {
     try {
-      if (from === undefined) return null;
+      if (from === undefined) {
+        return { status: 'error', reason: 'Missing sender address' };
+      }
 
       const suggestedParams = await algodClient.getTransactionParams().do();
       const to = BURN_WALLET;
@@ -81,12 +88,14 @@ export default function FryConversionModal({
 
       const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
       const signedTransactions = await signTransactions([encodedTxn]);
-      
+
       // Filter out null values and ensure we have valid signed transactions
-      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
-      
+      const validSignedTxns = signedTransactions.filter(
+        (txn): txn is Uint8Array => txn !== null
+      );
+
       if (validSignedTxns.length === 0) {
-        throw new Error('No valid signed transactions');
+        return { status: 'cancelled' };
       }
 
       // Send using algodClient directly
@@ -96,12 +105,21 @@ export default function FryConversionModal({
       console.log('Burn Transfer TxId: ', txId);
 
       if (txId) {
-        return txId;
+        return { status: 'success', txId };
       }
-      return null;
+      return { status: 'error', reason: 'Transaction broadcast returned no txId' };
     } catch (error) {
       console.error('Burn Transfer Error: ', error);
-      return null;
+      const message =
+        error && typeof error === 'object' && 'message' in error
+          ? String((error as { message?: unknown }).message)
+          : String(error ?? 'Unknown error');
+
+      if (/reject|denied|cancel/i.test(message)) {
+        return { status: 'cancelled' };
+      }
+
+      return { status: 'error', reason: message };
     }
   };
 
@@ -205,8 +223,9 @@ export default function FryConversionModal({
     } else {
       try {
         if (account) {
-          const t = await transferToBurn(address, account.amount);
-          if (t) {
+          const burnResult = await transferToBurn(address, account.amount);
+
+          if (burnResult.status === 'success') {
             const response = await fetch('/api/conversion/set_fry_conversion', {
               method: 'POST',
               headers: {
@@ -214,7 +233,7 @@ export default function FryConversionModal({
               },
               body: JSON.stringify({
                 address: session?.user.address,
-                id: t
+                id: burnResult.txId
               })
             });
 
@@ -248,12 +267,24 @@ export default function FryConversionModal({
                 message: `${result.message}`
               });
             }
+          } else if (burnResult.status === 'cancelled') {
+            toast.info({
+              heading: 'Conversion Cancelled',
+              message: 'Burn transaction was cancelled in your wallet. No changes were made.'
+            });
           } else {
             toast.error({
               heading: 'Conversion Error',
               message:
-                'Failed to transfer the fry1.0 to Burn Account. Please contact us before you try again'
+                burnResult.reason && burnResult.reason.length > 0
+                  ? burnResult.reason
+                  : 'Burn transaction failed before broadcasting. Please try again or contact support.'
             });
+          }
+
+          if (burnResult.status !== 'success') {
+            setIsProcessing(false);
+            return;
           }
         }
 
