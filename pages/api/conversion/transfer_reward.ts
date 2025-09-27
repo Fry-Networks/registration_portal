@@ -75,10 +75,15 @@ export default async function handler(
     const normalizedTarget = normalizeAssetId(assetId);
     const assets = (accountInfo.assets ?? []) as Array<{
       ['asset-id']?: number | string | bigint;
+      assetId?: number | string | bigint;
+      asset_id?: number | string | bigint;
     }>;
-    const isOptedIn = assets.some(
-      (a) => normalizeAssetId(a['asset-id']) === normalizedTarget
-    );
+    const isOptedIn = assets.some((a) => {
+      const candidate =
+        a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ??
+        null;
+      return normalizeAssetId(candidate) === normalizedTarget;
+    });
 
     if (!isOptedIn) {
       res.status(402).json({

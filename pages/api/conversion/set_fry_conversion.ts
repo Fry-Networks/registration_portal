@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { indexerClient, BURN_WALLET, FRY_1 } from '../../../lib/utils';
+import { indexerClient, BURN_WALLET, FRY_1, normalizeAssetId } from '../../../lib/utils';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -73,27 +73,76 @@ export default async function handler(
     };
 
     const response = await lookupWithRetry(id);
-    const txn = response.transaction;
-    if (txn['sender'] !== address) {
+    const txn = response.transaction ?? {};
+
+    const senderAddr =
+      (txn['sender'] as string | undefined) ??
+      (txn.sender as string | undefined) ??
+      (txn?.transaction?.sender as string | undefined);
+
+    if (senderAddr !== address) {
       res.status(401).json({ success: false, message: 'Unauthorized Transaction.' });
       return;
     }
 
-    // Check if the transaction is an asset transfer
-    if (!txn['asset-transfer-transaction']) {
+    const assetTransfer =
+      txn['asset-transfer-transaction'] ||
+      (txn as Record<string, any>)?.assetTransferTransaction ||
+      txn['assetTransferTransaction'] ||
+      txn['axfer'] ||
+      (txn['transaction'] &&
+        (txn['transaction']['asset-transfer-transaction'] ??
+          (txn['transaction'] as Record<string, any>)?.assetTransferTransaction ??
+          txn['transaction']['assetTransferTransaction'])) ||
+      (txn as Record<string, any>)?.transaction?.axfer;
+
+    const stringifyBigInts = (value: any): any => {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      if (Array.isArray(value)) {
+        return value.map((item) => stringifyBigInts(item));
+      }
+      if (value && typeof value === 'object') {
+        const entries = Object.entries(value).map(([k, v]) => [k, stringifyBigInts(v)]);
+        return Object.fromEntries(entries);
+      }
+      return value;
+    };
+
+    // Check if the transaction is an Algorand asset transfer (expected)
+    if (!assetTransfer) {
+      console.error('[set_fry_conversion] Missing asset-transfer-transaction', {
+        txId: id,
+        keys: Object.keys(txn || {}),
+        txType: txn['tx-type'] || txn['type'] || txn?.transaction?.txType,
+        innerTxns: stringifyBigInts(txn['inner-txns'] || txn.innerTxns || []),
+        raw: stringifyBigInts(response)
+      });
       res.status(401).json({ success: false, message: 'Invalid Transaction Type.' });
       return;
     } else {
-      const assetTransfer = txn['asset-transfer-transaction'];
       // Ensure the ASA matches FRY 1.0
+      const assetIdCandidate =
+        assetTransfer['asset-id'] ??
+        assetTransfer['assetId'] ??
+        assetTransfer.assetId ??
+        (typeof assetTransfer.getAssetId === 'function'
+          ? assetTransfer.getAssetId()
+          : undefined);
+
       if (
-        assetTransfer['asset-id'] !== Number(FRY_1.id) &&
-        assetTransfer['asset-id'] !== FRY_1.id
+        normalizeAssetId(assetIdCandidate) !== normalizeAssetId(FRY_1.id)
       ) {
         res.status(401).json({ success: false, message: 'Invalid Asset ID for burn transaction.' });
         return;
       }
-      if (assetTransfer['receiver'] !== BURN_WALLET) {
+      const receiverAddr =
+        assetTransfer['receiver'] ??
+        assetTransfer['receiverAddr'] ??
+        assetTransfer.receiver;
+
+      if (receiverAddr !== BURN_WALLET) {
         res.status(401).json({ success: false, message: 'Unauthorized Receiver.' });
         return;
       }
@@ -102,7 +151,19 @@ export default async function handler(
       const baseAmount = typeof user.amount === 'number' ? user.amount : parseFloat(user.amount);
       const expectedAmount = testMode ? 0 : Math.floor(baseAmount * Math.pow(10, FRY_1.decimals));
 
-      if (assetTransfer['amount'] !== expectedAmount) {
+      const amountCandidate =
+        assetTransfer['amount'] ??
+        assetTransfer['amountRaw'] ??
+        assetTransfer.amount;
+
+      const amountNum =
+        typeof amountCandidate === 'string'
+          ? Number(amountCandidate)
+          : typeof amountCandidate === 'bigint'
+          ? Number(amountCandidate)
+          : Number(amountCandidate ?? 0);
+
+      if (amountNum !== expectedAmount) {
         res.status(401).json({ success: false, message: 'Invalid Transfer Amount.' });
         return;
       }

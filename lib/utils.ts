@@ -139,27 +139,122 @@ export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
     // Prefer the live rewards sender vault (derived from REWARD_MNEMONIC),
     // fall back to the static constant for client-side contexts.
     const vaultAddr = getRewardsVaultAddress();
-    const accountInfo = await algodClient.accountInformation(vaultAddr).do();
+    const normalizedTarget = normalizeAssetId(assetId);
 
-    if (!accountInfo.assets) {
-      return 0;
+    try {
+      // First, ask Algod for the specific holding. This avoids issues where the
+      // generic accountInformation endpoint truncates the assets list.
+      const holding = await algodClient
+        .accountAssetInformation(vaultAddr, normalizedTarget)
+        .do();
+
+      const holdingAmount =
+        (holding?.['asset-holding']?.amount ?? holding?.assetHolding?.amount ??
+          0) as number | string | bigint;
+      if (holdingAmount) {
+        return Number(holdingAmount) / Math.pow(10, 6);
+      }
+      // If the asset is present but empty, we can return early.
+      if (holding?.['asset-holding'] || holding?.assetHolding) {
+        return 0;
+      }
+    } catch (assetErr: unknown) {
+      // 404 means the asset isn't held; log at debug level and fall back below.
+      const message =
+        assetErr && typeof assetErr === 'object' && 'message' in assetErr
+          ? (assetErr as { message: string }).message
+          : String(assetErr ?? 'unknown error');
+      console.debug('[getFRYAssetBalances] accountAssetInformation miss', {
+        vaultAddr,
+        assetId: normalizedTarget,
+        message
+      });
     }
 
-    const normalizedTarget = normalizeAssetId(assetId);
+    const accountInfo = await algodClient.accountInformation(vaultAddr).do();
+
     const assets = (accountInfo.assets ?? []) as Array<{
       ['asset-id']?: number | string | bigint;
+      assetId?: number | string | bigint;
+      asset_id?: number | string | bigint;
       amount?: number | string | bigint;
     }>;
-    const asset = assets.find(
-      (a) => normalizeAssetId(a['asset-id']) === normalizedTarget
-    );
+    if (!assets.length) {
+      console.warn('[getFRYAssetBalances] account has empty assets list', {
+        vaultAddr,
+        assetId: normalizedTarget
+      });
+    }
+    const asset = assets.find((a) => {
+      const candidate =
+        a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ??
+        null;
+      return normalizeAssetId(candidate) === normalizedTarget;
+    });
 
     if (asset) {
       return Number(asset.amount) / Math.pow(10, 6);
-    } else {
-      console.log('Wallet does not hold this asset.');
-      return 0;
     }
+
+    console.warn('[getFRYAssetBalances] asset not found in accountInformation', {
+      vaultAddr,
+      assetId: normalizedTarget,
+      assetSample: assets.slice(0, 5).map((entry) => ({
+        id: normalizeAssetId(entry['asset-id']),
+        amount: entry.amount
+      }))
+    });
+
+    try {
+      const indexerAccount = await indexerClient
+        .lookupAccountByID(vaultAddr)
+        .includeAll(true)
+        .do();
+      const idxAssets = (indexerAccount?.account?.assets ?? []) as Array<{
+        ['asset-id']?: number | string | bigint;
+        assetId?: number | string | bigint;
+        asset_id?: number | string | bigint;
+        amount?: number | string | bigint;
+      }>;
+      const idxAsset = idxAssets.find((a) => {
+        const candidate =
+          a['asset-id'] ?? a.assetId ??
+          (a as Record<string, unknown>)?.asset_id ?? null;
+        return normalizeAssetId(candidate) === normalizedTarget;
+      });
+
+      if (idxAsset) {
+        const amount = Number(idxAsset.amount ?? 0) / Math.pow(10, 6);
+        console.debug('[getFRYAssetBalances] indexer fallback resolved balance', {
+          vaultAddr,
+          assetId: normalizedTarget,
+          amount
+        });
+        return amount;
+      }
+
+      console.warn('[getFRYAssetBalances] indexer fallback did not find asset', {
+        vaultAddr,
+        assetId: normalizedTarget,
+        idxAssetSample: idxAssets.slice(0, 5).map((entry) => ({
+          id: normalizeAssetId(
+            entry['asset-id'] ?? entry.assetId ??
+            (entry as Record<string, unknown>)?.asset_id ?? null
+          ),
+          amount: entry.amount
+        }))
+      });
+    } catch (indexErr) {
+      console.error('[getFRYAssetBalances] indexer fallback failed', {
+        vaultAddr,
+        assetId: normalizedTarget,
+        error:
+          indexErr && typeof indexErr === 'object' && 'message' in indexErr
+            ? (indexErr as { message: string }).message
+            : String(indexErr ?? 'unknown error')
+      });
+    }
+    return 0;
   } catch (err) {
     console.error('Error fetching balance:', err);
     return 0;
