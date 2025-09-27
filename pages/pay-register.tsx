@@ -13,7 +13,7 @@ import { useWallet } from '@txnlab/use-wallet-react';
 import {
   isNodeStaked,
   isNodeStakingNeeded,
-  isRegistartionStaked,
+  isRegistrationStaked,
   isRegistrationNeeded
 } from '../lib/utils';
 import {
@@ -301,7 +301,7 @@ export default function PayRegister({ products }: { products: Product[] }) {
       product &&
       device &&
       isRegistrationNeeded(product!) &&
-      isRegistartionStaked(device)
+      isRegistrationStaked(device)
     ) {
       return true;
     }

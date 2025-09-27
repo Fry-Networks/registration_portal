@@ -6,7 +6,7 @@ import { Device, Product } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
-import { isNodeStaked, isRegistartionStaked } from '../../lib/utils';
+import { isNodeStaked, isRegistrationStaked } from '../../lib/utils';
 
 export default function WithdrawAllModal({
 	modalName,
@@ -32,7 +32,7 @@ export default function WithdrawAllModal({
 
 	useEffect(() => {
 		const defaultOption = options.find((option) => {
-			const isDisabled = !isRegistartionStaked(device) && option === options[0];
+			const isDisabled = !isRegistrationStaked(device) && option === options[0];
 			return !isDisabled;
 		});
 
@@ -44,7 +44,7 @@ export default function WithdrawAllModal({
 	const withdrawAll = async () => {
 		setIsProcessing(true);
 		try {
-			// if (isRegistartionStaked(device)) {
+			// if (isRegistrationStaked(device)) {
 			if (selectedOption === 'Registration Staking') {
 				const response = await fetch('/api/stake/r-withdraw', {
 					method: 'POST',
@@ -167,7 +167,7 @@ export default function WithdrawAllModal({
 
 						<div className="space-y-2">
 							{options.map((option) => {
-								const isDisabled = !isRegistartionStaked(device) && option === options[0];
+								const isDisabled = !isRegistrationStaked(device) && option === options[0];
 
 								return (
 									<label
@@ -183,7 +183,7 @@ export default function WithdrawAllModal({
 											checked={selectedOption === option}
 											onChange={() => setSelectedOption(option)}
 											className="form-radio text-blue-600 h-4 w-4 mr-3"
-											disabled={option === 'Registration Staking' ? ( isRegistartionStaked(device) ? false : true ) : isNodeStaked(device) ? false : true}
+											disabled={option === 'Registration Staking' ? ( isRegistrationStaked(device) ? false : true ) : isNodeStaked(device) ? false : true}
 										/>
 										<span>{option}</span>
 									</label>

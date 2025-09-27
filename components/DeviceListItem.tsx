@@ -10,8 +10,9 @@ import {
   computeDeviceStatus,
   isNodeProduct,
   isNodeStaked,
-  isRegistartionStaked,
-  isRegistrationNeeded
+  isRegistrationStaked,
+  isRegistrationNeeded,
+  isNodeStakingNeeded
 } from '../lib/utils';
 import { AnnotationIcon, XCircleIcon } from '@heroicons/react/outline';
 import { RiAlertLine } from '@remixicon/react';
@@ -78,6 +79,22 @@ export default function DeviceListItem({
 
     return true;
   };
+
+  // Determine verification prerequisites based on product config and current device state
+  const needsRegistration = isRegistrationNeeded(product);
+  const needsNodeStake = isNodeProduct(product) && isNodeStakingNeeded(product);
+  const hasRegistration = isRegistrationStaked(device);
+  const hasNode = isNodeStaked(device);
+  const verificationBlocked = (needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode);
+  const verificationReason = verificationBlocked
+    ? `Complete ${
+        needsRegistration && !hasRegistration && needsNodeStake && !hasNode
+          ? 'registration and node operation staking'
+          : needsRegistration && !hasRegistration
+            ? 'registration staking'
+            : 'node operation staking'
+      } before verification`
+    : undefined;
 
   const { data: rewardSummary } = useRewardSummary(device?.miner_key);
   const [countdown, setCountdown] = useState<string>("");
@@ -291,12 +308,30 @@ export default function DeviceListItem({
             <>
               {(isProductStakeAvailable(product) || device.verified) && (
                 <Button
-                  className={`w-full sm:w-auto bg-transparent ${isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}
+                  className={`w-full sm:w-auto bg-transparent ${
+                    isStaked()
+                      ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                      : verificationBlocked
+                        ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                        : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+                  }`}
+                  disabled={!isStaked() && verificationBlocked}
                   onClick={() => {
+                    if (!isStaked() && verificationBlocked) return;
                     handleWithdrawStake(device);
                   }}
+                  title={verificationReason}
                 >
                   {isStaked() ? 'V-Withdraw' : 'V-Stake'}
+                </Button>
+              )}
+              {/* If verification prerequisites are missing, surface a direct Stake button to guide users */}
+              {verificationBlocked && (
+                <Button
+                  className={`w-full sm:w-auto bg-transparent border-red-500 hover:bg-red-500 hover:border-red-500`}
+                  onClick={() => handleStaking(device.miner_key)}
+                >
+                  Stake
                 </Button>
               )}
               <Button
@@ -322,7 +357,7 @@ export default function DeviceListItem({
               {((device &&
                 product &&
                 isNodeProduct(product) &&
-                isRegistartionStaked(device)) ||
+                isRegistrationStaked(device)) ||
                 isNodeStaked(device)) && (
                 <Button
                   className={`w-full sm:w-auto bg-transparent ${!isProductStakeAvailable(product) ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500' : isStaked() ? 'border-green-500 hover:bg-green-500 hover:border-green-500' : 'border-red-500 hover:bg-red-500 hover:border-red-500'}`}

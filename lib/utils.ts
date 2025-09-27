@@ -80,26 +80,32 @@ export const CORE_RELEASE_DATE = new Date('2025-07-21T00:00:00Z');
 export const MODS_RELEASE_DATE = new Date('2025-07-25T00:00:00Z');
 export const ALL_RELEASE_DATE = new Date('2025-08-01T00:00:00Z');
 
-export const isRegistrationNeeded = (product: Product) => {
-  const isTokenTypeValid =
+export const isRegistrationNeeded = (product: Product): boolean => {
+  const isTokenTypeValid = !!(
     product.reward.tokens?.register &&
-    product.reward.tokens.register !== 'none';
-  const isTokenAmountValid =
-    product.reward.stake?.register && product.reward.stake.register > 0;
+    product.reward.tokens.register !== 'none'
+  );
+  const isTokenAmountValid = !!(
+    typeof product.reward.stake?.register === 'number' &&
+    product.reward.stake.register > 0
+  );
 
   return isTokenAmountValid && isTokenTypeValid;
 };
 
-export const isNodeStakingNeeded = (product: Product) => {
-  const isTokenTypeValid =
-    product.reward.tokens?.node && product.reward.tokens.node !== 'none';
-  const isTokenAmountValid =
-    product.reward.stake?.node && product.reward.stake.node > 0;
+export const isNodeStakingNeeded = (product: Product): boolean => {
+  const isTokenTypeValid = !!(
+    product.reward.tokens?.node && product.reward.tokens.node !== 'none'
+  );
+  const isTokenAmountValid = !!(
+    typeof product.reward.stake?.node === 'number' &&
+    product.reward.stake.node > 0
+  );
 
   return isTokenAmountValid && isTokenTypeValid;
 };
 
-export const isRegistartionStaked = (device: Device) => {
+export const isRegistrationStaked = (device: Device): boolean => {
   if (device.registration && device.registration.amount !== 0) {
     return true;
   }
@@ -107,11 +113,11 @@ export const isRegistartionStaked = (device: Device) => {
   return false;
 };
 
-export const isNodeProduct = (product: Product) => {
+export const isNodeProduct = (product: Product): boolean => {
   return product.name.includes('Node') || product.name.includes('Edge');
 };
 
-export const isNodeStaked = (device: Device) => {
+export const isNodeStaked = (device: Device): boolean => {
   if (device.node && device.node.amount !== 0) {
     return true;
   }
@@ -130,9 +136,10 @@ export const getWalletAddress = (mnemonic: string) => {
 
 export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
   try {
-    const accountInfo = await algodClient
-      .accountInformation(REWALD_WALLET)
-      .do();
+    // Prefer the live rewards sender vault (derived from REWARD_MNEMONIC),
+    // fall back to the static constant for client-side contexts.
+    const vaultAddr = getRewardsVaultAddress();
+    const accountInfo = await algodClient.accountInformation(vaultAddr).do();
 
     if (!accountInfo.assets) {
       return 0;
@@ -157,6 +164,31 @@ export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
     console.error('Error fetching balance:', err);
     return 0;
   }
+};
+
+/**
+ * Returns the on-chain address of the rewards vault used by server-side senders.
+ * If REWARD_MNEMONIC is present, derive the address to avoid mismatches when
+ * vault keys rotate. Falls back to the static constant for browser contexts.
+ */
+export const getRewardsVaultAddress = (): string => {
+  try {
+    // Highest priority: explicit configured address
+    const configured = process.env.REWARDS_VAULT_ADDR as string | undefined;
+    if (configured && configured.trim().length > 0) {
+      return configured.trim();
+    }
+
+    const m = process.env.REWARD_MNEMONIC as string | undefined;
+    if (m && m.length > 0) {
+      const acc = algosdk.mnemonicToSecretKey(m);
+      // Always return a primitive string regardless of SDK Address typing.
+      return String(acc.addr);
+    }
+  } catch (e) {
+    // ignore and fall back
+  }
+  return REWALD_WALLET;
 };
 
 export const getAssetDecimals = async (

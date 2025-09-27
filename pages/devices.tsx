@@ -34,7 +34,7 @@ import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import {
   isNodeStaked,
-  isRegistartionStaked,
+  isRegistrationStaked,
   getWalletAddress,
   algodClient,
   computeDeviceStatus,
@@ -479,7 +479,7 @@ const DevicesPage = ({
 
     console.log('Verification: ' + device.verified);
     if (
-      isRegistartionStaked(device) ||
+      isRegistrationStaked(device) ||
       isNodeStaked(device) ||
       device.verified
     ) {
