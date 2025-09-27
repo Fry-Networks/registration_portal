@@ -1,4 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
+import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
@@ -26,6 +27,22 @@ const WeatherPortal = () => {
   const { openModal } = useModal();
   const toast = useToastContext();
   const { minerKey, portalType, onlyPortal } = router.query;
+
+  const resolvedMinerKey =
+    typeof minerKey === 'string'
+      ? minerKey
+      : Array.isArray(minerKey)
+        ? minerKey[0]
+        : undefined;
+
+  const resolvedPortalType =
+    typeof portalType === 'string'
+      ? portalType
+      : Array.isArray(portalType)
+        ? portalType[0]
+        : undefined;
+
+  const [isUnregistering, setIsUnregistering] = useState(false);
 
   const portals = [
     {
@@ -66,8 +83,10 @@ const WeatherPortal = () => {
   };
 
   // Check if a portal is available based on portalType
+
   const isPortalAvailable = (portalId: string) => {
     if (!portalType) return true;
+
     return portalId === portalType;
   };
 
@@ -77,35 +96,124 @@ const WeatherPortal = () => {
     }
   };
 
+  const handleUnregister = async () => {
+    if (!resolvedMinerKey || !resolvedPortalType || !session?.user.address) {
+      toast.error({
+        heading: 'Error',
+
+        message: 'Missing device details for unregistering.'
+      });
+
+      return;
+    }
+
+    setIsUnregistering(true);
+
+    try {
+      const response = await fetch('/api/weather/unregister', {
+        method: 'POST',
+
+        headers: { 'Content-type': 'application/json' },
+
+        credentials: 'include',
+
+        body: JSON.stringify({
+          miner_key: resolvedMinerKey,
+
+          api_type: resolvedPortalType,
+
+          address: session.user.address
+        })
+      });
+
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        toast.error({
+          heading: 'Error',
+
+          message: result.message ?? 'Failed to unregister weather credential.'
+        });
+
+        return;
+      }
+
+      toast.success({
+        heading: 'Success',
+
+        message: result.message ?? 'Weather credential removed successfully.'
+      });
+
+      const updatedQuery = { ...router.query } as Record<
+        string,
+        string | string[]
+      >;
+
+      delete updatedQuery.portalType;
+
+      delete updatedQuery.onlyPortal;
+
+      await router.replace(
+        { pathname: router.pathname, query: updatedQuery },
+
+        undefined,
+
+        { shallow: true }
+      );
+    } catch (error) {
+      console.error(error);
+
+      toast.error({
+        heading: 'Error',
+
+        message: 'Failed to unregister weather credential. Please try again.'
+      });
+    } finally {
+      setIsUnregistering(false);
+    }
+  };
+
   const setPortalType = async (
     minerKey: string | string[] | undefined,
+
     type: string
   ) => {
     try {
       const response = await fetch(`/api/devices/save-portal-type`, {
         method: 'POST',
+
         headers: { 'Content-type': 'application/json' },
+
         body: JSON.stringify({
           miner_key: minerKey,
+
           type,
+
           address: session?.user.address
         })
       });
+
       if (response.ok) {
         toast.success({
           heading: 'Success',
+
           message: 'Device information updated successfully'
         });
       } else {
         toast.error({
           heading: 'Error',
+
           message: 'Failed to update device information for portal type'
         });
       }
     } catch (error) {
       console.error(error);
+
       toast.error({
         heading: 'Error',
+
         message: 'Failed to update device information for portal type'
       });
     }
@@ -361,19 +469,17 @@ const WeatherPortal = () => {
     token: string
   ): Promise<boolean> => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_HOST}/api/submitTempest`,
-        {
-          method: 'POST',
-          headers: { 'Content-type': 'application/json' },
-          body: JSON.stringify({
-            miner_key: minerKey,
-            stationID,
-            token,
-            address: session?.user.address
-          })
-        }
-      );
+      const response = await fetch('/api/weather/tempest', {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          miner_key: minerKey,
+          stationID,
+          token,
+          address: session?.user.address
+        })
+      });
 
       const result = await response.json();
       if (!response.ok) {
@@ -427,30 +533,46 @@ const WeatherPortal = () => {
         </Flex>
       </div>
       <div className="px-2 sm:px-20">
-        <Button
-          className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-          onClick={async () => {
-            try {
-              const key = typeof minerKey === 'string' ? minerKey : Array.isArray(minerKey) ? minerKey[0] : undefined;
-              if (key && session?.user.address) {
-                await fetch('/api/registrations/cancel', {
-                  method: 'POST',
-                  headers: { 'Content-type': 'application/json' },
-                  body: JSON.stringify({
-                    miner_key: key,
-                    address: session.user.address
-                  })
-                });
+        <Flex className="mt-6 gap-3 flex-wrap" justifyContent="start">
+          <Button
+            className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+            onClick={async () => {
+              try {
+                const key =
+                  typeof minerKey === 'string'
+                    ? minerKey
+                    : Array.isArray(minerKey)
+                      ? minerKey[0]
+                      : undefined;
+                if (key && session?.user.address) {
+                  await fetch('/api/registrations/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-type': 'application/json' },
+                    body: JSON.stringify({
+                      miner_key: key,
+                      address: session.user.address
+                    })
+                  });
+                }
+              } catch (e) {
+                // ignore cancel failures for navigation
+              } finally {
+                router.push('/devices');
               }
-            } catch (e) {
-              // ignore cancel failures for navigation
-            } finally {
-              router.push('/devices');
-            }
-          }}
-        >
-          Back
-        </Button>
+            }}
+          >
+            Back
+          </Button>
+          {resolvedPortalType && (
+            <Button
+              className="min-w-[150px] bg-transparent border-slate-500 text-slate-200 hover:bg-slate-600 hover:border-slate-600"
+              onClick={handleUnregister}
+              disabled={isUnregistering}
+            >
+              {isUnregistering ? 'Unregistering...' : 'Unregister'}
+            </Button>
+          )}
+        </Flex>
       </div>
       <Flex
         flexDirection="row"
@@ -458,7 +580,8 @@ const WeatherPortal = () => {
         className="flex-wrap gap-24 px-2 sm:px-20 mt-10"
       >
         {portals.map((portal, index) => {
-          const color = index % 3 === 0 ? 'gray' : index % 3 === 1 ? 'green' : 'red';
+          const color =
+            index % 3 === 0 ? 'gray' : index % 3 === 1 ? 'green' : 'red';
           const isAvailable = isPortalAvailable(portal.id);
 
           return (
@@ -472,7 +595,9 @@ const WeatherPortal = () => {
                 className="w-36 h-24 object-contain"
                 alt={`${portal.name} Logo`}
               />
-              <Title className={`${isAvailable ? 'text-white' : 'text-gray-400'} text-center`}>
+              <Title
+                className={`${isAvailable ? 'text-white' : 'text-gray-400'} text-center`}
+              >
                 {portal.name}
                 {!isAvailable && (
                   <span className="block text-center text-xs text-gray-500 mt-1">

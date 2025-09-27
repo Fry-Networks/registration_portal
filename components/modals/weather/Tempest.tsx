@@ -32,14 +32,23 @@ const TempestModal: React.FC<TempestModalProps> = ({
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/api/getDeviceCredential`, {
+        const response = await fetch('/api/devices/get-credential', {
           method: 'POST',
-          headers: {'Content-type': 'application/json'},
+          headers: { 'Content-type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ miner_key: minerKey, type: 'tempest' })
         });
+        if (!response.ok) {
+          console.error('Failed to fetch Tempest credential');
+          return;
+        }
         const result = await response.json();
         if (result.data !== null) {
-          setStationId(result.data.station_id || '');
+          setStationId(
+            result.data.stationID !== undefined && result.data.stationID !== null
+              ? String(result.data.stationID)
+              : ''
+          );
           setToken(result.data.token || '');
         }
       } catch (error) {
