@@ -11,6 +11,7 @@ declare module 'next-auth' {
     email: string;
     first_name: string;
     last_name: string;
+    admin?: boolean;
   }
 
   interface Session {
@@ -19,6 +20,7 @@ declare module 'next-auth' {
       email: string;
       first_name: string;
       last_name: string;
+      admin?: boolean;
     };
   }
 }
@@ -29,5 +31,6 @@ declare module 'next-auth/jwt' {
     email: string;
     first_name: string;
     last_name: string;
+    admin?: boolean;
   }
 }

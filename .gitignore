@@ -43,3 +43,4 @@ docker-compose.yml
 Dockerfile
 scripts/check-vault.js
 docker-compose.dev.yml
+docker-compose.dev-inplace.yml

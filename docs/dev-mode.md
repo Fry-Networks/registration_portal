@@ -7,10 +7,11 @@ The production `docker-compose.yml` builds a release image and runs `npm start`.
 - keeps the live production stack untouched.
 
 ## Files Added
-- `docker-compose.dev.yml` — compose override enabling dev behavior.
+- `docker-compose.dev.yml` — compose override enabling dev behavior with SSH tunneling.
+- `docker-compose.dev-inplace.yml` — override to run the dashboard in dev mode directly on the testing domain.
 - `docs/dev-mode.md` — this guide.
 
-## Starting the Dev Stack
+## Starting the Dev Stack (via SSH Tunnel)
 1. Connect to the VPS (if not already). Keep your production stack running.
 2. Launch the dev override (just the dashboard service) from the project root. Give it its own project name so it never collides with production:
    `docker compose -f docker-compose.yml -f docker-compose.dev.yml -p user-dashboard-dev up --build fry-dashboard-users`
@@ -32,6 +33,23 @@ Because the VPS hosts the live site and you do not browse locally, tunnel the de
 2. In the tunneled session, run the dev stack as above.
 3. Visit `http://localhost:4007` in your local browser to see the dev server (the container listens on 3007 internally; the SSH tunnel handles 4007 externally).
 4. Need to run prod and dev concurrently? Start prod normally (`docker compose up -d fry-dashboard-users`) and start dev with the `-p user-dashboard-dev` name; the containers (`fry-user-dashboard` vs `fry-user-dashboard-dev`) stay isolated.
+
+## Running Dev Mode on the Testing Domain (no tunnel)
+Use this when you want the dashboard served from the real testing domain but with hot reload.
+
+1. Stop the production container (if running): `docker compose down fry-dashboard-users`
+2. Launch dev mode in place:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.dev-inplace.yml up fry-dashboard-users
+   ```
+   - Add `-d` if you prefer detached logs.
+   - Changes to the codebase are bind-mounted into the container, so Next.js hot reload works immediately on the live domain.
+3. When finished, stop dev mode and restart production:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.dev-inplace.yml down fry-dashboard-users
+   docker compose up -d fry-dashboard-users
+   ```
+4. The override leaves `NEXT_PUBLIC_DEV_MODE=false`, so the real wallet flow remains available while still using test collections (`NEXT_PUBLIC_TEST_MODE=true`).
 
 Alternative options:
 - Configure a private dev subdomain via the reverse proxy (add basic auth).
