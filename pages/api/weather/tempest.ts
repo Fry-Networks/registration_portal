@@ -189,6 +189,35 @@ export default async function handler(
       ? minerKey.split('-')[0]
       : minerKey;
 
+    const stationIdentifier = stationId ?? stationNumeric;
+
+    if (stationIdentifier === undefined) {
+      res.status(500).json({
+        message: 'Failed to resolve Tempest station identifier.',
+        status: 'ERROR'
+      });
+      return;
+    }
+
+    const existingCredential = await collection.findOne<
+      { owner_address?: string; miner_key?: string }
+    >({
+      api_type: 'tempest',
+      stationID: stationIdentifier
+    });
+
+    if (
+      existingCredential &&
+      existingCredential.owner_address &&
+      existingCredential.owner_address !== session.user.address
+    ) {
+      res.status(409).json({
+        message: 'This Tempest station is already registered by another user.',
+        status: 'ERROR'
+      });
+      return;
+    }
+
     const document = {
       miner_key: minerKey,
       user_id:
@@ -201,7 +230,7 @@ export default async function handler(
       miner_type: 'weather',
       miner_subtype: minerSubtype,
       api_type: 'tempest',
-      stationID: stationId ?? stationNumeric,
+      stationID: stationIdentifier,
       token,
       lat: latitude,
       lon: longitude,
@@ -213,6 +242,21 @@ export default async function handler(
       { miner_key: minerKey, api_type: 'tempest' },
       { $set: document },
       { upsert: true }
+    );
+
+    const testMode =
+      process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+    const devicesCollection = client
+      .db('main')
+      .collection(testMode ? 'test-devices' : 'devices');
+
+    await devicesCollection.updateOne(
+      { miner_key: minerKey, address: session.user.address },
+      {
+        $set: { registered_portal_model: 'tempest' },
+        $currentDate: { updated_at: true }
+      }
     );
 
     res
@@ -237,3 +281,4 @@ export default async function handler(
     res.status(statusCode).json({ message, status: 'ERROR' });
   }
 }
+

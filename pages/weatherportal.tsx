@@ -1,5 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
@@ -20,6 +20,41 @@ import WeatherXMModal from '../components/modals/weather/WeatherXM';
 import LacrosseModal from '../components/modals/weather/Lacrosse';
 import SensecapModal from '../components/modals/weather/Sensecap';
 import TempestModal from '../components/modals/weather/Tempest';
+
+
+const WEATHER_PORTALS = [
+  {
+    id: 'ambient',
+    name: 'Ambient',
+    logo: ambientLogo
+  },
+  {
+    id: 'ecowitt',
+    name: 'Ecowitt / Froggit / MISOL',
+    logo: ecowittLogo
+  },
+  {
+    id: 'weatherxm',
+    name: 'Weather-XM',
+    logo: weatherxmLogo
+  },
+  {
+    id: 'lacrosse',
+    name: 'Lacrosse',
+    logo: lacrosseLogo
+  },
+  {
+    id: 'sensecap',
+    name: 'Sensecap',
+    logo: sensecapLogo
+  },
+  // adding Tempest
+  {
+    id: 'tempest',
+    name: 'Tempest',
+    logo: tempestlogo
+  }
+];
 
 const WeatherPortal = () => {
   const router = useRouter();
@@ -42,41 +77,11 @@ const WeatherPortal = () => {
         ? portalType[0]
         : undefined;
 
+  const normalizedPortalType = resolvedPortalType?.toLowerCase();
   const [isUnregistering, setIsUnregistering] = useState(false);
+  const autoOpenedRef = useRef(false);
 
-  const portals = [
-    {
-      id: 'ambient',
-      name: 'Ambient',
-      logo: ambientLogo
-    },
-    {
-      id: 'ecowitt',
-      name: 'Ecowitt / Froggit / MISOL',
-      logo: ecowittLogo
-    },
-    {
-      id: 'weatherxm',
-      name: 'Weather-XM',
-      logo: weatherxmLogo
-    },
-    {
-      id: 'lacrosse',
-      name: 'Lacrosse',
-      logo: lacrosseLogo
-    },
-    {
-      id: 'sensecap',
-      name: 'Sensecap',
-      logo: sensecapLogo
-    },
-    // adding Tempest
-    {
-      id: 'tempest',
-      name: 'Tempest',
-      logo: tempestlogo
-    }
-  ];
+  const portals = WEATHER_PORTALS;
 
   const handleModal = (id: string) => {
     openModal(id);
@@ -85,9 +90,9 @@ const WeatherPortal = () => {
   // Check if a portal is available based on portalType
 
   const isPortalAvailable = (portalId: string) => {
-    if (!portalType) return true;
+    if (!normalizedPortalType) return true;
 
-    return portalId === portalType;
+    return portalId === normalizedPortalType;
   };
 
   const handlePortalClick = (portalId: string) => {
@@ -95,6 +100,23 @@ const WeatherPortal = () => {
       handleModal(portalId);
     }
   };
+
+  useEffect(() => {
+    if (!normalizedPortalType || autoOpenedRef.current) {
+      return;
+    }
+
+    const hasPortal = portals.some(
+      (portal) => portal.id === normalizedPortalType
+    );
+
+    if (!hasPortal) {
+      return;
+    }
+
+    autoOpenedRef.current = true;
+    openModal(normalizedPortalType);
+  }, [normalizedPortalType, openModal, portals]);
 
   const handleUnregister = async () => {
     if (!resolvedMinerKey || !resolvedPortalType || !session?.user.address) {
