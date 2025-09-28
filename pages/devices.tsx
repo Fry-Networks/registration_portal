@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ElementType } from 'react';
 import {
   UserIcon,
   UserAddIcon,
-  UserRemoveIcon
+  UserRemoveIcon,
+  ArrowRightIcon,
+  SwitchHorizontalIcon,
+  KeyIcon,
+  PlusCircleIcon
 } from '@heroicons/react/outline';
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
@@ -179,6 +183,100 @@ export function findProductByMinerKey(miner_key: string, products: Product[]) {
   return products.find((product) => product.key === miner_type);
 }
 
+type QuickActionCardProps = {
+  title: string;
+  description: string;
+  cta: string;
+  icon: ElementType;
+  onClick?: () => void;
+  href?: string;
+  loading?: boolean;
+};
+
+const GradientSpinner = () => (
+  <svg
+    className="h-5 w-5 animate-spin text-red-300"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+  >
+    <circle
+      className="opacity-20"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
+    <path
+      className="opacity-80"
+      fill="currentColor"
+      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+    />
+  </svg>
+);
+
+const QuickActionCard = ({
+  title,
+  description,
+  cta,
+  icon: Icon,
+  onClick,
+  href,
+  loading = false
+}: QuickActionCardProps) => {
+  const content = (
+    <div className="group relative overflow-hidden rounded-2xl border border-red-500/40 bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] bg-[#0b0b0f] p-4 sm:p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-red-500/70 hover:shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl bg-red-500/15 p-3 text-red-200 transition-colors duration-300 group-hover:bg-red-500/25">
+            <Icon className="h-6 w-6" aria-hidden="true" />
+          </div>
+          <div>
+            <div className="text-sm sm:text-base font-semibold text-white">{title}</div>
+            <p className="mt-1 text-xs leading-relaxed text-gray-300">
+              {description}
+            </p>
+          </div>
+        </div>
+        <ArrowRightIcon className="h-5 w-5 text-red-300 opacity-0 transition-opacity duration-300 group-hover:opacity-80" aria-hidden="true" />
+      </div>
+      <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-red-300">
+        {loading ? (
+          <>
+            <GradientSpinner />
+            <span className="text-xs sm:text-sm uppercase tracking-wide text-red-200">Processing…</span>
+          </>
+        ) : (
+          <span>{cta}</span>
+        )}
+      </div>
+    </div>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="block text-left rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
+    >
+      {content}
+    </button>
+  );
+};
+
 const DevicesPage = ({
   initialDevices = [],
   products = [],
@@ -203,7 +301,7 @@ const DevicesPage = ({
   const router = useRouter();
   const toast = useToastContext();
   const { openModal } = useModal();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
 
 
   // Enhanced sort: supports sortField and sortDirection
@@ -366,26 +464,41 @@ const DevicesPage = ({
   // Fetch totals for ribbon (only when signed in)
   useEffect(() => {
     let active = true;
-    let id: any;
-    const start = async () => {
-      if (!session?.user?.address) {
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    if (sessionStatus !== 'authenticated' || !session?.user?.address) {
+      if (sessionStatus === 'unauthenticated') {
         setTotals(null);
-        return;
       }
-      const fetchTotals = async () => {
-        try {
-          const res = await fetch('/api/rewards/get-asset-totals', { method: 'POST' });
-          if (!res.ok) { if (active) setTotals(null); return; }
-          const json = await res.json();
-          if (active) setTotals(json);
-        } catch { if (active) setTotals(null); }
+      return () => {
+        active = false;
+        if (intervalId) clearInterval(intervalId);
       };
-      await fetchTotals();
-      id = setInterval(fetchTotals, 30000);
+    }
+    
+    const fetchTotals = async () => {
+      try {
+        const res = await fetch('/api/rewards/get-asset-totals', { method: 'POST' });
+        if (!res.ok) {
+          if (active && res.status === 401) {
+            setTotals(null);
+          }
+          return;
+        }
+        const json = await res.json();
+        if (active) setTotals(json);
+      } catch (error) {
+        console.error('Failed to refresh reward totals', error);
+      }
     };
-    start();
-    return () => { active = false; if (id) clearInterval(id); };
-  }, [session?.user?.address]);
+    
+    fetchTotals();
+    intervalId = setInterval(fetchTotals, 30000);
+    return () => {
+      active = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [sessionStatus, session?.user?.address]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
   const { estimatedFry1, estimatedFnode, estimatedTfry } = useMemo(() => {
@@ -714,66 +827,31 @@ const DevicesPage = ({
       />
 
       <div className="w-full mt-10 px-2 sm:px-20">
-        <Flex
-          justifyContent="between"
-          className="gap-3 w-full mt-10 flex-col sm:flex-row"
-        >
-          <Button
-            className={`min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full sm:w-auto ${
-              isProcessing ? 'cursor-not-allowed' : 'cursor-default'
-            }`}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <QuickActionCard
+            title="Onboard a Miner or Node"
+            description="Walk through ownership verification, staking, and portal linking to bring Fry hardware online."
+            cta="Start onboarding"
+            icon={PlusCircleIcon}
+            onClick={handleAdd}
+          />
+          <QuickActionCard
+            title="Activate BYOD License"
+            description="Turn your BYOD license into a Fry miner key with a guided conversion."
+            cta="Generate miner key"
+            icon={KeyIcon}
+            href="/convert"
+          />          
+          <QuickActionCard
+            title="FRY 1.0 Conversion"
+            description="Review your Dec 1, 2024 FRY 1.0 snapshot balance and choose a conversion into FRY 2.0 or fNode."
+            cta="Review snapshot"
+            icon={SwitchHorizontalIcon}
             onClick={handleConversion}
-          >
-            {isProcessing ? (
-              <svg
-                className="animate-spin h-6 w-6 text-red-500"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <defs>
-                  <linearGradient
-                    id="redGradient"
-                    x1="0%"
-                    y1="0%"
-                    x2="100%"
-                    y2="0%"
-                  >
-                    <stop offset="0%" stopColor="#ff0000" />
-                    <stop offset="50%" stopColor="#ff4d4d" />
-                    <stop offset="100%" stopColor="#ff9999" />
-                  </linearGradient>
-                </defs>
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="url(#redGradient)"
-                  strokeWidth="4"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-              </svg>
-            ) : (
-              'FRY1.0 Conversion'
-            )}
-          </Button>
-      <Flex className="gap-3 w-full flex-col sm:flex-row sm:justify-end">
-            <Link href="/convert" className="w-full sm:w-auto">
-              <Button className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full">
-                BYOD to Miner Key
-              </Button>
-            </Link>
-
-            <Button
-              className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 w-full sm:w-auto"
-              onClick={handleAdd}
-            >
-              + Add
-            </Button>
-          </Flex>
-      </Flex>
-    </div>
+            loading={isProcessing}
+          />
+        </div>
+      </div>
     {/* Totals banner removed; now provided in top Navbar ribbon */}
     <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
       {/* Sort controls */}

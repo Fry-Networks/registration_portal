@@ -3,7 +3,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { Button, Flex, TextInput, Title } from '@tremor/react';
 import { signOut, useSession } from 'next-auth/react';
 import algosdk from 'algosdk';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -167,8 +167,26 @@ export default function SignIn({ signed }: SignInProps) {
     }
   }
 
+  const connectedWalletAddress = useMemo(
+    () => (devMode ? devAccount?.addr : activeAccount?.address) || null,
+    [devAccount?.addr, activeAccount?.address]
+  );
+
+  const isSessionWallet = Boolean(
+    session?.user?.address && connectedWalletAddress && session.user.address === connectedWalletAddress
+  );
+
+  useEffect(() => {
+    if (connectedWalletAddress) return;
+    setIsNew(false);
+    setEmail('');
+    setFirstName('');
+    setLastName('');
+    setErrors({});
+  }, [connectedWalletAddress]);
+
   const checkUser = async () => {
-    if (!devAccount && !activeAccount) {
+    if (!connectedWalletAddress) {
       return;
     }
 
@@ -178,7 +196,7 @@ export default function SignIn({ signed }: SignInProps) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        address: devMode ? devAccount?.addr : activeAccount?.address
+        address: connectedWalletAddress
       })
     });
 
@@ -191,7 +209,7 @@ export default function SignIn({ signed }: SignInProps) {
 
   useEffect(() => {
     checkUser();
-  }, [devAccount, activeAccount]);
+  }, [connectedWalletAddress]);
 
   useEffect(() => {
     if (session && session.user && !session.user.email) {
@@ -199,15 +217,23 @@ export default function SignIn({ signed }: SignInProps) {
     }
   }, [session]);
 
+  useEffect(() => {
+    if (status !== 'authenticated' || !session?.user?.address) return;
+    if (!connectedWalletAddress || session.user.address !== connectedWalletAddress) {
+      setIsAuthenticating(false);
+      void signOut({ redirect: false });
+    }
+  }, [status, session?.user?.address, connectedWalletAddress]);
+
   return !devConnect && !activeAccount ? (
     <></>
   ) : (
     <div className="w-full">
       <Flex flexDirection="col" className="w-full">
         <Title className="text-white px-2 text-center">
-          {!session
-            ? 'Please click Sign in button to signin with your wallet address'
-            : 'You are signed successfully, click go to Dashboard to onboard your devices'}
+          {!session || !isSessionWallet
+            ? 'Please click Sign in button to sign with the currently connected wallet.'
+            : 'You are signed successfully, click Go to Dashboard to onboard your devices.'}
         </Title>
         {isNew && (
           <div className="mt-4">
@@ -260,11 +286,11 @@ export default function SignIn({ signed }: SignInProps) {
           </div>
         )}
         <div className="mt-10">
-          {!session ? (
+          {!session || !isSessionWallet ? (
             <Button
               className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
               onClick={() => handleWalletAuth()}
-              disabled={isAuthenticating}
+              disabled={isAuthenticating || !connectedWalletAddress}
             >
               {isAuthenticating ? 'Authenticating...' : 'Sign In'}
             </Button>

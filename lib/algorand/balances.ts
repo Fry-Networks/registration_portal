@@ -1,11 +1,16 @@
 import { Algodv2, Indexer } from 'algosdk';
 import { normalizeAssetId } from '../utils';
 
+/*
 const ALGOD_TOKEN = '';
 const ALGOD_SERVER = 'https://xna-mainnet-api.algonode.cloud/';
 const ALGOD_PORT = 443;
 const INDEXER_SERVER = 'https://mainnet-idx.algonode.cloud/';
+*/
+const ALGOD_SERVER = 'https://mainnet-api.algonode.cloud';
+const INDEXER_SERVER = 'https://mainnet-idx.algonode.cloud';
 
+/*
 const tokenHeader = {
   'X-API-Key': ALGOD_TOKEN
 };
@@ -13,6 +18,10 @@ const tokenHeader = {
 // Reuse singleton clients on both client and server to avoid repeated instantiation cost.
 const algodClient = new Algodv2(tokenHeader, ALGOD_SERVER, ALGOD_PORT);
 const indexerClient = new Indexer(tokenHeader, INDEXER_SERVER, ALGOD_PORT);
+*/
+// Use header-less clients so browser calls avoid CORS preflight blocks on x-api-key.
+const algodClient = new Algodv2('', ALGOD_SERVER, '');
+const indexerClient = new Indexer('', INDEXER_SERVER, '');
 
 export async function getAlgoBalance(address: string): Promise<number | null> {
   try {

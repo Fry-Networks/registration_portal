@@ -15,6 +15,33 @@ import ClaimModal from '../components/modals/Claim';
 import BoostModal from '../components/modals/Boost';
 // removed asset filter; keep utils unused import out
 
+const FIVE_MINUTES = 5 * 60 * 1000;
+
+function getThisFridayStartUTC(ref: Date): Date {
+  const utc = new Date(Date.UTC(
+    ref.getUTCFullYear(),
+    ref.getUTCMonth(),
+    ref.getUTCDate(),
+    0,
+    0,
+    0,
+    0
+  ));
+  const day = utc.getUTCDay();
+  const diffToFriday = (day + 7 - 5) % 7;
+  utc.setUTCDate(utc.getUTCDate() - diffToFriday);
+  return utc;
+}
+
+function computeNextFrydayUnlock(now: Date): Date {
+  const fridayStart = getThisFridayStartUTC(now);
+  const thisUnlock = new Date(fridayStart.getTime() + FIVE_MINUTES);
+  if (now.getTime() >= thisUnlock.getTime()) {
+    return new Date(fridayStart.getTime() + 7 * 24 * 60 * 60 * 1000 + FIVE_MINUTES);
+  }
+  return thisUnlock;
+}
+
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
@@ -58,6 +85,81 @@ export default function History({
   const { miner_key } = router.query;
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const resolvedNextUnlock = useMemo(() => {
+    if (summary?.nextUnlockAt) {
+      const parsed = new Date(summary.nextUnlockAt);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+    return computeNextFrydayUnlock(new Date(now));
+  }, [summary?.nextUnlockAt, now]);
+
+  const formatSummaryValue = (value: unknown) => {
+    if (value === null || value === undefined) return '0';
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value.toLocaleString();
+    }
+    if (typeof value === 'string') return value;
+    if (typeof value === 'object' && value && 'toLocaleString' in value) {
+      try {
+        const result = (value as any).toLocaleString();
+        if (typeof result === 'string') return result;
+      } catch (error) {
+        // noop
+      }
+    }
+    return String(value ?? '0');
+  };
+
+  const StatusPill = ({
+    label,
+    value,
+    colorClass
+  }: {
+    label: string;
+    value: unknown;
+    colorClass: string;
+  }) => (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] font-semibold ${colorClass}`}
+    >
+      <span className="uppercase tracking-wide text-[0.68rem]">{label}</span>
+      <span className="text-white text-sm font-semibold tracking-normal normal-case">
+        {formatSummaryValue(value)}
+      </span>
+    </span>
+  );
+
+  const unlockMessaging = useMemo(() => {
+    if (!resolvedNextUnlock) return null;
+    const diff = resolvedNextUnlock.getTime() - now;
+    if (diff <= 0) {
+      return {
+        headline: 'Weekly rewards unlocked',
+        detail: resolvedNextUnlock.toUTCString()
+      };
+    }
+    const totalMinutes = Math.ceil(diff / 60000);
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const minutes = Math.max(totalMinutes % 60, 0);
+    const segments: string[] = [];
+    if (days > 0) segments.push(`${days}d`);
+    if (hours > 0 || days > 0) segments.push(`${hours}h`);
+    segments.push(`${minutes}m`);
+    return {
+      headline: `Unlocks in ${segments.join(' ')}`,
+      detail: resolvedNextUnlock.toUTCString()
+    };
+  }, [resolvedNextUnlock, now]);
 
   const fetchData = async (nextPage: number) => {
     if (!minerKey) return;
@@ -342,20 +444,41 @@ export default function History({
       )}
       <div className="px-2 sm:px-20 mt-4 text-white sticky top-0 z-10 border-b border-white/10 py-3 bg-transparent">
         {summary && (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex gap-2 flex-wrap">
-              <span className="px-2 py-1 text-xs rounded-full bg-amber-900/40 text-amber-300">Pending: {summary.pending?.toLocaleString?.() ?? summary.pending}</span>
-              <span className="px-2 py-1 text-xs rounded-full bg-green-900/40 text-green-300">Claimable: {summary.claimable?.toLocaleString?.() ?? summary.claimable}</span>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              <StatusPill
+                label="Accruing"
+                value={summary.accruing ?? 0}
+                colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
+              />              
+              <StatusPill
+                label="Pending"
+                value={summary.pending ?? 0}
+                colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
+              />
+              <StatusPill
+                label="Claimable"
+                value={summary.claimable ?? 0}
+                colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+              />
               {typeof summary.claimed === 'number' && (
-                <span className="px-2 py-1 text-xs rounded-full bg-gray-800 text-gray-300">Claimed: {summary.claimed.toLocaleString()}</span>
+                <StatusPill
+                  label="Claimed"
+                  value={summary.claimed}
+                  colorClass="border-gray-600 bg-gray-800 text-gray-300"
+                />
               )}
             </div>
-            <div className="flex gap-2 flex-wrap text-xs text-gray-400 items-center">
-              {summary.nextUnlockAt && (
-                <span>Next unlock: {new Date(summary.nextUnlockAt).toUTCString()}</span>
-              )}
-              <span>Accruing (this week): {summary.accruing?.toLocaleString?.() ?? summary.accruing}</span>
-            </div>
+            {unlockMessaging && resolvedNextUnlock && (
+              <div className="flex flex-col text-sm">
+                <span className="text-lg sm:text-xl font-semibold text-white">
+                  {unlockMessaging.headline}
+                </span>
+                <span className="text-xs sm:text-sm font-medium uppercase tracking-wide text-sky-200">
+                  Next Fryday unlock • {resolvedNextUnlock.toUTCString()}
+                </span>
+              </div>
+            )}
           </div>
         )}
         <div className="mt-2 text-xs text-gray-300 w-full flex items-center justify-center gap-4 text-center">
