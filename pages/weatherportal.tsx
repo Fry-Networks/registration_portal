@@ -1,5 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
@@ -62,6 +62,23 @@ const WeatherPortal = () => {
   const { openModal } = useModal();
   const toast = useToastContext();
   const { minerKey, portalType, onlyPortal } = router.query;
+
+  const isEditMode = useMemo(() => {
+    if (typeof onlyPortal === 'string') {
+      const normalized = onlyPortal.toLowerCase();
+      return normalized === 'true' || normalized === '1';
+    }
+
+    if (Array.isArray(onlyPortal)) {
+      return onlyPortal.some((value) => {
+        if (typeof value !== 'string') return false;
+        const normalized = value.toLowerCase();
+        return normalized === 'true' || normalized === '1';
+      });
+    }
+
+    return Boolean(onlyPortal);
+  }, [onlyPortal]);
 
   const resolvedMinerKey =
     typeof minerKey === 'string'
@@ -566,7 +583,8 @@ const WeatherPortal = () => {
                     : Array.isArray(minerKey)
                       ? minerKey[0]
                       : undefined;
-                if (key && session?.user.address) {
+
+                if (!isEditMode && key && session?.user.address) {
                   await fetch('/api/registrations/cancel', {
                     method: 'POST',
                     headers: { 'Content-type': 'application/json' },
@@ -591,7 +609,7 @@ const WeatherPortal = () => {
               onClick={handleUnregister}
               disabled={isUnregistering}
             >
-              {isUnregistering ? 'Unregistering...' : 'Unregister'}
+              {isUnregistering ? 'Unlinking...' : 'Unlink'}
             </Button>
           )}
         </Flex>

@@ -22,6 +22,23 @@ export default ({ products }: { products: Product[] }) => {
   const [stakeStatus, setStakeStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
   const { minerKey, clickable, type } = router.query;
+
+  const isEditingExisting = useMemo(() => {
+    if (typeof clickable === 'string') {
+      const normalized = clickable.toLowerCase();
+      return normalized === 'true' || normalized === '1';
+    }
+
+    if (Array.isArray(clickable)) {
+      return clickable.some((value) => {
+        if (typeof value !== 'string') return false;
+        const normalized = value.toLowerCase();
+        return normalized === 'true' || normalized === '1';
+      });
+    }
+
+    return Boolean(clickable);
+  }, [clickable]);
   const hasFetchedRef = useRef(false);
   const savingRef = useRef(false);
   const lastAttemptRef = useRef<string | null>(null);
@@ -502,34 +519,37 @@ export default ({ products }: { products: Product[] }) => {
     }
   };
 
-  const handleSkip = () => {
-    if (currentSection > 0) {
-      setCurrentSection((prev) => prev - 1);
-    } else {
-      router.push('/devices');
-    }
-  };
-
   const handleCancel = async () => {
-    try {
-      if (resolvedMinerKey && session?.user.address) {
+    const isFullyRegistered = device?.is_registered === true || isEditingExisting;
+
+    if (!isFullyRegistered && resolvedMinerKey && session?.user.address) {
+      try {
         await fetch('/api/registrations/cancel', {
           method: 'POST',
-
           headers: { 'Content-type': 'application/json' },
-
           credentials: 'include',
-
           body: JSON.stringify({
             miner_key: resolvedMinerKey,
-
             address: session.user.address
           })
         });
+      } catch (e) {
+        // swallow cancel errors
       }
-    } catch (e) {
-      // swallow cancel errors
-    } finally {
+    }
+
+    router.push('/devices');
+  };
+
+  const handleSkip = () => {
+    if (isEditingExisting) {
+      handleCancel();
+      return;
+    }
+
+    if (currentSection > 0) {
+      setCurrentSection((prev) => prev - 1);
+    } else {
       router.push('/devices');
     }
   };
@@ -575,6 +595,7 @@ export default ({ products }: { products: Product[] }) => {
               setData={setDeviceInfoData}
               onNext={handleNext}
               onSkip={handleSkip}
+              onCancel={handleCancel}
             />
           </div>
           <div className="flex-shrink-0 w-full h-full">
@@ -648,3 +669,4 @@ export async function getServerSideProps(context: any) {
     };
   }
 }
+

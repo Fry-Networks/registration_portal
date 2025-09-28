@@ -190,7 +190,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
 
           <button
             onClick={handleConfirmLocation}
-            className="px-4 py-2 text-white border border-red-600 rounded mb-1 hover:bg-red-600"
+            className="px-4 py-2 text-white border border-red-600 rounded mb-1 hover:bg-red-600" type="button"
           >
             Confirm
           </button>

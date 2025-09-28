@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from './messageUpdate';
 
-const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
+const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status }) => {
   const router = useRouter();
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -147,7 +147,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
               <button
                 type="button"
                 className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
-                onClick={onSkip}
+                onClick={onCancel}
               >
                 Cancel
               </button>
@@ -167,3 +167,4 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, status }) => {
 };
 
 export default DeviceInfo;
+

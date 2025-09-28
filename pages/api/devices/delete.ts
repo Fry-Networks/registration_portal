@@ -6,6 +6,12 @@ import { getFRYPrice } from '../../../lib/price';
 import { withdraw } from '../stake/stake-withdraw';
 import { Product } from '../../../lib/types';
 
+const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
+const WEATHER_COLLECTION =
+  process.env.MONGO_WEATHER_COLLECTION ??
+  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
+
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -44,6 +50,14 @@ export default async function handler(
       return;
     }
 
+    const weatherDb = client.db(WEATHER_DB_NAME);
+    const weatherCollection = weatherDb.collection(WEATHER_COLLECTION);
+
+    await weatherCollection.deleteMany({
+      miner_key,
+      owner_address: session.user.address
+    });
+
     const product = (await db
       .collection('products')
       .findOne({ key: miner_key.split('-')[0] })) as Product;
@@ -70,7 +84,8 @@ export default async function handler(
           nickname: '',
           registration: '',
           node: '',
-          note: ''
+          note: '',
+          registered_portal_model: ''
         }
       }
     );

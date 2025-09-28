@@ -3,6 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 
+const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
+const WEATHER_COLLECTION =
+  process.env.MONGO_WEATHER_COLLECTION ??
+  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -29,9 +34,7 @@ export default async function handler(
     return res.status(401).json({ message: 'Unauthorized address' });
   }
 
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+  const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   try {
     const client = await clientPromise;
@@ -43,32 +46,58 @@ export default async function handler(
       return res.status(404).json({ message: 'Device not found' });
     }
 
-    // If another owner already set, block
     if (device.address && device.address !== session.user.address) {
       return res.status(401).json({ message: 'Unauthorized device owner' });
     }
 
-    // If fully registered, direct the user to delete instead
-    if (device.is_registered) {
-      return res.status(400).json({ message: 'Device already registered' });
-    }
+    const normalizedPortalModel =
+      typeof device.registered_portal_model === 'string'
+        ? device.registered_portal_model.toLowerCase()
+        : undefined;
 
-    const update: any = {
-      $unset: {
-        registration: '',
-        registered_portal_model: ''
-      }
+    const weatherDb = client.db(WEATHER_DB_NAME);
+    const weatherCollection = weatherDb.collection(WEATHER_COLLECTION);
+
+    const weatherQuery: Record<string, unknown> = {
+      miner_key,
+      owner_address: session.user.address
     };
 
-    // If address was set prematurely, clear it to unlock future attempts
-    if (device.address && !device.is_registered) {
-      update.$unset.address = '';
+    if (normalizedPortalModel) {
+      weatherQuery.api_type = normalizedPortalModel;
     }
 
-    // Clear any partial node section if present without registration
-    if (device.node && !device.is_registered) {
-      update.$unset.node = '';
+    const weatherDeleteResult = await weatherCollection.deleteMany(weatherQuery);
+
+    if (weatherDeleteResult.deletedCount === 0) {
+      const legacyQuery: Record<string, unknown> = { miner_key };
+
+      if (normalizedPortalModel) {
+        legacyQuery.api_type = normalizedPortalModel;
+      }
+
+      legacyQuery.owner_address = { $exists: false };
+
+      await weatherCollection.deleteMany(legacyQuery);
     }
+
+    const unsetFields: Record<string, ''> = {
+      registered_portal_model: ''
+    };
+
+    if (!device.is_registered) {
+      unsetFields.registration = '';
+
+      if (device.address) {
+        unsetFields.address = '';
+      }
+
+      if (device.node) {
+        unsetFields.node = '';
+      }
+    }
+
+    const update = { $unset: unsetFields };
 
     const result = await collection.updateOne({ miner_key }, update);
 
@@ -76,10 +105,13 @@ export default async function handler(
       return res.status(400).json({ message: 'Cancel failed' });
     }
 
-    return res.status(200).json({ message: 'Registration canceled' });
+    return res.status(200).json({
+      message: device.is_registered
+        ? 'Device portal reset successfully.'
+        : 'Registration canceled'
+    });
   } catch (error) {
     console.error('Cancel error for', miner_key, error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 }
-
