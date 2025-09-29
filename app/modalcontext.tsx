@@ -45,6 +45,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     tapo: false,
     shelly: false,
     tempest: false,
+    switchbot: false,
     // Add other modals here as needed
   });
 

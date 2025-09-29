@@ -60,7 +60,7 @@ export default function WalletAuthProvider(): Provider {
               }
             );
             return {
-              id: credentials.address,
+              id: exists._id?.toString() ?? credentials.address,
               address: credentials.address,
               email: credentials.email,
               first_name: credentials.first_name,
@@ -69,7 +69,7 @@ export default function WalletAuthProvider(): Provider {
             };
           }
           return {
-            id: credentials.address,
+            id: exists._id?.toString() ?? credentials.address,
             address: credentials.address,
             email: exists.email,
             first_name: exists.first_name,
@@ -77,7 +77,7 @@ export default function WalletAuthProvider(): Provider {
             admin
           };
         } else {
-          await collection.insertOne({
+          const insertResult = await collection.insertOne({
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,
@@ -85,7 +85,7 @@ export default function WalletAuthProvider(): Provider {
             admin: false
           });
           return {
-            id: credentials.address,
+            id: insertResult.insertedId.toString(),
             address: credentials.address,
             email: credentials.email,
             first_name: credentials.first_name,

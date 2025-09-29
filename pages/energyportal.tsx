@@ -1,4 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
@@ -9,10 +10,35 @@ import bgImg from '../assets/background.png';
 import tapoLogo from '../assets/portals/tapo.png';
 import ecowittLogo from '../assets/portals/ecowitt.png';
 import shellyLogo from '../assets/portals/shelly.png';
+import switchbotLogo from '../assets/portals/switchbot.png';
 
 import ShellyModal from '../components/modals/energy/Shelly';
 import EcowittModal from '../components/modals/energy/Ecowitt';
 import TapoModal from '../components/modals/energy/Tapo';
+import SwitchbotModal from '../components/modals/energy/Switchbot';
+
+const ENERGY_PORTALS = [
+  {
+    id: 'tapo',
+    name: 'Tapo',
+    logo: tapoLogo
+  },
+  {
+    id: 'ecowitt',
+    name: 'Ecowitt / Froggit / MISOL',
+    logo: ecowittLogo
+  },
+  {
+    id: 'shelly',
+    name: 'Shelly',
+    logo: shellyLogo
+  },
+  {
+    id: 'switchbot',
+    name: 'SwitchBot',
+    logo: switchbotLogo
+  }
+];
 
 const EnergyPortal = () => {
   const router = useRouter();
@@ -21,23 +47,42 @@ const EnergyPortal = () => {
   const toast = useToastContext();
   const { minerKey, portalType, onlyPortal } = router.query;
 
-  const portals = [
-    {
-      id: 'tapo',
-      name: 'Tapo',
-      logo: tapoLogo
-    },
-    {
-      id: 'ecowitt',
-      name: 'Ecowitt / Froggit / MISOL',
-      logo: ecowittLogo
-    },
-    {
-      id: 'shelly',
-      name: 'Shelly',
-      logo: shellyLogo
+  const isEditMode = useMemo(() => {
+    if (typeof onlyPortal === 'string') {
+      const normalized = onlyPortal.toLowerCase();
+      return normalized === 'true' || normalized === '1';
     }
-  ];
+
+    if (Array.isArray(onlyPortal)) {
+      return onlyPortal.some((value) => {
+        if (typeof value !== 'string') return false;
+        const normalized = value.toLowerCase();
+        return normalized === 'true' || normalized === '1';
+      });
+    }
+
+    return Boolean(onlyPortal);
+  }, [onlyPortal]);
+
+  const resolvedMinerKey =
+    typeof minerKey === 'string'
+      ? minerKey
+      : Array.isArray(minerKey)
+        ? minerKey[0]
+        : undefined;
+
+  const resolvedPortalType =
+    typeof portalType === 'string'
+      ? portalType
+      : Array.isArray(portalType)
+        ? portalType[0]
+        : undefined;
+
+  const normalizedPortalType = resolvedPortalType?.toLowerCase();
+  const [isUnregistering, setIsUnregistering] = useState(false);
+  const autoOpenedRef = useRef(false);
+
+  const portals = ENERGY_PORTALS;
 
   const handleModal = (id: string) => {
     openModal(id);
@@ -45,11 +90,9 @@ const EnergyPortal = () => {
 
   // Check if a portal is available based on portalType
   const isPortalAvailable = (portalId: string) => {
-    // If no portalType is specified, all portals are available
-    if (!portalType) return true;
+    if (!normalizedPortalType) return true;
 
-    // Check if the portal ID matches the portalType
-    return portalId === portalType;
+    return portalId === normalizedPortalType;
   };
 
   const handlePortalClick = (portalId: string) => {
@@ -57,6 +100,21 @@ const EnergyPortal = () => {
       handleModal(portalId);
     }
   };
+
+  useEffect(() => {
+    if (!normalizedPortalType || autoOpenedRef.current) {
+      return;
+    }
+
+    const hasPortal = portals.some((portal) => portal.id === normalizedPortalType);
+
+    if (!hasPortal) {
+      return;
+    }
+
+    autoOpenedRef.current = true;
+    openModal(normalizedPortalType);
+  }, [normalizedPortalType, openModal, portals]);
 
   const setPortalType = async (
     minerKey: string | string[] | undefined,
@@ -127,8 +185,8 @@ const EnergyPortal = () => {
           query: { minerKey, type: 'tapo' }
         });
       } else {
-        if (portalType === undefined) {
-          await setPortalType(minerKey, 'tapo');
+        if (resolvedPortalType === undefined) {
+          await setPortalType(resolvedMinerKey ?? minerKey, 'tapo');
         }
         router.push('/devices');
       }
@@ -178,8 +236,8 @@ const EnergyPortal = () => {
           query: { minerKey, type: 'shelly' }
         });
       } else {
-        if (portalType === undefined) {
-          await setPortalType(minerKey, 'shelly');
+        if (resolvedPortalType === undefined) {
+          await setPortalType(resolvedMinerKey ?? minerKey, 'shelly');
         }
         router.push('/devices');
       }
@@ -227,8 +285,8 @@ const EnergyPortal = () => {
           query: { minerKey, type: 'ecowitt' }
         });
       } else {
-        if (portalType === undefined) {
-          await setPortalType(minerKey, 'ecowitt');
+        if (resolvedPortalType === undefined) {
+          await setPortalType(resolvedMinerKey ?? minerKey, 'ecowitt');
         }
         router.push('/devices');
       }
@@ -241,6 +299,115 @@ const EnergyPortal = () => {
       return false;
     }
     return true;
+  };
+
+  const handleSwitchbot = async (
+    token: string,
+    secret: string,
+    deviceId: string
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/energy/switchbot', {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          miner_key: minerKey,
+          token,
+          secret,
+          deviceId,
+          address: session?.user.address
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        toast.error({ heading: 'Error', message: result.message });
+        return false;
+      } else {
+        toast.success({ heading: 'Success', message: result.message });
+      }
+
+      if (!onlyPortal) {
+        router.push({
+          pathname: '/register',
+          query: { minerKey, type: 'switchbot' }
+        });
+      } else {
+        if (resolvedPortalType === undefined) {
+          await setPortalType(resolvedMinerKey ?? minerKey, 'switchbot');
+        }
+        router.push('/devices');
+      }
+    } catch (error) {
+      toast.error({
+        heading: 'Error',
+        message:
+          'We were unable to verify your key. Please try again later, if the problem persists, open a ticket on FryNetworks Discord.'
+      });
+      return false;
+    }
+    return true;
+  };
+
+  const handleUnregister = async () => {
+    if (!resolvedMinerKey || !resolvedPortalType || !session?.user.address) {
+      toast.error({
+        heading: 'Error',
+        message: 'Missing device details for unregistering.'
+      });
+      return;
+    }
+
+    setIsUnregistering(true);
+
+    try {
+      const response = await fetch('/api/energy/unregister', {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          miner_key: resolvedMinerKey,
+          api_type: resolvedPortalType,
+          address: session.user.address
+        })
+      });
+
+      const result = (await response.json().catch(() => ({}))) as {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        toast.error({
+          heading: 'Error',
+          message: result.message ?? 'Failed to unregister energy credential.'
+        });
+        return;
+      }
+
+      toast.success({
+        heading: 'Success',
+        message: result.message ?? 'Energy credential removed successfully.'
+      });
+
+      const updatedQuery = { ...router.query } as Record<string, string | string[]>;
+      delete updatedQuery.portalType;
+      delete updatedQuery.onlyPortal;
+
+      await router.replace(
+        { pathname: router.pathname, query: updatedQuery },
+        undefined,
+        { shallow: true }
+      );
+    } catch (error) {
+      console.error('[energyportal] unregister error', error);
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to unregister energy credential.'
+      });
+    } finally {
+      setIsUnregistering(false);
+    }
   };
 
   return (
@@ -265,30 +432,40 @@ const EnergyPortal = () => {
         </Flex>
       </div>
       <div className="px-2 sm:px-20">
-        <Button
-          className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-          onClick={async () => {
-            try {
-              const key = typeof minerKey === 'string' ? minerKey : Array.isArray(minerKey) ? minerKey[0] : undefined;
-              if (key && session?.user.address) {
-                await fetch('/api/registrations/cancel', {
-                  method: 'POST',
-                  headers: { 'Content-type': 'application/json' },
-                  body: JSON.stringify({
-                    miner_key: key,
-                    address: session.user.address
-                  })
-                });
+        <Flex className="mt-6 gap-3 flex-wrap" justifyContent="start">
+          <Button
+            className="min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+            onClick={async () => {
+              try {
+                if (!isEditMode && resolvedMinerKey && session?.user.address) {
+                  await fetch('/api/registrations/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-type': 'application/json' },
+                    body: JSON.stringify({
+                      miner_key: resolvedMinerKey,
+                      address: session.user.address
+                    })
+                  });
+                }
+              } catch (e) {
+                // ignore cancel failures for navigation
+              } finally {
+                router.push('/devices');
               }
-            } catch (e) {
-              // ignore cancel failures for navigation
-            } finally {
-              router.push('/devices');
-            }
-          }}
-        >
-          Back
-        </Button>
+            }}
+          >
+            Back
+          </Button>
+          {resolvedPortalType && (
+            <Button
+              className="min-w-[150px] bg-transparent border-slate-500 text-slate-200 hover:bg-slate-600 hover:border-slate-600"
+              onClick={handleUnregister}
+              disabled={isUnregistering}
+            >
+              {isUnregistering ? 'Unlinking...' : 'Unlink'}
+            </Button>
+          )}
+        </Flex>
       </div>
       <Flex
         flexDirection="row"
@@ -335,6 +512,12 @@ const EnergyPortal = () => {
         modalName={'shelly'}
         minerKey={minerKey}
         handle={handleShelly}
+      />
+      <SwitchbotModal
+        modalName={'switchbot'}
+        minerKey={minerKey}
+        address={session?.user.address}
+        handle={handleSwitchbot}
       />
     </div>
   );

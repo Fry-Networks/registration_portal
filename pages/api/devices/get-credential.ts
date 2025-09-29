@@ -13,9 +13,13 @@ type CredentialRecord = {
   api_type: string;
   stationID?: number;
   token?: string;
+  secret?: string;
   lat?: number;
   lon?: number;
   device_name?: string;
+  deviceId?: string;
+  device_type?: string;
+  hub_device_id?: string;
   timestamp?: Date;
   updated_at?: Date;
   owner_address?: string;
@@ -27,9 +31,13 @@ type CredentialSuccessResponse = {
     api_type: string;
     stationID?: number;
     token?: string;
+    secret?: string;
     lat?: number;
     lon?: number;
     device_name?: string;
+    deviceId?: string;
+    device_type?: string;
+    hub_device_id?: string;
     timestamp?: Date;
   } | null;
 };
@@ -60,6 +68,9 @@ const WEATHER_COLLECTION =
   process.env.MONGO_WEATHER_COLLECTION ??
   (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
 const DEFAULT_API_TYPE = 'tempest';
+const ENERGY_COLLECTION =
+  process.env.MONGO_ENERGY_COLLECTION ??
+  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-energy' : 'energy');
 
 export default async function handler(
   req: NextApiRequest,
@@ -90,7 +101,10 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db(WEATHER_DB_NAME);
-    const collection = db.collection(WEATHER_COLLECTION);
+    const isEnergyCredential = apiType === 'switchbot';
+    const collection = db.collection(
+      isEnergyCredential ? ENERGY_COLLECTION : WEATHER_COLLECTION
+    );
 
     const record = await collection.findOne<
       CredentialRecord & { owner_address?: string }
@@ -111,9 +125,13 @@ export default async function handler(
           api_type: record.api_type,
           stationID: record.stationID,
           token: record.token,
+          secret: record.secret,
           lat: record.lat,
           lon: record.lon,
           device_name: record.device_name,
+          deviceId: record.deviceId,
+          device_type: record.device_type,
+          hub_device_id: record.hub_device_id,
           timestamp: record.timestamp ?? record.updated_at
         }
       : null;

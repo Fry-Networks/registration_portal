@@ -1,9 +1,8 @@
-'use server';
-import mongoose from 'mongoose';
+import mongoose, { Schema } from 'mongoose';
 
 export interface Device extends mongoose.Document {
   _id: string;
-  user_id: string;
+  user_id: Schema.Types.ObjectId;
   nickname?: string;
   miner_key: string;
   name: string;

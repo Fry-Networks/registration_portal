@@ -19,13 +19,19 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        token.userId = (user as any).id ?? token.sub ?? token.userId;
         token.address = user.address;
         token.email = user.email;
         token.first_name = user.first_name;
         token.last_name = user.last_name;
         token.admin = Boolean((user as any)?.admin);
-      } else if (typeof token.admin === 'undefined') {
-        token.admin = false;
+      } else {
+        if (!token.userId && token.sub) {
+          token.userId = token.sub;
+        }
+        if (typeof token.admin === 'undefined') {
+          token.admin = false;
+        }
       }
       return token;
     },
@@ -33,12 +39,13 @@ export const authOptions: NextAuthOptions = {
       if (token) {
         session.user = {
           ...session.user,
+          id: (token.userId ?? token.sub ?? '') as string,
           address: token.address as string,
           email: token.email as string,
           first_name: token.first_name as string,
           last_name: token.last_name as string,
           admin: Boolean(token.admin)
-        };
+        } as typeof session.user & { id: string };
       }
       return session;
     }

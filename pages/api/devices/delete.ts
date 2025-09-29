@@ -10,6 +10,9 @@ const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const WEATHER_COLLECTION =
   process.env.MONGO_WEATHER_COLLECTION ??
   (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
+const ENERGY_COLLECTION =
+  process.env.MONGO_ENERGY_COLLECTION ??
+  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-energy' : 'energy');
 
 
 export default async function handler(
@@ -50,13 +53,20 @@ export default async function handler(
       return;
     }
 
-    const weatherDb = client.db(WEATHER_DB_NAME);
-    const weatherCollection = weatherDb.collection(WEATHER_COLLECTION);
+    const credentialDb = client.db(WEATHER_DB_NAME);
+    const weatherCollection = credentialDb.collection(WEATHER_COLLECTION);
+    const energyCollection = credentialDb.collection(ENERGY_COLLECTION);
 
-    await weatherCollection.deleteMany({
-      miner_key,
-      owner_address: session.user.address
-    });
+    await Promise.all([
+      weatherCollection.deleteMany({
+        miner_key,
+        owner_address: session.user.address
+      }),
+      energyCollection.deleteMany({
+        miner_key,
+        owner_address: session.user.address
+      })
+    ]);
 
     const product = (await db
       .collection('products')
