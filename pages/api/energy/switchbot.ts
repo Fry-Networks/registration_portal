@@ -238,13 +238,10 @@ export default async function handler(
     console.error('[energy/switchbot] submission error', error);
     const message =
       error instanceof Error ? error.message : 'Failed to submit SwitchBot credentials';
+    const knownError = error as Error & { statusCode?: number };
     const statusCode =
-      error instanceof Error &&
-      'statusCode' in error &&
-      typeof (error as Error & { statusCode?: number }).statusCode === 'number'
-        ? (error as Error & { statusCode?: number }).statusCode
-        : 500;
+      typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
 
-    res.status(statusCode).json({ message, status: 'ERROR' });
+    res.status(statusCode).json({ status: 'ERROR', message });
   }
 }

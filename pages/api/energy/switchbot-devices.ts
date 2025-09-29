@@ -11,6 +11,12 @@ import {
 } from '../../../lib/switchbot';
 import type { SwitchbotDeviceRecord } from '../../../lib/switchbot';
 
+type DeviceSummary = {
+  deviceId: string;
+  deviceName: string;
+  deviceType: string | undefined;
+};
+
 const CREDENTIAL_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const CREDENTIAL_COLLECTION =
   process.env.MONGO_ENERGY_COLLECTION ??
@@ -28,7 +34,9 @@ const normalizeString = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const extractDeviceSummary = (record: SwitchbotDeviceRecord | undefined) => {
+const extractDeviceSummary = (
+  record: SwitchbotDeviceRecord | undefined
+): DeviceSummary | undefined => {
   if (!record || typeof record !== 'object') {
     return undefined;
   }
@@ -108,9 +116,7 @@ export default async function handler(
 
     const records = (payload.body?.deviceList ?? [])
       .map((entry) => extractDeviceSummary(entry))
-      .filter((entry): entry is { deviceId: string; deviceName: string; deviceType?: string } =>
-        entry !== undefined
-      );
+      .filter((entry): entry is DeviceSummary => entry !== undefined);
 
     const clientConn = await clientPromise;
     const credentialCollection = clientConn
@@ -142,13 +148,10 @@ export default async function handler(
     console.error('[energy/switchbot-devices] error', error);
     const message =
       error instanceof Error ? error.message : 'Failed to fetch SwitchBot devices';
+    const knownError = error as Error & { statusCode?: number };
     const statusCode =
-      error instanceof Error &&
-      'statusCode' in error &&
-      typeof (error as Error & { statusCode?: number }).statusCode === 'number'
-        ? (error as Error & { statusCode?: number }).statusCode
-        : 500;
+      typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
 
-    res.status(statusCode).json({ message });
+    res.status(statusCode).json({ status: 'ERROR', message });
   }
 }

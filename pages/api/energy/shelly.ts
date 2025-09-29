@@ -241,12 +241,9 @@ export default async function handler(
       error instanceof Error
         ? error.message
         : 'Failed to submit Shelly credentials';
+    const knownError = error as Error & { statusCode?: number };
     const statusCode =
-      error instanceof Error &&
-      'statusCode' in error &&
-      typeof (error as Error & { statusCode?: number }).statusCode === 'number'
-        ? (error as Error & { statusCode?: number }).statusCode
-        : 500;
+      typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
 
     res.status(statusCode).json({ status: 'ERROR', message });
   }
