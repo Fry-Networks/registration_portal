@@ -14,6 +14,8 @@ type CredentialRecord = {
   stationID?: number;
   token?: string;
   secret?: string;
+  auth_key?: string;
+  server_url?: string;
   lat?: number;
   lon?: number;
   device_name?: string;
@@ -32,6 +34,8 @@ type CredentialSuccessResponse = {
     stationID?: number;
     token?: string;
     secret?: string;
+    auth_key?: string;
+    server_url?: string;
     lat?: number;
     lon?: number;
     device_name?: string;
@@ -101,7 +105,7 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db(WEATHER_DB_NAME);
-    const isEnergyCredential = apiType === 'switchbot';
+    const isEnergyCredential = apiType === 'switchbot' || apiType === 'shelly';
     const collection = db.collection(
       isEnergyCredential ? ENERGY_COLLECTION : WEATHER_COLLECTION
     );
@@ -126,6 +130,8 @@ export default async function handler(
           stationID: record.stationID,
           token: record.token,
           secret: record.secret,
+          auth_key: record.auth_key,
+          server_url: record.server_url,
           lat: record.lat,
           lon: record.lon,
           device_name: record.device_name,

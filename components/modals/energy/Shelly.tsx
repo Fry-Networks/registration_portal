@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Button,
@@ -16,8 +16,18 @@ import Loading from '../../Loading';
 interface ShellyModalProps {
   modalName: string;
   minerKey: string | string[] | undefined;
-  handle: (authKey: string, serverURL: string, deviceID: string) => Promise<boolean>;
+  handle: (
+    authKey: string,
+    serverURL: string,
+    deviceID: string
+  ) => Promise<boolean>;
 }
+
+const AUTH_KEY_REGEX = /^[a-zA-Z0-9]{92}$/;
+const DEVICE_ID_REGEX = /^[0-9a-fA-F]{12}$/;
+const SERVER_URL_REGEX = /^https?:\/\/[a-zA-Z0-9-]+\.shelly\.cloud$/;
+
+const sanitizeDeviceId = (value: string) => value.trim().toUpperCase();
 
 const ShellyModal: React.FC<ShellyModalProps> = ({
   modalName,
@@ -30,42 +40,65 @@ const ShellyModal: React.FC<ShellyModalProps> = ({
   const [serverURL, setServerURL] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const resolvedMinerKey = useMemo(() => {
+    if (typeof minerKey === 'string') return minerKey;
+    if (Array.isArray(minerKey)) {
+      return minerKey.length > 0 ? minerKey[0] : undefined;
+    }
+    return undefined;
+  }, [minerKey]);
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/api/getDeviceCredential`, {
-          method: 'POST',
-          headers: {'Content-type': 'application/json'},
-          body: JSON.stringify({ miner_key: minerKey, type: 'shelly' })
-        });
-  
-        const result = await response.json();
-        if (result.data !== null) {
-          setAuthKey(result.data.authKey);
-          setDeviceID(result.data.deviceId);
-          setServerURL(result.data.serverUrl);
-        }
-      } catch (error) {
-        console.error(error);
-        return;
-      }
+    if (!modals[modalName] || !resolvedMinerKey) {
       return;
     }
 
-    if (modals[modalName]) {
-      fetchData();
-    }
-  }, [modals[modalName], minerKey]);
+    const fetchData = async () => {
+      try {
+        const response = await fetch('/api/devices/get-credential', {
+          method: 'POST',
+          headers: { 'Content-type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ miner_key: resolvedMinerKey, type: 'shelly' })
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const result = await response.json();
+        if (result.data !== null) {
+          if (typeof result.data.auth_key === 'string') {
+            setAuthKey(result.data.auth_key);
+          }
+          if (typeof result.data.deviceId === 'string') {
+            setDeviceID(sanitizeDeviceId(result.data.deviceId));
+          }
+          if (typeof result.data.server_url === 'string') {
+            setServerURL(result.data.server_url);
+          }
+        }
+      } catch (error) {
+        console.error('[ShellyModal] credential fetch failed', error);
+      }
+    };
+
+    fetchData();
+  }, [modals[modalName], resolvedMinerKey, modalName]);
 
   const handleSubmit = async () => {
     setIsProcessing(true);
-    const result = await handle(authKey, serverURL, deviceID);
+    const result = await handle(
+      authKey.trim(),
+      serverURL.trim(),
+      sanitizeDeviceId(deviceID)
+    );
     if (result) {
       setIsProcessing(false);
       closeModal(modalName);
     }
     setIsProcessing(false);
-  }
+  };
 
   return (
     <Dialog
@@ -86,34 +119,44 @@ const ShellyModal: React.FC<ShellyModalProps> = ({
           </button>
         </div>
         <Title className="mb-5">Shelly</Title>
-        <Subtitle className='mb-2 text-[14px]'>
-          Please enter Shelly credentials below:
+        <Subtitle className="mb-2 text-[14px]">
+          Provide your Shelly cloud authentication details below. Your auth key
+          and server URL come from the Shelly app under User Settings → Cloud
+          Authentication. See the{' '}
+          <Link
+            href="https://kb.shelly.cloud/knowledge/base/cloud-api"
+            target="_blank"
+            className="underline"
+          >
+            Shelly Cloud API guide
+          </Link>{' '}
+          for more information.
         </Subtitle>
         <TextInput
           type="text"
           value={authKey}
-          onChange={(e) => setAuthKey(e.target.value)}
+          onChange={(e) => setAuthKey(e.target.value.trim())}
           placeholder="Enter Your Auth Key"
           className="mt-2 mb-2 text-slate-900"
-          error={authKey !== "" && !/\b^[a-zA-Z0-9]{92}$\b/gm.test(authKey)}
+          error={authKey !== '' && !AUTH_KEY_REGEX.test(authKey)}
           errorMessage="Invalid Auth Key"
         />
         <TextInput
           type="text"
           value={deviceID}
-          onChange={(e) => setDeviceID(e.target.value)}
+          onChange={(e) => setDeviceID(e.target.value.toUpperCase())}
           placeholder="Enter Your Device ID"
           className="mt-2 mb-2 text-slate-900"
-          error={deviceID !== "" && !/\b^[0-9a-f]{12}$\b/gm.test(deviceID)}
-          errorMessage="Invalid Device ID"
+          error={deviceID !== '' && !DEVICE_ID_REGEX.test(deviceID)}
+          errorMessage="Device ID must be 12 hexadecimal characters"
         />
         <TextInput
           type="text"
           value={serverURL}
-          onChange={(e) => setServerURL(e.target.value)}
+          onChange={(e) => setServerURL(e.target.value.trim())}
           placeholder="Enter Your Server URL"
           className="mt-2 mb-2 text-slate-900"
-          error={serverURL !== "" && !/\b^https:\/\/[a-zA-Z0-9-]+\.shelly\.cloud$\b/gm.test(serverURL)}
+          error={serverURL !== '' && !SERVER_URL_REGEX.test(serverURL)}
           errorMessage="Invalid Server URL"
         />
         <Flex
@@ -131,18 +174,16 @@ const ShellyModal: React.FC<ShellyModalProps> = ({
             className={`bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 
               ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}
             `}
-            disabled={ !/\b^[a-zA-Z0-9]{92}$\b/gm.test(authKey) || !/\b^[0-9a-f]{12}$\b/gm.test(deviceID) || !/\b^https:\/\/[a-zA-Z0-9-]+\.shelly\.cloud$\b/gm.test(serverURL) }
+            disabled={
+              !AUTH_KEY_REGEX.test(authKey) ||
+              !DEVICE_ID_REGEX.test(deviceID) ||
+              !SERVER_URL_REGEX.test(serverURL)
+            }
             onClick={() => {
               handleSubmit();
             }}
           >
-            {
-              isProcessing ? (
-                <Loading/>
-              ) : (
-                'Submit'
-              )
-            }
+            {isProcessing ? <Loading /> : 'Submit'}
           </Button>
         </Flex>
       </DialogPanel>

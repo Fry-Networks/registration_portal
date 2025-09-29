@@ -106,7 +106,9 @@ const EnergyPortal = () => {
       return;
     }
 
-    const hasPortal = portals.some((portal) => portal.id === normalizedPortalType);
+    const hasPortal = portals.some(
+      (portal) => portal.id === normalizedPortalType
+    );
 
     if (!hasPortal) {
       return;
@@ -207,20 +209,18 @@ const EnergyPortal = () => {
     deviceID: string
   ): Promise<boolean> => {
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_HOST}/api/submitShelly`,
-        {
-          method: 'POST',
-          headers: { 'Content-type': 'application/json' },
-          body: JSON.stringify({
-            minerKey,
-            authKey,
-            serverURL,
-            deviceID,
-            address: session?.user.address
-          })
-        }
-      );
+      const response = await fetch('/api/energy/shelly', {
+        method: 'POST',
+        headers: { 'Content-type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          miner_key: minerKey,
+          authKey,
+          serverURL,
+          deviceId: deviceID,
+          address: session?.user.address
+        })
+      });
 
       const result = await response.json();
       if (!response.ok) {
@@ -390,7 +390,10 @@ const EnergyPortal = () => {
         message: result.message ?? 'Energy credential removed successfully.'
       });
 
-      const updatedQuery = { ...router.query } as Record<string, string | string[]>;
+      const updatedQuery = { ...router.query } as Record<
+        string,
+        string | string[]
+      >;
       delete updatedQuery.portalType;
       delete updatedQuery.onlyPortal;
 

@@ -14,7 +14,6 @@ const ENERGY_COLLECTION =
   process.env.MONGO_ENERGY_COLLECTION ??
   (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-energy' : 'energy');
 
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
