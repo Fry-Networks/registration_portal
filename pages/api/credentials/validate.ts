@@ -25,11 +25,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // prefer api_type (new), fall back to legacy 'subtype'
-  const { miner_key, api_type, subtype, credentials } = req.body;
-  const apiType = (api_type ?? subtype) as string | undefined;
+  const { miner_key, api_type, subtype, credentials, portal_type } = req.body;
+  let apiType = (api_type ?? subtype) as string | undefined;
+  const portalType = portal_type as string | undefined;
 
-  if (!miner_key || !apiType || !credentials) {
+  if (!miner_key || !credentials) {
     return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  // If apiType is not provided, try to infer it from provided credential keys
+  // (e.g., mac_address -> mac) or from an existing portal_creds entry for the miner_key.
+  if (!apiType) {
+    const creds = credentials as Record<string, any>;
+    if (creds?.mac_address || creds?.miner_mac) {
+      apiType = 'mac';
+    } else if (creds?.token && creds?.secret && (creds?.deviceId || creds?.deviceId === 0)) {
+      apiType = 'switchbot';
+    } else if (creds?.url || creds?.serverUrl) {
+      apiType = 'rtsp';
+    } else {
+      // last resort: look up stored portal creds to see if an api_type or collection exists
+      try {
+        const dbClient = await clientPromise;
+        const db = dbClient.db(HARDWARE_DB_NAME);
+        const portalCol = db.collection(PORTAL_CREDS_COLLECTION);
+        const existing = await portalCol.findOne({ miner_key });
+        if (existing) {
+          if (existing.api_type) apiType = String(existing.api_type).toLowerCase();
+          else if (existing.collection) {
+            // collection 'hardware' implies mac/node style entries
+            const c = String(existing.collection).toLowerCase();
+            if (c === 'hardware' || c === 'node' || c === 'devices') apiType = 'mac';
+            else apiType = c;
+          } else if (existing.portal) {
+            apiType = String(existing.portal).toLowerCase();
+          }
+        }
+      } catch (err) {
+        console.error('[credentials/validate] failed to infer api_type from DB', err);
+      }
+    }
+  }
+
+  if (!apiType) {
+    return res.status(400).json({ message: 'Missing required api_type and unable to infer subtype' });
   }
 
   try {
@@ -56,12 +95,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // DB checks (read-only)
   const client = await clientPromise;
   const db = client.db(HARDWARE_DB_NAME);
-  const portalCollection = db.collection(PORTAL_CREDS_COLLECTION);
 
-      const existingMiner = await portalCollection.findOne({ miner_key });
+      // Decide which collections to query. If portalType is specified, prefer that collection
+      // (e.g., 'energy' for energy portal). If portalType === 'hardware' use legacy hardware collection.
+      // If no portalType is provided, fall back to checking the configured portal creds collection and legacy hardware.
+      const collectionsToCheck: string[] = portalType
+        ? [portalType === 'hardware' ? 'hardware' : String(portalType).toLowerCase()]
+        : [PORTAL_CREDS_COLLECTION, 'hardware'];
+
+      const findOneAcross = async (query: any) => {
+        for (const colName of collectionsToCheck) {
+          try {
+            const col = db.collection(colName);
+            const doc = await col.findOne(query);
+            if (doc) return doc;
+          } catch (err) {
+            // ignore collection access errors and continue
+          }
+        }
+        return null;
+      };
+
+      const findManyAcross = async (query: any) => {
+        const results: any[] = [];
+        for (const colName of collectionsToCheck) {
+          try {
+            const col = db.collection(colName);
+            const docs = await col.find(query).toArray();
+            results.push(...docs);
+          } catch (err) {
+            // ignore and continue
+          }
+        }
+        return results;
+      };
+
+      // Ownership check: if there's an existing entry for this miner owned by another address, forbid
+      const existingMiner = await findOneAcross({ miner_key });
       if (existingMiner && existingMiner.address && existingMiner.address !== session.user.address) {
-        // If the existing entry belongs to another address, forbid
-        //console.log('[credentials/validate] mac validation forbidden: portal entry owned by different address', { miner_key });
         return res.status(403).json({ message: 'Forbidden' });
       }
 
@@ -73,15 +144,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .filter((k) => k !== miner_key);
 
         if (linkedMinerKeys.length > 0) {
-          const linkedMiners = await portalCollection.find({ miner_key: { $in: linkedMinerKeys } }).toArray();
+          const linkedMiners = await findManyAcross({ miner_key: { $in: linkedMinerKeys } });
           for (const linkedMiner of linkedMiners) {
-            // linked miner MAC might be stored as top-level miner_mac or inside credentials.mac_address
             const linkedMacTop = typeof linkedMiner.miner_mac === 'string' ? linkedMiner.miner_mac : '';
             const linkedMacCred = linkedMiner.credentials && typeof linkedMiner.credentials.mac_address === 'string' ? linkedMiner.credentials.mac_address : '';
             const linkedMac = linkedMacTop || linkedMacCred || '';
-            // GUI guarantees MAC is uppercase and colon-separated (FF:FF:...)
             if (linkedMac && linkedMac !== macValue) {
-              //console.log('[credentials/validate] mac conflict with linked miner', { miner_key, linkedMiner: linkedMiner.miner_key, linkedMac });
               return res.status(409).json({ message: 'MAC address conflicts with linked miner registration.', conflictMinerKey: linkedMiner.miner_key });
             }
           }
@@ -89,17 +157,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Exact match against stored miner_mac OR credentials.mac_address (some entries store MAC in credentials)
-      const conflictingMac = await portalCollection.findOne({
+      const macQuery: any = {
         miner_type: minerType,
         miner_key: { $ne: miner_key },
         $or: [
           { miner_mac: macValue },
           { 'credentials.mac_address': macValue }
         ]
-      });
+      };
+
+      // If portalType is provided and it's not the legacy hardware collection, and apiType is present,
+      // restrict by api_type so energy+switchbot will only look within the energy collection and filter by switchbot.
+      if (portalType && portalType !== 'hardware' && apiType) {
+        macQuery.api_type = apiType;
+      }
+
+      const conflictingMac = await findOneAcross(macQuery);
 
       if (conflictingMac) {
-        //console.log('[credentials/validate] mac conflict with other miner', { miner_key, conflictMinerKey: conflictingMac.miner_key });
         return res.status(409).json({ message: 'MAC address is already registered to another miner', conflictMinerKey: conflictingMac.miner_key });
       }
 
