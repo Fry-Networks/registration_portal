@@ -475,6 +475,25 @@ export default ({ products }: { products: Product[] }) => {
   const [credentialsPrefilled, setCredentialsPrefilled] = useState(false);
   const [credentialActionLoading, setCredentialActionLoading] = useState(false);
   const [loadingStoredCredentials, setLoadingStoredCredentials] = useState(false);
+  // Track whether credentials were just updated (to show Save & Exit)
+  const [credentialsJustUpdated, setCredentialsJustUpdated] = useState(false);
+  // Determine if current form values differ from stored existing credentials
+  const credentialsChanged = useMemo(() => {
+    if (!existingCredentials) return true;
+    const keys = (() => {
+      if (!selectedSubtype) return [] as string[];
+      const match = availableSubtypes.find((s) => s.id === selectedSubtype);
+      return (match?.sub_types ?? []).slice();
+    })();
+    if (!keys || !keys.length) return true;
+    return keys.some((k) => (credentials[k] ?? '') !== (existingCredentials.credentials[k] ?? ''));
+  }, [credentials, existingCredentials, selectedSubtype]);
+
+  // If user edits credentials after an update, clear the "just updated" flag
+  useEffect(() => {
+    if (credentialsJustUpdated) setCredentialsJustUpdated(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credentials]);
 
   useEffect(() => {
   if (device === undefined || !session || !session.user) {
@@ -697,6 +716,7 @@ const sections = [
 
   };
 
+  // helper to return keys for the currently selected credential subtype
   const activeCredentialKeys = useCallback((): string[] => {
     if (!selectedSubtype) return [];
     const match = availableSubtypes.find((s) => s.id === selectedSubtype);
@@ -770,7 +790,8 @@ const sections = [
         credentials: stored,
       });
       setCredentialsPrefilled(true);
-      toast.success({ heading: 'Success', message: 'Credentials updated.' });
+  toast.success({ heading: 'Success', message: 'Credentials updated.' });
+  setCredentialsJustUpdated(true);
     } catch (err) {
       console.error('Failed to update credentials', err);
       toast.error({ heading: 'Error', message: 'Failed to save credentials' });
@@ -806,7 +827,8 @@ const sections = [
         credentials: stored,
       });
       setCredentialsPrefilled(true);
-      toast.success({ heading: 'Success', message: 'Credentials updated.' });
+  toast.success({ heading: 'Success', message: 'Credentials updated.' });
+  setCredentialsJustUpdated(true);
       // After successful save, return to devices list
       router.push('/devices');
     } catch (err) {
@@ -1271,6 +1293,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
     return currentSubtypeKeys.some((k) => !!validateField(k, credentials[k] ?? '', selectedSubtype));
   }, [selectedSubtype, currentSubtypeKeys, credentials]);
 
+  const rewardWalletInvalid = useMemo(() => {
+    const wallet = personalInfoData.reward_wallet ?? '';
+    // Use validateField to reuse existing validation rules; key 'reward_wallet'
+    const err = validateField('reward_wallet', wallet, null);
+    return !!err;
+  }, [personalInfoData.reward_wallet]);
+
   const switchbotPrereqsOk = useMemo(() => {
     if ((selectedSubtype || '').toLowerCase() !== 'switchbot') return true;
     const t = credentials['token'] ?? '';
@@ -1541,10 +1570,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               <button
                                 type="button"
                                 className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={credentialActionLoading || loadingStoredCredentials || !selectedSubtype}
-                                onClick={handleUpdateAndExit}
+                                disabled={credentialActionLoading || loadingStoredCredentials || !selectedSubtype || !credentialsChanged}
+                                onClick={handleCredentialUpdate}
                               >
-                                Update Credentials and Exit
+                                Update
                               </button>
                               <button
                                 type="button"
@@ -1579,7 +1608,22 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
                   Cancel
                 </button>
-                <button className="px-4 py-2 border border-red-600 rounded hover:bg-red-600" onClick={() => setCurrentSection(1)}>
+                {credentialsJustUpdated && (
+                  <button
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed mr-2"
+                    onClick={handleUpdateAndExit}
+                  >
+                    Save & Exit
+                  </button>
+                )}
+                <button
+                  className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    if (credentialsInvalid || rewardWalletInvalid) return;
+                    setCurrentSection(1);
+                  }}
+                  disabled={credentialsInvalid || rewardWalletInvalid}
+                >
                   Next
                 </button>
               </div>
@@ -1803,9 +1847,23 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button className="px-4 py-2 border border-gray-500 rounded" onClick={() => setCurrentSection(1)}>
                   Back
                 </button>
-                <button className="px-4 py-2 border border-red-600 rounded hover:bg-red-600" type="button" onClick={handleSyncHexOrSave}>
-                  {hexSynced ? 'Save' : 'Sync Hex'}
-                </button>
+                <div className="flex flex-col items-end">
+                  <button
+                    className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                    onClick={handleSyncHexOrSave}
+                    disabled={credentialsInvalid || rewardWalletInvalid}
+                  >
+                    {hexSynced ? 'Save' : 'Sync Hex'}
+                  </button>
+                  {(credentialsInvalid || rewardWalletInvalid) && (
+                    <p className="mt-2 text-xs text-red-300 text-right">
+                      {credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
+                      {credentialsInvalid && rewardWalletInvalid ? ' ' : ''}
+                      {rewardWalletInvalid ? 'Provide a valid rewards wallet address.' : ''}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </div>
