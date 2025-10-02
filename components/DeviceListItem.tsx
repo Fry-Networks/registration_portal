@@ -2,7 +2,6 @@ import { Button, Flex, Title } from '@tremor/react';
 import { Device, Product } from '../lib/types';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
-import EditIcon from './EditIcon';
 import { useEffect, useState } from 'react';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
@@ -201,16 +200,13 @@ export default function DeviceListItem({
               )}
             </div>
             <Flex flexDirection="row" className="gap-3 sm:gap-5 w-auto">
-              <div onClick={() => handleSetting(device.miner_key)}>
-                <Tooltip children={<SettingIcon />} text="Setting" />
-              </div>
               {device && product && isNodeProduct(product) && (
                 <div onClick={() => handleStaking(device.miner_key)}>
                   <Tooltip children={<StakingIcon />} text="Staking" />
                 </div>
               )}
               <div onClick={() => handleChange(device.miner_key)}>
-                <Tooltip children={<EditIcon />} text="Edit" />
+                <Tooltip children={<SettingIcon />} text="Edit" />
               </div>
               <div onClick={() => handleDeleteButton(device)}>
                 <Tooltip children={<DeleteIcon />} text="Unregister" />

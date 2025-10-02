@@ -413,15 +413,13 @@ const DevicesPage = ({
         return;
       }
 
-      if (result.device.registered_portal_model !== undefined) {
-        router.push({
-          pathname: `/${prefix}portal`,
-          query: { minerKey, portalType: result.device.registered_portal_model }
-        });
-        return;
+      // Always open the new /register flow. If a portal model exists include it so the portal page shows the correct subtype
+      const regQuery: any = { minerKey };
+      if (result.device.registered_portal_model) {
+        regQuery.type = result.device.registered_portal_model;
       }
-      // router.push({ pathname: '/register', query: { minerKey } });
-      router.push({ pathname: `/${prefix}portal`, query: { minerKey } });
+      router.push({ pathname: '/register', query: regQuery });
+      return;
     } catch (error) {
       toast.error({
         heading: 'Error',

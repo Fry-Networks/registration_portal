@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import Sidebar from './Sidebar'; // Ensure this component is properly imported
+import Sidebar from './Sidebar';
 import bgImg from '../assets/background.png';
-import Image from 'next/image';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from './messageUpdate';
+import SectionBanner from './SectionBanner';
 
 const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status }) => {
   const router = useRouter();
@@ -16,8 +15,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
     const newErrors: { [key: string]: string } = {};
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!emailPattern.test(data.email))
-      newErrors.email = 'Invalid email address';
+    if (!emailPattern.test(data.email)) newErrors.email = 'Invalid email address';
     if (!data.firstName) newErrors.firstName = 'First name is required';
     if (!data.lastName) newErrors.lastName = 'Last name is required';
 
@@ -26,62 +24,24 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
   };
 
   const handleSubmit = async () => {
-    if (validateForm()) {
-      if (!session || !session.user) {
-        return;
-      }
-
-      // const saveData = {
-      //   miner_key: minerKey,
-      //   email: data.email,
-      //   names: {
-      //     first_name: data.firstName,
-      //     last_name: data.lastName
-      //   },
-      //   nickname: data.nickName,
-      //   address: session?.user.address
-      // };
-
-      // console.log(saveData);
-
-      // const response =
-      //   status === false
-      //     ? await fetch('/api/registrations/save-device-info', {
-      //         method: 'POST',
-      //         headers: {
-      //           'Content-Type': 'application/json'
-      //         },
-      //         body: JSON.stringify(saveData)
-      //       })
-      //     : await fetch('/api/registrations/update-device-info', {
-      //         method: 'POST',
-      //         headers: {
-      //           'Content-Type': 'application/json'
-      //         },
-      //         body: JSON.stringify(saveData)
-      //       });
-
-      // if (response.ok) {
-      onNext();
-      // } else {
-      //   const data = await response.json();
-    }
-
-    // Call the onNext function to navigate to the next section
+    if (!validateForm()) return;
+    if (!session || !session.user) return;
+    onNext();
   };
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full relative">
-        <Image
-          src={bgImg}
-          className="w-screen h-[30vh] object-cover"
-          alt="Background Image"
+        <SectionBanner
+          image={bgImg}
+          title="Device Information"
+          subtitle="Tell us about the device owner. You can edit this later."
+          height={240}
+          darkOverlay={0.45}
         />
+
         <div className="py-8 pl-8 pr-24 md:px-24 h-full relative">
           <form className="w-full text-black">
             <div>
@@ -95,10 +55,9 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
                 value={data.email}
                 onChange={(e) => setData({ ...data, email: e.target.value })}
               />
-              {errors.email && (
-                <span className="text-red-500 text-sm">{errors.email}</span>
-              )}
+              {errors.email && <span className="text-red-500 text-sm">{errors.email}</span>}
             </div>
+
             <div>
               <label className="block mb-2 mt-2 text-white">
                 First Name <span className="text-red-500">*</span>
@@ -108,14 +67,11 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
                 className="w-full p-2 border border-red-600 rounded"
                 placeholder="Enter First Name"
                 value={data.firstName}
-                onChange={(e) =>
-                  setData({ ...data, firstName: e.target.value })
-                }
+                onChange={(e) => setData({ ...data, firstName: e.target.value })}
               />
-              {errors.firstName && (
-                <span className="text-red-500 text-sm">{errors.firstName}</span>
-              )}
+              {errors.firstName && <span className="text-red-500 text-sm">{errors.firstName}</span>}
             </div>
+
             <div>
               <label className="block mb-2 mt-2 text-white">
                 Last Name <span className="text-red-500">*</span>
@@ -127,10 +83,9 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
                 value={data.lastName}
                 onChange={(e) => setData({ ...data, lastName: e.target.value })}
               />
-              {errors.lastName && (
-                <span className="text-red-500 text-sm">{errors.lastName}</span>
-              )}
+              {errors.lastName && <span className="text-red-500 text-sm">{errors.lastName}</span>}
             </div>
+
             <div>
               <label className="block mb-2 mt-2 text-white">Nickname</label>
               <input
@@ -142,16 +97,22 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
               />
             </div>
           </form>
+
           <div className="absolute bottom-4 right-4 flex gap-2 text-white">
-            {
-              <button
-                type="button"
-                className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
-                onClick={onCancel}
-              >
-                Cancel
-              </button>
-            }
+            <button
+              type="button"
+              className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
+              onClick={onCancel}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"
+              onClick={onSkip}
+            >
+              Back
+            </button>
             <button
               type="button"
               className="px-4 py-2 border border-red-600 rounded hover:bg-red-600"
@@ -167,4 +128,3 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
 };
 
 export default DeviceInfo;
-

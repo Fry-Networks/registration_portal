@@ -79,10 +79,15 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
     }
   }, [data]);
 
-  const handleLocationSearch = (result: string, lat: number, long: number) => {
-    mapRef.current?.flyTo({ center: [long, lat], zoom: 8 });
+  const handleLocationSearch = (_result: string, lat: string, lng: string) => {
+    const parsedLat = Number(lat);
+    const parsedLng = Number(lng);
+    if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
+      return;
+    }
 
-    setData({ latitude: lat, longitude: long });
+    mapRef.current?.flyTo({ center: [parsedLng, parsedLat], zoom: 8 });
+    setData({ latitude: parsedLat, longitude: parsedLng });
   };
 
   const validateForm = () => {
@@ -143,7 +148,7 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
           <MapboxAutocomplete
             //@ts-ignore
             publicKey={mapboxgl.accessToken!}
-            inputClass="form-control search rounded border border-red-600 p-2 !mb-1 text-black"
+            inputClass="w-full rounded-lg border border-red-600 bg-white text-gray-900 placeholder:text-gray-600 p-2 mb-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500"
             onSuggestionSelect={handleLocationSearch}
             resetSearch={true}
             placeholder="Search location..."

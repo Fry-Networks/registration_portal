@@ -2,14 +2,16 @@ import { ChevronLeftIcon, CheckIcon } from '@heroicons/react/outline';
 
 interface SidebarProps {
   completionStatus: {
-    device: boolean;
-    wallet: boolean;
-    map: boolean;
+    credentials: boolean;
+    device: boolean;  // used as part of "Personal Information"
+    wallet: boolean;  // used as part of "Personal Information"
+    map: boolean;     // "Localization"
   };
   isOpen: boolean;
   toggleSidebar: () => void;
   setCurrentSection: (section: number) => void;
-  currentSection: number; // Add currentSection prop to keep track of active section
+  currentSection: number;
+  portalTitle?: string | null;
 }
 
 export default ({
@@ -17,8 +19,11 @@ export default ({
   isOpen,
   toggleSidebar,
   setCurrentSection,
-  currentSection
+  currentSection,
+  portalTitle
 }: SidebarProps) => {
+  const personalComplete = completionStatus.device && completionStatus.wallet;
+
   return (
     <div
       className={`fixed top-0 left-0 z-50 h-full w-64 bg-gray-950 md:bg-transparent border-r border-white/10 p-4 text-white transform ${
@@ -33,64 +38,67 @@ export default ({
           <ChevronLeftIcon className="h-6 w-6" />
         </button>
       )}
+      {/* portalTitle intentionally not shown in sidebar (display in main content instead) */}
+
+      {/* 0 - Credentials */}
       <div
         onClick={() => {
-          if (completionStatus.device) {
-            setCurrentSection(0);
-          }
+          // You can always go back to Credentials
+          setCurrentSection(0);
           toggleSidebar();
         }}
-        className={`flex items-center cursor-pointer mb-4 mt-16 ${currentSection === 0 ? 'bg-gray-800 p-2 rounded' : ''}`}
+        className={`flex items-center cursor-pointer mb-4 ${currentSection === 0 ? 'bg-gray-800 p-2 rounded' : ''}`}
       >
         <span className="mr-2">
-          {completionStatus.device ? (
-            <CheckIcon className="h-5 w-5 text-green-500" /> // Display check icon if complete
+          {completionStatus.credentials ? (
+            <CheckIcon className="h-5 w-5 text-green-500" />
           ) : (
-            <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
+            <span className="text-red-500">&#9679;</span>
           )}
         </span>
-        Device Information
+        Credentials
       </div>
+
+      {/* 1 - Personal Information (Device + Wallet combined) */}
       <div
         onClick={() => {
-          if (completionStatus.wallet || completionStatus.device) {
+          // Allow if credentials are done OR personal already done
+          if (completionStatus.credentials || personalComplete) {
             setCurrentSection(1);
           }
-
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 1 ? 'bg-gray-800 p-2 rounded' : ''}`}
       >
         <span className="mr-2">
-          {completionStatus.wallet ? (
-            <CheckIcon className="h-5 w-5 text-green-500" /> // Display check icon if complete
+          {personalComplete ? (
+            <CheckIcon className="h-5 w-5 text-green-500" />
           ) : (
-            <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
+            <span className="text-red-500">&#9679;</span>
           )}
         </span>
-        Wallet Information
+        Personal Information
       </div>
+
+      {/* 2 - Localization */}
       <div
         onClick={() => {
-          if (
-            completionStatus.map ||
-            (completionStatus.device && completionStatus.wallet)
-          ) {
+          // Allow if localization complete OR (credentials + personal complete)
+          if (completionStatus.map || (completionStatus.credentials && personalComplete)) {
             setCurrentSection(2);
           }
-
           toggleSidebar();
         }}
         className={`flex items-center cursor-pointer mb-4 ${currentSection === 2 ? 'bg-gray-800 p-2 rounded' : ''}`}
       >
         <span className="mr-2">
           {completionStatus.map ? (
-            <CheckIcon className="h-5 w-5 text-green-500" /> // Display check icon if complete
+            <CheckIcon className="h-5 w-5 text-green-500" />
           ) : (
-            <span className="text-red-500">&#9679;</span> // Display red dot if incomplete
+            <span className="text-red-500">&#9679;</span>
           )}
         </span>
-        Map Information
+        Localization
       </div>
     </div>
   );

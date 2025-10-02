@@ -6,22 +6,19 @@ import { getFRYPrice } from '../../../lib/price';
 import { withdraw } from '../stake/stake-withdraw';
 import { Product } from '../../../lib/types';
 
-const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
-const WEATHER_COLLECTION =
-  process.env.MONGO_WEATHER_COLLECTION ??
-  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
-const ENERGY_COLLECTION =
-  process.env.MONGO_ENERGY_COLLECTION ??
-  (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-energy' : 'energy');
+const DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
+const WEATHER_COLLECTION = process.env.MONGO_WEATHER_COLLECTION ?? 'weather';
+const ENERGY_COLLECTION =  process.env.MONGO_ENERGY_COLLECTION ?? 'energy';
+const HARDWARE_COLLECTION = process.env.MONGO_HARDWARE_COLLECTION ?? 'hardware';
+const AIR_COLLECTION = process.env.MONGO_AIR_COLLECTION ?? 'air';
+const RADIATION_COLLECTION = process.env.MONGO_RADIATION_COLLECTION ?? 'radiation';
+const CAMERA_COLLECTION = process.env.MONGO_CAMERA_COLLECTION ?? 'camera';
+const WATER_COLLECTION = process.env.MONGO_WATER_COLLECTION ?? 'water';
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
@@ -34,7 +31,7 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-devices' : 'devices');
+    const collection = db.collection('devices');
     const exists = await collection.findOne({ miner_key: miner_key });
 
     if (!exists) {
@@ -52,19 +49,24 @@ export default async function handler(
       return;
     }
 
-    const credentialDb = client.db(WEATHER_DB_NAME);
+    const credentialDb = client.db(DB_NAME);
     const weatherCollection = credentialDb.collection(WEATHER_COLLECTION);
     const energyCollection = credentialDb.collection(ENERGY_COLLECTION);
+    const hardwareCollection = credentialDb.collection(HARDWARE_COLLECTION);
+    const airCollection = credentialDb.collection(AIR_COLLECTION);
+    const radiationCollection = credentialDb.collection(RADIATION_COLLECTION);
+    const cameraCollection = credentialDb.collection(CAMERA_COLLECTION);
+    const waterCollection = credentialDb.collection(WATER_COLLECTION);
 
+    // Remove any stored portal credentials for this miner across creds DB
     await Promise.all([
-      weatherCollection.deleteMany({
-        miner_key,
-        owner_address: session.user.address
-      }),
-      energyCollection.deleteMany({
-        miner_key,
-        owner_address: session.user.address
-      })
+      weatherCollection.deleteMany({ miner_key, owner_address: session.user.address }),
+      energyCollection.deleteMany({ miner_key, owner_address: session.user.address }),
+      hardwareCollection.deleteMany({ miner_key, address: session.user.address }),
+      airCollection.deleteMany({ miner_key, owner_address: session.user.address }),
+      radiationCollection.deleteMany({ miner_key, owner_address: session.user.address }),
+      cameraCollection.deleteMany({ miner_key, owner_address: session.user.address }),
+      waterCollection.deleteMany({ miner_key, owner_address: session.user.address })
     ]);
 
     const product = (await db

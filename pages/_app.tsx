@@ -10,6 +10,7 @@ import Navbar from '../components/Navbar';
 import { ModalProvider } from '../app/modalcontext';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
+import 'leaflet/dist/leaflet.css';
 
 // import { createAppKit } from '@reown/appkit/react';
 // import { iotex, mainnet } from '@reown/appkit/networks';

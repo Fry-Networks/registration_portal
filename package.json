@@ -45,6 +45,7 @@
     "engine.io-client": "^6.5.1",
     "framer-motion": "^11.18.2",
     "geojson": "^0.5.0",
+    "h3-js": "^4.3.0",
     "heroicons": "^2.1.1",
     "js-cookie": "^3.0.5",
     "kysely": "^0.26.1",
