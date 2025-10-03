@@ -11,6 +11,20 @@ import { findProductByMinerKey } from './devices';
 import SectionBanner from '../components/SectionBanner';
 import PasteAddress from '../components/PasteAddress';
 import bgImg from '../assets/background.png';
+import Image, { StaticImageData } from 'next/image';
+import airthingsLogo from '../assets/portals/air-things.png';
+import awairLogo from '../assets/portals/awair.svg';
+import atmotubeLogo from '../assets/portals/atmotube.png';
+import kaiterraLogo from '../assets/portals/kaiterra.png';
+import switchbotLogo from '../assets/portals/switchbot.png';
+import shellyLogo from '../assets/portals/shelly.png';
+import weatherxmLogo from '../assets/portals/weatherxm.png';
+import tempestLogo from '../assets/portals/tempest.png';
+import iopoolLogo from '../assets/portals/iopool.png';
+import gmcmapLogo from '../assets/portals/GMCMap.png';
+import tapoLogo from '../assets/portals/tapo.png';
+import sensecapLogo from '../assets/portals/sensecap.webp';
+import iotexLogo from '../assets/portals/iotex.svg';
 import * as h3 from 'h3-js';
 import { isValidCell } from "h3-js";
 import dynamic from 'next/dynamic';
@@ -200,7 +214,8 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
   weather: 'Weather Portal',
   node: 'Node Portal',
   hardware: 'Hardware Portal',
-  radiation: 'Radiation Portal'
+  radiation: 'Radiation Portal',
+  aem: 'AI Edge Miner Portal'
 };
 
 export const FIELD_LABELS: Record<string, string> = {
@@ -239,6 +254,7 @@ export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_typ
   camera: [{ id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] }],
   hardware: [{ id: 'hardware', name: 'MAC Address', sub_types: ['mac_address'] }],
   node: [{ id: 'node', name: 'MAC Address', sub_types: ['mac_address'] }],
+  aem: [{ id: 'aem', name: 'MAC Address', sub_types: ['mac_address'] }],
   radiation: [{ id: 'GMCMap', name: 'GMCMap', sub_types: ['gmcmap_id'] }]
 };
 
@@ -252,18 +268,17 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
   if (minerType === 'IRM') return 'radiation';
-
-  // For these categories return the short miner type code itself (e.g. "IDM", "CN", "AEM") instead of the generic group name
+  if (minerType === 'AEM') return "aem"; 
   if (['IDM', 'ODM', 'ISM', 'OSM', 'BM'].includes(minerType)) return "hardware"; 
-  if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return "node";       
-  if (minerType === 'AEM') return "AI Edge Miner";                                 
+  if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return "node";                     
 
   return '';
 };
 
 export default ({ products }: { products: Product[] }) => {
   const router = useRouter();
-  const [mapZoom, setMapZoom] = useState<number | undefined>(2);
+  type NextRoute = Parameters<typeof router.push>[0];
+  const [mapZoom, setMapZoom] = useState<number | undefined>(undefined);
   const [displayedHex, setDisplayedHex] = useState<string | null>(null);
   const [displayedHexRes, setDisplayedHexRes] = useState<number | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
@@ -477,17 +492,24 @@ export default ({ products }: { products: Product[] }) => {
   const [loadingStoredCredentials, setLoadingStoredCredentials] = useState(false);
   // Track whether credentials were just updated (to show Save & Exit)
   const [credentialsJustUpdated, setCredentialsJustUpdated] = useState(false);
+
+  // derive available portal subtype options for the query `type` (if present) or product
+  const availableSubtypes = useMemo(() => {
+    const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
+    const key = effectivePortalKey || queryType || '';
+    const normalized = String(key).toLowerCase();
+    return PORTAL_SUBTYPES[normalized] ?? [];
+  }, [effectivePortalKey, type, product]);
+
   // Determine if current form values differ from stored existing credentials
   const credentialsChanged = useMemo(() => {
     if (!existingCredentials) return true;
-    const keys = (() => {
-      if (!selectedSubtype) return [] as string[];
-      const match = availableSubtypes.find((s) => s.id === selectedSubtype);
-      return (match?.sub_types ?? []).slice();
-    })();
-    if (!keys || !keys.length) return true;
+    if (!selectedSubtype) return true;
+    const match = availableSubtypes.find((s) => s.id === selectedSubtype);
+    const keys = (match?.sub_types ?? []).slice();
+    if (!keys.length) return true;
     return keys.some((k) => (credentials[k] ?? '') !== (existingCredentials.credentials[k] ?? ''));
-  }, [credentials, existingCredentials, selectedSubtype]);
+  }, [credentials, existingCredentials, selectedSubtype, availableSubtypes]);
 
   // If user edits credentials after an update, clear the "just updated" flag
   useEffect(() => {
@@ -601,14 +623,6 @@ export default ({ products }: { products: Product[] }) => {
       cancelled = true;
     };
   }, [isEditingExisting, resolvedMinerKey, session?.user?.address]);
-
-  // derive available portal subtype options for the query `type` (if present) or product
-  const availableSubtypes = useMemo(() => {
-    const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
-    const key = effectivePortalKey || queryType || '';
-    const normalized = String(key).toLowerCase();
-    return PORTAL_SUBTYPES[normalized] ?? [];
-  }, [effectivePortalKey, type, product]);
 
   useEffect(() => {
     if (!existingCredentials || credentialsPrefilled) return;
@@ -1004,6 +1018,23 @@ const savePersonalInformation = async (): Promise<boolean> => {
     }
   };
 
+  const evaluatePostRegistrationRoute = useCallback((): NextRoute => {
+    const productMinerKey = device?.miner_key ?? resolvedMinerKey;
+    const haveProducts = Array.isArray(products) && products.length > 0;
+    const product =
+      haveProducts && productMinerKey
+        ? findProductByMinerKey(productMinerKey, products)
+        : undefined;
+    const registrationNeeded = product ? isRegistrationNeeded(product) : null;
+    const nodeStakingNeeded = product ? isNodeStakingNeeded(product) : null;
+
+    return (
+      product && (registrationNeeded || nodeStakingNeeded)
+        ? { pathname: '/pay-register', query: { minerKey: resolvedMinerKey } }
+        : '/devices'
+    );
+  }, [device?.miner_key, resolvedMinerKey, products]);
+
   // Update registerDevice to use the new personal+localization flow
   const registerDevice = async () => {
     if (!resolvedMinerKey) {
@@ -1063,8 +1094,6 @@ const savePersonalInformation = async (): Promise<boolean> => {
   // choose portal type to save: prefer explicit query `type`, fall back to effectivePortalKey
   const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
   const portalToSave = queryType ?? effectivePortalKey ?? null;
-  // diagnostic: log which preflight value is missing if any and the chosen portal
-  console.log('save-portal-type (registerDevice) preflight', { queryType, effectivePortalKey, portalToSave, resolvedMinerKey, sessionAddress: session?.user?.address });
         if (portalToSave && resolvedMinerKey && session?.user?.address) {
           const sp = await fetch(`/api/devices/save-portal-type`, {
             method: 'POST',
@@ -1086,12 +1115,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
       }
     }
 
-    const product = device && findProductByMinerKey(device.miner_key, products);
-    if (product && (isRegistrationNeeded(product) || isNodeStakingNeeded(product))) {
-      router.push({ pathname: '/pay-register', query: { minerKey: resolvedMinerKey } });
-      return;
-    }
-    router.push('/devices');
+    router.push(evaluatePostRegistrationRoute());
   };
 
   const handleSyncHexOrSave = async () => {
@@ -1129,7 +1153,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
         // Update displayed hex state (UI badge) and request a zoom matching resolution 7
         if (typeof setDisplayedHex === 'function') setDisplayedHex(idx);
         if (typeof setDisplayedHexRes === 'function') setDisplayedHexRes(7);
-        if (typeof setMapZoom === 'function') setMapZoom(resToZoom(7));
+        if (typeof setMapZoom === 'function') {
+          const targetZoom = resToZoom(7);
+          setMapZoom(targetZoom);
+          setTimeout(() => setMapZoom(undefined), 250);
+        }
 
         // At this point HexMap (which watches selectedCell / mapInfoData.h3Index) should FitBounds the hex
         return;
@@ -1168,8 +1196,6 @@ const savePersonalInformation = async (): Promise<boolean> => {
       try {
         const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
         const portalToSave = queryType ?? effectivePortalKey ?? null;
-        // diagnostic: log which preflight value is missing if any and the chosen portal
-        console.log('save-portal-type (handleSyncHexOrSave) preflight', { queryType, effectivePortalKey, portalToSave, resolvedMinerKey, sessionAddress: session?.user?.address });
         if (portalToSave && resolvedMinerKey && session?.user?.address) {
           const sp = await fetch(`/api/devices/save-portal-type`, {
             method: 'POST',
@@ -1210,7 +1236,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
         toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
       }
 
-      router.push('/devices');
+      router.push(evaluatePostRegistrationRoute());
       return;
     } catch (err: any) {
       console.error('Failed to save location/credentials', err);
@@ -1283,10 +1309,32 @@ const savePersonalInformation = async (): Promise<boolean> => {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const subtypeLogoMap: Record<string, StaticImageData> = useMemo(
+    () => ({
+      pebble: airthingsLogo,
+      awair: awairLogo,
+      atmotube: atmotubeLogo,
+      kaiterra: kaiterraLogo,
+      switchbot: switchbotLogo,
+      shelly: shellyLogo,
+      'weather-xm': weatherxmLogo,
+      tempest: tempestLogo,
+      iopool: iopoolLogo,
+      gmcmap: gmcmapLogo,
+      rtsp: tapoLogo,
+      hardware: sensecapLogo,
+      node: iotexLogo,
+      aem: sensecapLogo,
+    }),
+    []
+  );
+
   const currentSubtypeKeys = useMemo(
     () => (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []),
     [availableSubtypes, selectedSubtype]
   );
+
+  const selectedSubtypeLower = useMemo(() => norm(selectedSubtype), [selectedSubtype]);
 
   const credentialsInvalid = useMemo(() => {
     if (!selectedSubtype) return true;
@@ -1362,28 +1410,48 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
                     <h3 className="font-semibold mb-3">Available Subtypes</h3>
                     {availableSubtypes.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         {availableSubtypes.map((opt) => {
                           const isLockedSubtype = !!(existingCredentials?.api_type && existingCredentials.api_type !== opt.id);
                           const disabled = credentialActionLoading || loadingStoredCredentials || isLockedSubtype;
+                          const normalizedId = opt.id.toLowerCase();
+                          const logo = subtypeLogoMap[normalizedId];
                           return (
                             <button
                               key={opt.id}
                               type="button"
                               disabled={disabled}
-                              className={`px-3 py-2 rounded-xl transition ${
-                                selectedSubtype === opt.id ? 'bg-red-600 text-white shadow' : 'bg-gray-800 hover:bg-gray-700 text-gray-100'
-                              } ${disabled ? 'opacity-50 cursor-not-allowed hover:bg-gray-800' : ''}`}
+                              className={`group flex flex-col items-center justify-center rounded-xl border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
+                                selectedSubtype === opt.id
+                                  ? 'border-red-500 bg-red-600/10 shadow-md'
+                                  : 'border-white/10 bg-gray-900/70 hover:border-red-400/70 hover:bg-gray-900'
+                              } ${disabled ? 'opacity-50 cursor-not-allowed hover:border-white/10 hover:bg-gray-900/70' : ''}`}
                               onClick={() => {
                                 if (disabled) return;
                                 setSelectedSubtype(opt.id);
                                 const nextCreds: Record<string, string> = {};
                                 (opt.sub_types ?? []).forEach((k: string) => (nextCreds[k] = credentials[k] ?? ''));
                                 setCredentials((prev) => ({ ...prev, ...nextCreds }));
+                                if (normalizedId !== 'switchbot') {
+                                  setSwitchbotDevices([]);
+                                  setSwitchbotError(null);
+                                }
                               }}
                             >
-                              {opt.name}
-                              {existingCredentials?.api_type === opt.id ? ' (linked)' : ''}
+                              {logo ? (
+                                <Image
+                                  src={logo}
+                                  alt={opt.name}
+                                  className="h-14 w-auto object-contain transition group-hover:scale-105"
+                                  width={96}
+                                  height={56}
+                                />
+                              ) : (
+                                <span className="px-3 py-2 text-sm font-medium text-gray-100">{opt.name}</span>
+                              )}
+                              <span className="mt-2 text-xs text-gray-300 text-center px-2">
+                                {existingCredentials?.api_type === opt.id ? `${opt.name} (linked)` : opt.name}
+                              </span>
                             </button>
                           );
                         })}
@@ -1417,7 +1485,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         </h4>
 
                         {(availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? ['key']).map((field: string) => {
-                          if (field === 'deviceId' && (selectedSubtype || '').toLowerCase() === 'switchbot') return null;
+                          if (field === 'deviceId' && selectedSubtypeLower === 'switchbot') return null;
                           const value = credentials[field] ?? '';
                           const err = fieldErrors[field];
                           const hint = (HINTS_BY_SUBTYPE[(selectedSubtype || '').toLowerCase()]?.[field] as any) || FIELD_HINT[field];
@@ -1533,7 +1601,53 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               </button>
                             </div>
 
-                            {/* ... switchbot devices UI ... */}
+                            {selectedSubtypeLower === 'switchbot' && (
+                              <div className="mt-4 space-y-3">
+                                {switchbotError && (
+                                  <p className="text-xs text-red-400">{switchbotError}</p>
+                                )}
+                                {switchbotLoading && (
+                                  <p className="text-xs text-gray-400">Discovering devices…</p>
+                                )}
+                                {!switchbotLoading && switchbotDevices.length === 0 && !switchbotError && (
+                                  <p className="text-xs text-gray-400">
+                                    Use “Discover devices” to pull available SwitchBot plugs linked to this token and secret.
+                                  </p>
+                                )}
+                                {switchbotDevices.length > 0 && (
+                                  <div>
+                                    <h5 className="text-sm font-semibold text-gray-100 mb-2">
+                                      Select the device you want to link
+                                    </h5>
+                                    <div className="relative">
+                                      <select
+                                        className="w-full appearance-none rounded-xl border border-white/10 bg-gray-900/70 px-3 py-2 pr-10 text-sm text-gray-100 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                                        value={credentials['deviceId'] ?? ''}
+                                        onChange={(e) => {
+                                          setSwitchbotError(null);
+                                          setCredAndValidate('deviceId', e.target.value);
+                                        }}
+                                      >
+                                        <option value="" disabled>
+                                          Choose a device
+                                        </option>
+                                        {switchbotDevices.map((device) => (
+                                          <option key={device.deviceId} value={device.deviceId}>
+                                            {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                                        ▼
+                                      </span>
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-400">
+                                      Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -1619,10 +1733,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button
                   className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={() => {
-                    if (credentialsInvalid || rewardWalletInvalid) return;
+                    if (credentialsInvalid || !credentialsValidated) return;
                     setCurrentSection(1);
                   }}
-                  disabled={credentialsInvalid || rewardWalletInvalid}
+                  disabled={credentialsInvalid || !credentialsValidated}
                 >
                   Next
                 </button>
@@ -1710,7 +1824,20 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button className="px-4 py-2 border border-gray-500 rounded" onClick={() => setCurrentSection(0)}>
                   Back
                 </button>
-                <button className="px-4 py-2 border border-red-600 rounded hover:bg-red-600" onClick={handleNext}>
+                <button
+                  className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    if (rewardWalletInvalid || credentialsInvalid) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        reward_wallet: rewardWalletInvalid ? (FIELD_HINT.reward_wallet ?? 'Provide a valid rewards wallet address.') : prev.reward_wallet,
+                      }));
+                      return;
+                    }
+                    handleNext();
+                  }}
+                  disabled={rewardWalletInvalid || credentialsInvalid}
+                >
                   Next
                 </button>
               </div>
@@ -1800,17 +1927,14 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 </div>
 
                 {/* Show current displayed hex/res (if available) */}
-                {displayedHex && displayedHexRes !== null && (
-                  <div className="mt-2 md:mt-3 flex justify-end">
-                    <div className="bg-gray-900 px-3 py-1 rounded text-xs text-gray-300">
-                      Res {displayedHexRes} · {displayedHex}
-                    </div>
-                  </div>
-                )}
-
                 {/* Map + H3 section fills remaining space — map grows to fill */}
-                <div className="flex-1 min-h-0 mt-2 flex flex-col">
+                <div className="flex-1 min-h-0 mt-1 flex flex-col">
                   <div className="relative flex-1 min-h-0">
+                    {displayedHex && displayedHexRes !== null && (
+                      <div className="absolute bottom-3 left-3 z-[500] bg-gray-900/80 px-3 py-1 rounded text-xs text-gray-200 shadow">
+                        Res {displayedHexRes} · {displayedHex}
+                      </div>
+                    )}
                     <HexMap
                       resolution={undefined}
                       autoResolution={true}
@@ -1831,7 +1955,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         setDisplayedHex(cell);
                         setDisplayedHexRes(res);
                       }}
-                      className="rounded-2xl overflow-hidden w-full h-full"
+                      className="rounded-2xl overflow-hidden w-full h-full min-h-[26rem]"
                     />
                   </div>
 
@@ -1856,11 +1980,14 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   >
                     {hexSynced ? 'Save' : 'Sync Hex'}
                   </button>
-                  {(credentialsInvalid || rewardWalletInvalid) && (
+                  {(credentialsInvalid || rewardWalletInvalid || !credentialsValidated) && (
                     <p className="mt-2 text-xs text-red-300 text-right">
                       {credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
                       {credentialsInvalid && rewardWalletInvalid ? ' ' : ''}
                       {rewardWalletInvalid ? 'Provide a valid rewards wallet address.' : ''}
+                      {!credentialsInvalid && !rewardWalletInvalid && !credentialsValidated
+                        ? 'Validate your credentials before continuing.'
+                        : ''}
                     </p>
                   )}
                 </div>

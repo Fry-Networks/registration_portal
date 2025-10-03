@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
 import dynamic from 'next/dynamic';
 
@@ -68,6 +68,17 @@ export default function HexMap({
   // internalResolution: if user provided a static resolution prop, we prefer that.
   const [internalResolution, setInternalResolution] = useState<number>(resolution ?? 4);
   const [cells, setCells] = useState<string[]>([]);
+
+  const notifyDisplayCellChange = useCallback(
+    (cell: string | null, res: number) => {
+      if (!onDisplayCellChange) return;
+      // Defer to the microtask queue to avoid triggering parent state updates during render
+      Promise.resolve().then(() => {
+        onDisplayCellChange(cell, res);
+      });
+    },
+    [onDisplayCellChange]
+  );
 
   // Zoom-to-resolution mapping helpers (tweak values to taste)
   const resToZoom = (res: number) => {
@@ -156,9 +167,9 @@ export default function HexMap({
             try {
               const centerLatLng = map.getCenter();
               const cell = latLngToCell(centerLatLng.lat, centerLatLng.lng, r);
-              onDisplayCellChange && onDisplayCellChange(cell, r);
+              notifyDisplayCellChange(cell, r);
             } catch (e) {
-              onDisplayCellChange && onDisplayCellChange(null, r);
+              notifyDisplayCellChange(null, r);
             }
             return r;
           }
@@ -166,9 +177,9 @@ export default function HexMap({
           try {
             const centerLatLng = map.getCenter();
             const cell = latLngToCell(centerLatLng.lat, centerLatLng.lng, r);
-            onDisplayCellChange && onDisplayCellChange(cell, r);
+            notifyDisplayCellChange(cell, r);
           } catch (e) {
-            onDisplayCellChange && onDisplayCellChange(null, r);
+            notifyDisplayCellChange(null, r);
           }
           return prev;
         });
@@ -247,7 +258,7 @@ export default function HexMap({
         setInternalResolution(r);
         setCells(Array.from(gridDisk(cell, neighborsK)));
         // notify parent of the intermediate display hex
-        onDisplayCellChange && onDisplayCellChange(cell, r);
+        notifyDisplayCellChange(cell, r);
 
         // fit to the hex boundary
         try {
@@ -272,12 +283,25 @@ export default function HexMap({
     // final selection: compute final cell at res 7 and call onSelect
     const finalCell = latLngToCell(latlng[0], latlng[1], targetRes);
     const [fLat, fLng] = cellToLatLng(finalCell);
+    notifyDisplayCellChange(finalCell, targetRes);
     onSelect(finalCell, fLat, fLng);
   };
 
   const containerStyle: React.CSSProperties = { height: typeof height === 'number' ? `${height}px` : height };
 
-  const initialLeafletZoom = typeof initialZoom === 'number' ? initialZoom : (typeof zoom === 'number' ? zoom : 1.5);
+  const computeStartingZoom = () => {
+    if (typeof zoom === 'number') return zoom;
+    if (selectedCell && isValidCell(selectedCell)) {
+      return 9; // start closer when we already know the selected hex
+    }
+    const [centerLat, centerLng] = center;
+    if (Number.isFinite(centerLat) && Number.isFinite(centerLng) && (centerLat !== 0 || centerLng !== 0)) {
+      return 6; // zoom into the general vicinity if we have coordinates
+    }
+    return 2.5; // fallback world view
+  };
+
+  const initialLeafletZoom = typeof initialZoom === 'number' ? initialZoom : computeStartingZoom();
 
   return (
     <div className={className} style={containerStyle}>
