@@ -11,6 +11,7 @@ import {
   gridDisk,
   cellToLatLng,
   isValidCell,
+  getResolution,
 } from 'h3-js';
 
 type LatLng = [number, number];
@@ -98,13 +99,22 @@ export default function HexMap({
   };
 
   // derive the diskCells from the active resolution
-  const diskCells = useMemo(() => {
-    const baseCell =
-      selectedCell && isValidCell(selectedCell)
-        ? selectedCell
-        : latLngToCell(center[0], center[1], internalResolution);
-    return Array.from(gridDisk(baseCell, neighborsK));
-  }, [center, selectedCell, neighborsK, internalResolution]);
+  const resolvedSelectedCell = useMemo(() => {
+    if (selectedCell && isValidCell(selectedCell)) {
+      const selectedRes = getResolution(selectedCell);
+      if (selectedRes === internalResolution) {
+        return selectedCell;
+      }
+      const [sLat, sLng] = cellToLatLng(selectedCell);
+      return latLngToCell(sLat, sLng, internalResolution);
+    }
+    return latLngToCell(center[0], center[1], internalResolution);
+  }, [selectedCell, center, internalResolution]);
+
+  const diskCells = useMemo(
+    () => Array.from(gridDisk(resolvedSelectedCell, neighborsK)),
+    [resolvedSelectedCell, neighborsK]
+  );
 
   useEffect(() => {
     setCells(diskCells);
@@ -119,13 +129,12 @@ export default function HexMap({
     [cells]
   );
 
-  // selected polygon helper
+  // selected polygon helper (render at current resolution)
   const selectedPoly = useMemo(() => {
-    if (selectedCell && isValidCell(selectedCell)) {
-      return { cell: selectedCell, boundary: cellToBoundary(selectedCell) as LatLng[] };
-    }
-    return null;
-  }, [selectedCell]);
+    return resolvedSelectedCell
+      ? { cell: resolvedSelectedCell, boundary: cellToBoundary(resolvedSelectedCell) as LatLng[] }
+      : null;
+  }, [resolvedSelectedCell]);
 
   // Keep external zoom prop in sync with map instance
   function ZoomSync({ zoom }: { zoom?: number }) {
@@ -196,26 +205,6 @@ export default function HexMap({
   }
 
   // Fit bounds to polygons / selected
-  function FitBounds({ polygons, selected }: { polygons: { cell: string; boundary: LatLng[] }[]; selected?: { cell: string; boundary: LatLng[] } | null }) {
-    const map = useMap();
-    useEffect(() => {
-      if (!map) return;
-      const coords: LatLng[] = selected && selected.boundary && selected.boundary.length > 0
-        ? selected.boundary
-        : polygons.flatMap((p) => p.boundary || []);
-
-      if (!coords || coords.length === 0) return;
-      try {
-        map.fitBounds(coords as any, { padding: [40, 40], maxZoom: 16, animate: true });
-      } catch (e) {
-        const avgLat = coords.reduce((s, c) => s + c[0], 0) / coords.length;
-        const avgLng = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-        map.setView([avgLat, avgLng]);
-      }
-    }, [polygons, selected, map]);
-    return null;
-  }
-
   // helper to wait for the next leaflet event once
   const onceAsync = (obj: any, ev: string) =>
     new Promise<void>((resolve) => {
@@ -241,50 +230,35 @@ export default function HexMap({
       return;
     }
 
-    // start drill from current derived resolution to target res 7
-    // determine starting resolution from map zoom (or internalResolution)
+    // compute next resolution (increment by one each click, clamped to 7)
     let startRes = internalResolution;
     if (typeof startRes !== 'number') startRes = 4;
-    const targetRes = 7;
+    const nextRes = Math.min(startRes + 1, 7);
 
-    // We'll iterate resolution by resolution, compute the cell at that resolution at the clicked lat/lng
-    // fit the map bounds to that cell and wait for the animation to finish before increasing the resolution.
-    for (let r = startRes; r <= targetRes; r++) {
+    try {
+      const cell = latLngToCell(latlng[0], latlng[1], nextRes);
+      const boundary = cellToBoundary(cell) as LatLng[];
+      setInternalResolution(nextRes);
+      setCells(Array.from(gridDisk(cell, neighborsK)));
+      notifyDisplayCellChange(cell, nextRes);
+
       try {
-        const cell = latLngToCell(latlng[0], latlng[1], r);
-        const boundary = cellToBoundary(cell) as LatLng[];
-        // set selected cell (visual highlight)
-        // update local state (so polygons will update next render)
-        setInternalResolution(r);
-        setCells(Array.from(gridDisk(cell, neighborsK)));
-        // notify parent of the intermediate display hex
-        notifyDisplayCellChange(cell, r);
-
-        // fit to the hex boundary
-        try {
-          map.fitBounds(boundary as any, { padding: [40, 40], maxZoom: 16, animate: true });
-          // wait for moveend (cover both zoom and pan)
-          await onceAsync(map, 'moveend');
-        } catch (e) {
-          // fallback to setting view and waiting for zoomend
-          map.setView([latlng[0], latlng[1]], resToZoom(r), { animate: true });
-          await onceAsync(map, 'zoomend');
-        }
-
-        // small delay to give the user perceivable step (optional)
-        await new Promise((res) => setTimeout(res, 150));
-
-      } catch (err) {
-        // if anything goes wrong, break and fallback to selecting the last computed cell
-        break;
+        map.fitBounds(boundary as any, { padding: [40, 40], maxZoom: 16, animate: true });
+        await onceAsync(map, 'moveend');
+      } catch (e) {
+        map.setView([latlng[0], latlng[1]], resToZoom(nextRes), { animate: true });
+        await onceAsync(map, 'zoomend');
       }
-    }
 
-    // final selection: compute final cell at res 7 and call onSelect
-    const finalCell = latLngToCell(latlng[0], latlng[1], targetRes);
-    const [fLat, fLng] = cellToLatLng(finalCell);
-    notifyDisplayCellChange(finalCell, targetRes);
-    onSelect(finalCell, fLat, fLng);
+      const [cLat, cLng] = cellToLatLng(cell);
+      onSelect(cell, cLat, cLng);
+    } catch (err) {
+      // fallback if the next resolution can't be computed
+      const fallbackCell = latLngToCell(latlng[0], latlng[1], startRes);
+      const [cLat, cLng] = cellToLatLng(fallbackCell);
+      notifyDisplayCellChange(fallbackCell, startRes);
+      onSelect(fallbackCell, cLat, cLng);
+    }
   };
 
   const containerStyle: React.CSSProperties = { height: typeof height === 'number' ? `${height}px` : height };
@@ -338,9 +312,6 @@ export default function HexMap({
 
         {/* keep zoom->resolution in sync and report displayed cell */}
         <MapZoomSync />
-
-        {/* Fit bounds to polygons or selected cell so drawn hex cluster is visible */}
-        <FitBounds polygons={polygons} selected={selectedPoly} />
 
         {/* Sync external zoom changes */}
         <ZoomSync zoom={zoom} />

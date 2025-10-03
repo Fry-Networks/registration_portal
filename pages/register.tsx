@@ -278,7 +278,6 @@ export const portalKeyFromMiner = (mk?: string) => {
 export default ({ products }: { products: Product[] }) => {
   const router = useRouter();
   type NextRoute = Parameters<typeof router.push>[0];
-  const [mapZoom, setMapZoom] = useState<number | undefined>(undefined);
   const [displayedHex, setDisplayedHex] = useState<string | null>(null);
   const [displayedHexRes, setDisplayedHexRes] = useState<number | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
@@ -481,6 +480,11 @@ export default ({ products }: { products: Product[] }) => {
   });
 
   const [hexSynced, setHexSynced] = useState(false);
+  const mapCenter = useMemo<[number, number]>(() => {
+    const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 0;
+    const lng = mapInfoData?.longitude ? Number(mapInfoData.longitude) : 0;
+    return [lat, lng];
+  }, [mapInfoData?.latitude, mapInfoData?.longitude]);
   const [existingCredentials, setExistingCredentials] = useState<{
     portal: string | null;
     collection: string | null;
@@ -1119,12 +1123,6 @@ const savePersonalInformation = async (): Promise<boolean> => {
   };
 
   const handleSyncHexOrSave = async () => {
-    // helper mapping from H3 resolution -> suggested Leaflet zoom (kept in sync with HexMap if you change it there)
-    const resToZoom = (res: number) => {
-      const map = [1.5, 2.5, 4, 5, 6.2, 7.4, 9, 11]; // index = resolution
-      return map[Math.min(Math.max(res, 0), map.length - 1)] ?? 11;
-    };
-
     // If not synced yet: validate lat/lon, compute res7 H3, update state and let HexMap fit to it
     if (!hexSynced) {
       const latitude = (mapInfoData.latitude ?? '').trim();
@@ -1143,21 +1141,20 @@ const savePersonalInformation = async (): Promise<boolean> => {
           return;
         }
 
-        // Compute H3 index at resolution 7 and update form state
-        const idx = h3.latLngToCell(parsedLat, parsedLng, 7);
+        if (displayedHexRes == null) {
+          toast.error({ heading: 'Map', message: 'Zoom the map first so we can match the active resolution.' });
+          return;
+        }
+
+        const idx = h3.latLngToCell(parsedLat, parsedLng, displayedHexRes);
         setMapInfoData((p: any) => ({ ...p, h3Index: idx }));
 
         // Mark synced so UI switches to "Save"
         setHexSynced(true);
 
-        // Update displayed hex state (UI badge) and request a zoom matching resolution 7
+        // Update displayed hex state (UI badge)
         if (typeof setDisplayedHex === 'function') setDisplayedHex(idx);
-        if (typeof setDisplayedHexRes === 'function') setDisplayedHexRes(7);
-        if (typeof setMapZoom === 'function') {
-          const targetZoom = resToZoom(7);
-          setMapZoom(targetZoom);
-          setTimeout(() => setMapZoom(undefined), 250);
-        }
+        if (typeof setDisplayedHexRes === 'function') setDisplayedHexRes(displayedHexRes);
 
         // At this point HexMap (which watches selectedCell / mapInfoData.h3Index) should FitBounds the hex
         return;
@@ -1938,12 +1935,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     <HexMap
                       resolution={undefined}
                       autoResolution={true}
-                      center={[
-                        mapInfoData?.latitude ? Number(mapInfoData.latitude) : 0,
-                        mapInfoData?.longitude ? Number(mapInfoData.longitude) : 0,
-                      ]}
-                      initialZoom={1.2}
-                      zoom={typeof mapZoom === 'number' ? mapZoom : undefined}
+                      center={mapCenter}
                       selectedCell={mapInfoData?.h3Index && isValidCell(mapInfoData.h3Index) ? mapInfoData.h3Index : undefined}
                       neighborsK={1}
                       onSelect={(cell: string, lat: number, lng: number) => {
