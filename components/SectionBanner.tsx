@@ -13,8 +13,13 @@ export default function SectionBanner({
   height?: number;
   darkOverlay?: number; // 0..1
 }) {
+  const resolvedHeight = typeof height === 'number' ? `${height}px` : height;
+
   return (
-    <div className="relative overflow-hidden rounded-2xl mb-6" style={{ height }}>
+    <div
+      className="relative overflow-hidden rounded-2xl mb-6"
+      style={{ height: resolvedHeight, minHeight: resolvedHeight }}
+    >
       <Image
         src={image}
         alt=""
