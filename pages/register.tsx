@@ -64,7 +64,6 @@ export const LNG_REGEX = /^-?(180(\.0+)?|1[0-7]\d(\.\d+)?|\d{1,2}(\.\d+)?)$/;
 
 export const FIELD_REGEX: Record<string, RegExp> = {
   // Credentials (by subtype fields)
-  owner: ETH_ADDRESS_REGEX,
   imei: IMEI_REGEX,
   token: HEX_STRING_16PLUS,
   secret: HEX_STRING_16PLUS,
@@ -91,7 +90,6 @@ export const FIELD_REGEX: Record<string, RegExp> = {
 
 // Optional human hints (global)
 export const FIELD_HINT: Record<string, string> = {
-  owner: 'Expected 0x + 40 hex chars (EVM address)',
   imei: '15 digits (IMEI)',
   token: 'At least 16 hex characters',
   secret: 'At least 16 hex characters',
@@ -129,12 +127,12 @@ const KAITERRA_DEVICE_ID_REGEX = /^[A-Za-z0-9:_-]{3,64}$/;
 
 const TEMPEST_TOKEN_REGEX = /^[A-Za-z0-9]{16,64}$/;
 
-const SHELLY_API_KEY_REGEX = /^[A-Za-z0-9]{92}$/;                        // exactly 92 alphanumeric
+const SHELLY_AUTH_KEY_REGEX = /^[A-Za-z0-9]{92}$/;                        // exactly 92 alphanumeric
 const SHELLY_SERVER_URL_REGEX = /^https:\/\/shelly[^\s/]*\.shelly\.cloud$/i; // starts https://shelly-*** ends .shelly.cloud (no path)
 const SHELLY_DEVICE_ID_REGEX = /^[A-Fa-f0-9]{12}$/;                      // MAC w/o colons
 
 // keys we override per subtype
-type SubtypeFieldKey = 'token' | 'secret' | 'deviceId' | 'serverUrl' | 'api_key';
+type SubtypeFieldKey = 'token' | 'secret' | 'deviceId' | 'serverUrl' | 'auth_key';
 
 // Map: subtype -> per-field overrides
 const REGEX_BY_SUBTYPE: Record<string, Partial<Record<SubtypeFieldKey, RegExp>>> = {
@@ -159,7 +157,7 @@ const REGEX_BY_SUBTYPE: Record<string, Partial<Record<SubtypeFieldKey, RegExp>>>
     token: TEMPEST_TOKEN_REGEX,
   },
   shelly: {
-    api_key: SHELLY_API_KEY_REGEX,
+    auth_key: SHELLY_AUTH_KEY_REGEX,
     serverUrl: SHELLY_SERVER_URL_REGEX,
     deviceId: SHELLY_DEVICE_ID_REGEX,
   },
@@ -188,7 +186,7 @@ const HINTS_BY_SUBTYPE: Record<string, Partial<Record<SubtypeFieldKey, string>>>
     token: '16–64 alphanumeric characters',
   },
   shelly: {
-    api_key: 'Exactly 92 alphanumeric characters',
+    auth_key: 'Exactly 92 alphanumeric characters',
     serverUrl: 'Must be like https://shelly-***.shelly.cloud',
     deviceId: '12 hex characters (MAC without colons)',
   },
@@ -220,7 +218,6 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
 };
 
 export const FIELD_LABELS: Record<string, string> = {
-  owner: 'Owner Address',
   imei: 'IMEI',
   token: 'Token',
   secret: 'Secret',
@@ -238,14 +235,14 @@ export const FIELD_LABELS: Record<string, string> = {
 
 export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_types?: string[] }[]> = {
   air: [
-    { id: 'pebble', name: 'Pebble', sub_types: ['owner', 'imei'] },
+    { id: 'pebble', name: 'Pebble', sub_types: ['imei'] },
     { id: 'awair', name: 'Awair', sub_types: ['token', 'deviceId'] },
     { id: 'atmotube', name: 'Atmotube', sub_types: ['token', 'deviceId'] },
     { id: 'kaiterra', name: 'Kaiterra', sub_types: ['token', 'deviceId'] }
   ],
   energy: [
     { id: 'switchbot', name: 'SwitchBot', sub_types: ['token', 'secret', 'deviceId'] },
-    { id: 'shelly', name: 'Shelly', sub_types: ['serverUrl', 'api_key', 'deviceId'] }
+    { id: 'shelly', name: 'Shelly', sub_types: ['serverUrl', 'auth_key', 'deviceId'] }
   ],
   weather: [
     { id: 'weather-xm', name: 'Weather-XM', sub_types: ['username', 'password'] },
@@ -691,6 +688,11 @@ const sections = [
   const [switchbotDevices, setSwitchbotDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType?: string }>>([]);
   const [switchbotLoading, setSwitchbotLoading] = useState(false);
   const [switchbotError, setSwitchbotError] = useState<string | null>(null);
+
+  // Shelly device discovery states
+  const [shellyDevices, setShellyDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType?: string }>>([]);
+  const [shellyLoading, setShellyLoading] = useState(false);
+  const [shellyError, setShellyError] = useState<string | null>(null);
 
   const submitCredentials = async (options: { suppressToast?: boolean } = {}): Promise<boolean> => {
     if (!resolvedMinerKey || !session?.user.address) {
@@ -1352,6 +1354,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
     return !validateField('token', t, selectedSubtype) && !validateField('secret', s, selectedSubtype);
   }, [selectedSubtype, credentials]);
 
+  const shellyPrereqsOk = useMemo(() => {
+    if ((selectedSubtype || '').toLowerCase() !== 'shelly') return true;
+    const authKey = credentials['auth_key'] ?? '';
+    const serverUrl = credentials['serverUrl'] ?? '';
+    return !validateField('auth_key', authKey, selectedSubtype) && !validateField('serverUrl', serverUrl, selectedSubtype);
+  }, [selectedSubtype, credentials]);
+
     return (
     <div className="flex h-[calc(100vh-92px)] overflow-hidden">
       <style jsx global>{`
@@ -1483,6 +1492,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                         {(availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? ['key']).map((field: string) => {
                           if (field === 'deviceId' && selectedSubtypeLower === 'switchbot') return null;
+                          if (field === 'deviceId' && selectedSubtypeLower === 'shelly') return null;
                           const value = credentials[field] ?? '';
                           const err = fieldErrors[field];
                           const hint = (HINTS_BY_SUBTYPE[(selectedSubtype || '').toLowerCase()]?.[field] as any) || FIELD_HINT[field];
@@ -1648,6 +1658,112 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           </div>
                         )}
 
+                        {(selectedSubtype || '').toLowerCase() === 'shelly' && (
+                          <div className="mt-4">
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              <button
+                                className="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50"
+                                disabled={shellyLoading || !shellyPrereqsOk}
+                                onClick={async () => {
+                                  setShellyError(null);
+                                  setShellyDevices([]);
+                                  setShellyLoading(true);
+                                  try {
+                                    const res = await fetch('/api/energy/shelly-devices', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      credentials: 'include',
+                                      body: JSON.stringify({
+                                        authKey: credentials['auth_key'],
+                                        serverURL: credentials['serverUrl'],
+                                        address: session?.user?.address,
+                                        miner_key: resolvedMinerKey,
+                                      }),
+                                    });
+
+                                    if (!res.ok) {
+                                      const j = await res.json().catch(() => ({}));
+                                      setShellyError(j?.message ?? 'Failed to fetch Shelly devices');
+                                      setShellyLoading(false);
+                                      return;
+                                    }
+
+                                    const j = await res.json();
+                                    if (Array.isArray(j.devices)) {
+                                      setShellyDevices(j.devices);
+                                    } else {
+                                      setShellyError('No devices returned');
+                                    }
+                                  } catch (err: any) {
+                                    setShellyError(err?.message ?? String(err));
+                                  } finally {
+                                    setShellyLoading(false);
+                                  }
+                                }}
+                              >
+                                {shellyLoading ? 'Discovering devices...' : 'Discover devices'}
+                              </button>
+                              <button
+                                className="px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800"
+                                onClick={() => {
+                                  setShellyDevices([]);
+                                  setShellyError(null);
+                                }}
+                              >
+                                Clear
+                              </button>
+                            </div>
+
+                            {selectedSubtypeLower === 'shelly' && (
+                              <div className="mt-4 space-y-3">
+                                {shellyError && (
+                                  <p className="text-xs text-red-400">{shellyError}</p>
+                                )}
+                                {shellyLoading && (
+                                  <p className="text-xs text-gray-400">Discovering devices…</p>
+                                )}
+                                {!shellyLoading && shellyDevices.length === 0 && !shellyError && (
+                                  <p className="text-xs text-gray-400">
+                                    Use "Discover devices" to pull available Shelly devices linked to this auth key and server URL.
+                                  </p>
+                                )}
+                                {shellyDevices.length > 0 && (
+                                  <div>
+                                    <h5 className="text-sm font-semibold text-gray-100 mb-2">
+                                      Select the device you want to link
+                                    </h5>
+                                    <div className="relative">
+                                      <select
+                                        className="w-full appearance-none rounded-xl border border-white/10 bg-gray-900/70 px-3 py-2 pr-10 text-sm text-gray-100 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                                        value={credentials['deviceId'] ?? ''}
+                                        onChange={(e) => {
+                                          setShellyError(null);
+                                          setCredAndValidate('deviceId', e.target.value);
+                                        }}
+                                      >
+                                        <option value="" disabled>
+                                          Choose a device
+                                        </option>
+                                        {shellyDevices.map((device) => (
+                                          <option key={device.deviceId} value={device.deviceId}>
+                                            {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                                        ▼
+                                      </span>
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-400">
+                                      Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <div className="flex gap-2 mt-5">
                           <button
                             type="button"
@@ -1659,6 +1775,8 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               setCredentialsPrefilled(false);
                               setSwitchbotDevices([]);
                               setSwitchbotError(null);
+                              setShellyDevices([]);
+                              setShellyError(null);
                               const keys = (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []);
                               const cleared: Record<string, string> = {};
                               keys.forEach((k: string) => (cleared[k] = ''));
