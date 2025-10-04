@@ -18,7 +18,7 @@ const LINKED_MINER_TYPES: Record<string, string[]> = {
 const MINER_PORTAL_KEY: Record<string, string> = (() => {
   const map: Record<string, string> = {};
   // air
-  ['OHAQM', 'IHAQM', 'ILAQM'].forEach(t => (map[t] = 'air'));
+  ['OHAQM', 'IHAQM', 'ILAQM', 'IMAQM', 'OMAQM'].forEach(t => (map[t] = 'air'));
   // camera
   ['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'].forEach(t => (map[t] = 'camera'));
   // weather

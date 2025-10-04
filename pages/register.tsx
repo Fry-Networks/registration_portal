@@ -22,6 +22,7 @@ import weatherxmLogo from '../assets/portals/weatherxm.png';
 import tempestLogo from '../assets/portals/tempest.png';
 import iopoolLogo from '../assets/portals/iopool.png';
 import gmcmapLogo from '../assets/portals/GMCMap.png';
+import RTSPLogo from '../assets/portals/rtsp.jpg';
 import tapoLogo from '../assets/portals/tapo.png';
 import sensecapLogo from '../assets/portals/sensecap.webp';
 import iotexLogo from '../assets/portals/iotex.svg';
@@ -262,7 +263,7 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (!mk) return '';
   const minerType = String(mk).split('-')[0];
 
-  if (['OHAQM', 'IHAQM', 'ILAQM'].includes(minerType)) return 'air';
+  if (['OHAQM', 'IHAQM', 'ILAQM', 'IMAQM', 'OMAQM',].includes(minerType)) return 'air';
   if (['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'].includes(minerType)) return 'camera';
   if (['HWM', 'LWM'].includes(minerType)) return 'weather';
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
@@ -1308,20 +1309,19 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
   const subtypeLogoMap: Record<string, StaticImageData> = useMemo(
     () => ({
-      pebble: airthingsLogo,
+      pebble: iotexLogo,
       awair: awairLogo,
       atmotube: atmotubeLogo,
       kaiterra: kaiterraLogo,
+      airthings: airthingsLogo,
       switchbot: switchbotLogo,
+      tapo: tapoLogo,
       shelly: shellyLogo,
       'weather-xm': weatherxmLogo,
       tempest: tempestLogo,
       iopool: iopoolLogo,
       gmcmap: gmcmapLogo,
-      rtsp: tapoLogo,
-      hardware: sensecapLogo,
-      node: iotexLogo,
-      aem: sensecapLogo,
+      rtsp: RTSPLogo,
     }),
     []
   );
