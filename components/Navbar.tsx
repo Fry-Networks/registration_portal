@@ -28,7 +28,7 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-export default () => {
+export default function Navbar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
   const { wallets, activeAccount, algodClient } = useWallet();

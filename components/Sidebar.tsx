@@ -14,7 +14,7 @@ interface SidebarProps {
   portalTitle?: string | null;
 }
 
-export default ({
+const Sidebar = ({
   completionStatus,
   isOpen,
   toggleSidebar,
@@ -103,3 +103,7 @@ export default ({
     </div>
   );
 };
+
+Sidebar.displayName = 'Sidebar';
+
+export default Sidebar;

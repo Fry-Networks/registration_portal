@@ -4,8 +4,9 @@ const nextConfig = {
     domains: ['avatars.githubusercontent.com', 'avatar.vercel.sh']
   },
   experimental: {
-    serverComponentsExternalPackages: ['@tremor/react'],
-    serverActions: true
+    // Server actions are stable in Next 13.4+, no longer experimental
+    // Only keep serverComponentsExternalPackages for specific packages
+    serverComponentsExternalPackages: ['@tremor/react']
   }
 };
 

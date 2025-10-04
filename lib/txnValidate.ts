@@ -49,7 +49,7 @@ export const hasOptedInForAsset = async (
   );
 };
 
-export default async (address: string, note: Uint8Array): Promise<boolean> => {
+export default async function validateTransaction(address: string, note: Uint8Array): Promise<boolean> {
   console.log('[KING', address, note);
   const lastTxns = (await indexer
     .lookupAccountTransactions(address)
