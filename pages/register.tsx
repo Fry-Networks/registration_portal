@@ -22,7 +22,7 @@ import weatherxmLogo from '../assets/portals/weatherxm.png';
 import tempestLogo from '../assets/portals/tempest.png';
 import iopoolLogo from '../assets/portals/iopool.png';
 import gmcmapLogo from '../assets/portals/GMCMap.png';
-import RTSPLogo from '../assets/portals/rtsp.jpg';
+import RTSPLogo from '../assets/portals/RTSP.jpg';
 import tapoLogo from '../assets/portals/tapo.png';
 import sensecapLogo from '../assets/portals/sensecap.webp';
 import iotexLogo from '../assets/portals/iotex.svg';
@@ -276,7 +276,7 @@ export const portalKeyFromMiner = (mk?: string) => {
   return '';
 };
 
-export default ({ products }: { products: Product[] }) => {
+export default function RegisterPage({ products }: { products: Product[] }) {
   const router = useRouter();
   type NextRoute = Parameters<typeof router.push>[0];
   const [displayedHex, setDisplayedHex] = useState<string | null>(null);

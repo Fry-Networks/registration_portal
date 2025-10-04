@@ -172,22 +172,12 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
         }}
         aria-hidden={isScrolled}
       >
-          <div className="mx-auto max-w-7xl px-2 sm:px-20 py-3">
-            {/* Live prices row */}
-            <div className="text-white text-xs mb-2 flex items-center justify-center gap-4">
-              <span>FRY 1.0 (924268058): {fmtUSD(prices.fry1)}</span>
-              <span className="opacity-40">|</span>
-              <span>FRY 2.0 (2485314946): {fmtUSD(prices.fry2)}</span>
-              <span className="opacity-40">|</span>
-              <span>fNode (2485202024): {fmtUSD(prices.fnode)}</span>
-              <span className="opacity-40">|</span>
-              <a href="https://docs.frynetworks.com/dashboard/registration" target="_blank" rel="noreferrer" className="underline text-gray-300">Registration Guide</a>
-            </div>
-            <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mx-auto max-w-7xl px-2 sm:px-20 py-2">
+            <div className="grid gap-2 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
               {/* FRY 1.0 Totals */}
-              <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">FRY 1.0 Totals (924268058)</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
+                <div className="text-xs uppercase tracking-wide text-gray-300">FRY 1.0 Totals</div>
+                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div></div>
                   <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
                   <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimable)}</div></div>
@@ -196,9 +186,9 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               </div>
 
               {/* fNode Totals */}
-              <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">fNode Totals (2485202024)</div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
+                <div className="text-xs uppercase tracking-wide text-gray-300">fNode Totals</div>
+                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div></div>
                   <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.pending)}</div></div>
                   <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.claimable)}</div></div>
@@ -207,11 +197,11 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               </div>
 
               {/* tFry Totals */}
-              <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
+              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
                 <div className="text-xs uppercase tracking-wide text-gray-300">tFry Totals 
                   <span className="ml-2 px-2 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full">Coming Soon</span>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
                   <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
                   <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
                   <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimable || 0)}</div></div>
@@ -220,17 +210,13 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               </div>
 
               {/* Countdown */}
-              <div className="rounded-xl p-5 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">Next FRYday (UTC 00:05)</div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/,''); return countdown; })()}</div>
-                <div className="text-xs text-gray-400">{totals.nextUnlockAt ? new Date(totals.nextUnlockAt).toUTCString() : ''}</div>
-                <div className="mt-2 text-sm text-gray-200">
-                  <div className="grid grid-cols-1 gap-1">
-                    <div><span className="font-semibold">Est. FRY 1.0:</span> {fmt(estimatedFry1)}</div>
-                    <div><span className="font-semibold">Est. fNode:</span> {fmt(estimatedFnode)}</div>
-                    <div><span className="font-semibold">Est. tFry:</span> {fmt(estimatedTfry)}</div>
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.</div>
+              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
+                <div className="text-xs uppercase tracking-wide text-gray-300">Next FRYday</div>
+                <div className="mt-1 text-xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/,''); return countdown; })()}</div>
+                <div className="mt-1 text-xs text-gray-200 space-y-0.5">
+                  <div><span className="text-gray-400">FRY 1.0:</span> <span className="font-semibold">{fmt(estimatedFry1)}</span></div>
+                  <div><span className="text-gray-400">fNode:</span> <span className="font-semibold">{fmt(estimatedFnode)}</span></div>
+                  <div><span className="text-gray-400">tFry:</span> <span className="font-semibold">{fmt(estimatedTfry)}</span></div>
                 </div>
               </div>
             </div>

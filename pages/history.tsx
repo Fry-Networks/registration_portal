@@ -48,6 +48,93 @@ const testMode =
 
 const PAGE_SIZE = 10;
 
+// Smart price formatting component with hover tooltip
+const TokenPricesBar = () => {
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+
+  useEffect(() => {
+    let active = true;
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/price/get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024'] })
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!active) return;
+        setPrices({
+          fry1: json?.prices?.['924268058'] ?? 0,
+          fry2: json?.prices?.['2485314946'] ?? 0,
+          fnode: json?.prices?.['2485202024'] ?? 0
+        });
+      } catch (error) {
+        console.error('Failed to fetch prices', error);
+      }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 300000); // 5 minutes
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const formatPrice = (price: number): { display: string; full: string } => {
+    const full = `$${price.toFixed(10).replace(/\.?0+$/, '')}`;
+    
+    if (price >= 1) {
+      return { display: `$${price.toFixed(2)}`, full };
+    } else if (price >= 0.01) {
+      // Show 4 decimals for values between $0.01 and $1
+      const trimmed = price.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      return { display: `$${trimmed}`, full };
+    } else if (price >= 0.0001) {
+      const trimmed = price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+      return { display: `$${trimmed}`, full };
+    } else if (price > 0) {
+      return { display: `$${price.toExponential(1)}`, full };
+    }
+    return { display: '$0.00', full: '$0.00' };
+  };
+
+  const PriceWithTooltip = ({ label, price }: { label: string; price: number }) => {
+    const formatted = formatPrice(price);
+    return (
+      <span className="group relative inline-block">
+        <span className="font-bold text-white">
+          {label}: {formatted.display}
+        </span>
+        {formatted.display !== formatted.full && (
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg z-50">
+            {formatted.full}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
+      <PriceWithTooltip label="FRY 1.0" price={prices.fry1 || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <a
+        href="https://vote.frynetworks.com/allvotes"
+        target="_blank"
+        rel="noreferrer"
+        className="font-bold text-white underline hover:text-gray-200 whitespace-nowrap"
+      >
+        About FIP-009
+      </a>
+    </div>
+  );
+};
+
 export default function History({
   initialRewards,
   initialTotalPages = 0
@@ -397,20 +484,21 @@ export default function History({
       <div className="relative flex">
         <Image
           src={bgImg}
-          className="w-full h-[18vh] sm:h-[22vh] object-cover"
+          className="w-full h-32 sm:h-36 object-cover"
           alt="Background Image"
         />
         <Flex
           flexDirection="col"
-          className="absolute w-full h-full justify-center gap-6"
+          className="absolute w-full h-full justify-center gap-3"
         >
-          <Title className="text-white text-4xl sm:text-5xl font-extralight tracking-wide">
+          <Title className="text-white text-2xl sm:text-3xl lg:text-4xl font-extralight tracking-wide px-2">
             Reward History
           </Title>
-          <p className="text-lg text-center text-gray-300">
+          <p className="text-sm sm:text-base text-center px-2 text-gray-300">
             You can explore the rewards history and manage each reward for
             miners and nodes.
           </p>
+          <TokenPricesBar />
         </Flex>
       </div>
       <div className="px-2 sm:px-20">
@@ -442,58 +530,37 @@ export default function History({
           )}
         </div>
       )}
-      <div className="px-2 sm:px-20 mt-4 text-white sticky top-0 z-10 border-b border-white/10 py-3 bg-transparent">
+      <div className="px-2 sm:px-20 mt-4 text-white border-b border-white/10 py-3">
         {summary && (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
+            <StatusPill
+              label="Accruing"
+              value={summary.accruing ?? 0}
+              colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
+            />              
+            <StatusPill
+              label="Pending"
+              value={summary.pending ?? 0}
+              colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
+            />
+            <StatusPill
+              label="Claimable"
+              value={summary.claimable ?? 0}
+              colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+            />
+            {typeof summary.claimed === 'number' && (
               <StatusPill
-                label="Accruing"
-                value={summary.accruing ?? 0}
-                colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
-              />              
-              <StatusPill
-                label="Pending"
-                value={summary.pending ?? 0}
-                colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
+                label="Claimed"
+                value={summary.claimed}
+                colorClass="border-gray-600 bg-gray-800 text-gray-300"
               />
-              <StatusPill
-                label="Claimable"
-                value={summary.claimable ?? 0}
-                colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
-              />
-              {typeof summary.claimed === 'number' && (
-                <StatusPill
-                  label="Claimed"
-                  value={summary.claimed}
-                  colorClass="border-gray-600 bg-gray-800 text-gray-300"
-                />
-              )}
-            </div>
-            {unlockMessaging && resolvedNextUnlock && (
-              <div className="flex flex-col text-sm">
-                <span className="text-lg sm:text-xl font-semibold text-white">
-                  {unlockMessaging.headline}
-                </span>
-                <span className="text-xs sm:text-sm font-medium uppercase tracking-wide text-sky-200">
-                  Next Fryday unlock • {resolvedNextUnlock.toUTCString()}
-                </span>
-              </div>
             )}
           </div>
         )}
-        <div className="mt-2 text-xs text-gray-300 w-full flex items-center justify-center gap-4 text-center">
-          <span>FRY 1.0 (924268058): {fmtUSD(prices.fry1)}</span>
-          <span className="opacity-40">|</span>
-          <span>FRY 2.0 (2485314946): {fmtUSD(prices.fry2)}</span>
-          <span className="opacity-40">|</span>
-          <span>fNode (2485202024): {fmtUSD(prices.fnode)}</span>
-          <span className="opacity-40">|</span>
-          <a href="https://vote.frynetworks.com/allvotes" target="_blank" rel="noreferrer" className="underline">About FIP-009</a>
-        </div>
       </div>
       <div className="px-2 sm:px-20 mt-6">
         {/* Tabs + Status on left; compact date filters on right */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justjfyfy-between">
           <div className="flex flex-wrap gap-2 items-center">
             <button onClick={() => setTab('weekly')} className={`px-3 py-1 rounded-full border whitespace-nowrap ${tab==='weekly'?'border-red-600 bg-red-600/20 text-white':'border-gray-700 text-gray-400'}`}>Weekly</button>
             <button onClick={() => setTab('daily')} className={`px-3 py-1 rounded-full border whitespace-nowrap ${tab==='daily'?'border-red-600 bg-red-600/20 text-white':'border-gray-700 text-gray-400'}`}>Legacy Daily</button>
