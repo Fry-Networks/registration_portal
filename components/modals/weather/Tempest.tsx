@@ -28,8 +28,13 @@ const TempestModal: React.FC<TempestModalProps> = ({
   const [stationId, setStationId] = useState('');
   const [token, setToken] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const isModalOpen = Boolean(modals[modalName]);
 
   useEffect(() => {
+    if (!isModalOpen) {
+      return;
+    }
+
     const fetchData = async () => {
       try {
         const response = await fetch('/api/devices/get-credential', {
@@ -53,14 +58,11 @@ const TempestModal: React.FC<TempestModalProps> = ({
         }
       } catch (error) {
         console.error(error);
-        return;
       }
-      return;
-    }
-    if (modals[modalName]) {
-      fetchData();
-    }
-  }, [modals[modalName], minerKey]);
+    };
+
+    fetchData();
+  }, [isModalOpen, minerKey]);
 
   const handleSubmit = async () => {
     setIsProcessing(true);
@@ -94,7 +96,7 @@ const TempestModal: React.FC<TempestModalProps> = ({
         </div>
         <Title className="mb-5">Tempest Weather</Title>
         <Subtitle className='mb-2 text-[14px]'>
-          Your Station ID and API Token only allow access to your device's data. You can find these in your Tempest dashboard. For more info, see the{' '}
+          Your Station ID and API Token only allow access to your device&apos;s data. You can find these in your Tempest dashboard. For more info, see the{' '}
           <Link href='https://weatherflow.github.io/Tempest/api/' target='_blank' className='underline'>Tempest API documentation</Link>.
         </Subtitle>
         <TextInput

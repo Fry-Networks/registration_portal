@@ -60,11 +60,8 @@ export default function HexMap({
   onDisplayCellChange,
 }: HexMapProps) {
   // Avoid SSR Leaflet imports
+  const isBrowser = typeof window !== 'undefined';
   const mapRef = useRef<any | null>(null);
-
-  if (typeof window === 'undefined') {
-    return <div className={className} style={{ height: typeof height === 'number' ? `${height}px` : height }} />;
-  }
 
   // internalResolution: if user provided a static resolution prop, we prefer that.
   const [internalResolution, setInternalResolution] = useState<number>(resolution ?? 4);
@@ -82,12 +79,12 @@ export default function HexMap({
   );
 
   // Zoom-to-resolution mapping helpers (tweak values to taste)
-  const resToZoom = (res: number) => {
+  const resToZoom = useCallback((res: number) => {
     // approximate leaflet zoom for each H3 resolution
     const map: number[] = [1.5, 2.5, 4, 5, 6.2, 7.4, 9, 11]; // index = resolution
     return map[Math.min(Math.max(res, 0), map.length - 1)];
-  };
-  const zoomToRes = (z: number) => {
+  }, []);
+  const zoomToRes = useCallback((z: number) => {
     if (z < 2) return 0;
     if (z < 3.5) return 1;
     if (z < 4.5) return 2;
@@ -96,7 +93,7 @@ export default function HexMap({
     if (z < 8) return 5;
     if (z < 10) return 6;
     return 7;
-  };
+  }, []);
 
   // derive the diskCells from the active resolution
   const resolvedSelectedCell = useMemo(() => {
@@ -162,7 +159,15 @@ export default function HexMap({
   }
 
   // When the map zoom changes, optionally set internalResolution and notify parent of the current display cell
-  function MapZoomSync() {
+  function MapZoomSync({
+    autoResolution,
+    notifyDisplayCellChange,
+    zoomToRes,
+  }: {
+    autoResolution: boolean;
+    notifyDisplayCellChange: (cell: string | null, res: number) => void;
+    zoomToRes: (zoom: number) => number;
+  }) {
     const map = useMap();
     useEffect(() => {
       if (!autoResolution) return;
@@ -200,7 +205,7 @@ export default function HexMap({
       return () => {
         map.off('zoomend moveend', handler);
       };
-    }, [map]);
+    }, [autoResolution, map, notifyDisplayCellChange, zoomToRes]);
     return null;
   }
 
@@ -279,43 +284,49 @@ export default function HexMap({
 
   return (
     <div className={className} style={containerStyle}>
-      <MapContainer
-        center={center}
-        zoom={initialLeafletZoom}
-        scrollWheelZoom
-        style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
-      >
-        {/* Set mapRef via a child component instead of whenCreated (avoids type issues across react-leaflet versions) */}
-        <SetMapRef />
-        <MapClickCatcher onClick={(latlng: LatLng) => handleClick(latlng)} />
+      {isBrowser ? (
+        <MapContainer
+          center={center}
+          zoom={initialLeafletZoom}
+          scrollWheelZoom
+          style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
+        >
+          {/* Set mapRef via a child component instead of whenCreated (avoids type issues across react-leaflet versions) */}
+          <SetMapRef />
+          <MapClickCatcher onClick={(latlng: LatLng) => handleClick(latlng)} />
 
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap contributors"
-        />
-
-        {polygons.map(({ cell, boundary }) => (
-          <Polygon
-            key={cell}
-            positions={boundary}
-            pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.05 }}
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
           />
-        ))}
 
-        {selectedPoly && (
-          <Polygon
-            key={`selected-${selectedPoly.cell}`}
-            positions={selectedPoly.boundary}
-            pathOptions={{ weight: 3, opacity: 1, fillOpacity: 0.15, color: '#ff3333' }}
+          {polygons.map(({ cell, boundary }) => (
+            <Polygon
+              key={cell}
+              positions={boundary}
+              pathOptions={{ weight: 1, opacity: 0.7, fillOpacity: 0.05 }}
+            />
+          ))}
+
+          {selectedPoly && (
+            <Polygon
+              key={`selected-${selectedPoly.cell}`}
+              positions={selectedPoly.boundary}
+              pathOptions={{ weight: 3, opacity: 1, fillOpacity: 0.15, color: '#ff3333' }}
+            />
+          )}
+
+          {/* keep zoom->resolution in sync and report displayed cell */}
+          <MapZoomSync
+            autoResolution={autoResolution}
+            notifyDisplayCellChange={notifyDisplayCellChange}
+            zoomToRes={zoomToRes}
           />
-        )}
 
-        {/* keep zoom->resolution in sync and report displayed cell */}
-        <MapZoomSync />
-
-        {/* Sync external zoom changes */}
-        <ZoomSync zoom={zoom} />
-      </MapContainer>
+          {/* Sync external zoom changes */}
+          <ZoomSync zoom={zoom} />
+        </MapContainer>
+      ) : null}
     </div>
   );
 }
