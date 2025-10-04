@@ -6,6 +6,9 @@ import algosdk from 'algosdk';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
+import logger, { loggers } from '../../../lib/logger';
+// ADDED: Import standardized error helpers for consistent API error responses
+import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
 
 import { Product } from '../../../lib/types';
 
@@ -18,9 +21,10 @@ export default async function handler(
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
-  // Check if user is authenticated
+  // VALIDATION: Check if user is authenticated via NextAuth session
+  // Error occurs when: User is not logged in or session has expired
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
@@ -34,28 +38,32 @@ export default async function handler(
   } = req.body;
   const { miner_key: miner, txId, address, asset_id, amount, type } = data;
   try {
+    // SECURITY: Verify the request address matches the authenticated user's wallet
+    // Error occurs when: Request body address doesn't match session wallet (prevents spoofing)
     if (session.user.address !== address || !address) {
-      // console.log(
-      //   `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
-      // );
-      res.status(401).json({ message: 'Unauthorized 2' });
+      res.status(401).json(CommonErrors.walletMismatch());
       return;
     }
     const client = await clientPromise;
     const db = client.db('main');
+    
+    // VALIDATION: Check if product configuration exists for this device type
+    // Error occurs when: Device key prefix doesn't match any product in products collection
     const product = (await db
       .collection('products')
       .findOne({ key: miner.split('-')[0] })) as Product;
     if (!product) {
-      res.status(404).json({ message: 'product not found' });
+      res.status(404).json(CommonErrors.productNotFound());
       return;
     }
 
+    // VALIDATION: Check if device is registered in the system
+    // Error occurs when: Device with this miner_key doesn't exist in devices collection
     const miner_data = await db
       .collection(testMode ? 'test-devices' : 'devices')
       .findOne({ miner_key: miner });
     if (!miner_data) {
-      res.status(404).json({ message: 'miner not found' });
+      res.status(404).json(CommonErrors.deviceNotFound());
       return;
     }
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
@@ -73,16 +81,48 @@ export default async function handler(
       }
     );
 
+    // DATABASE UPDATE: Mark device as verified and record stake verification details
     if (result.matchedCount > 0) {
-      console.log('success');
+      loggers.stakeOperation('stake_verification_completed', miner, {
+        txId,
+        amount,
+        asset_id,
+        type,
+        matchedCount: result.matchedCount,
+      });
     } else {
-      console.log('failed');
-      res.status(200).json({ success: false, message: 'failed' });
+      // ERROR: Database update didn't match any documents (should never happen since we checked above)
+      logger.warn('Stake verification update failed', {
+        miner_key: miner,
+        matchedCount: result.matchedCount,
+      });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.UPDATE_FAILED,
+          'Failed to update stake verification',
+          'Please try again. If the problem persists, contact support.',
+          { miner_key: miner }
+        )
+      );
+      return;
     }
 
     res.status(200).json({ success: true, message: 'ok' });
   } catch (error) {
-    console.error(miner + ':' + error);
-    res.status(500).json({ message: 'error' });
+    // CATCH-ALL ERROR: Log the full error details and return user-friendly message
+    // Occurs when: Any unexpected error happens during the stake verification process
+    logger.error('Stake verification operation failed', {
+      miner_key: miner,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json(
+      createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'An error occurred while processing stake verification',
+        'Please try again. If the problem persists, contact support.',
+        { errorId: `${miner}-${Date.now()}` }
+      )
+    );
   }
 }

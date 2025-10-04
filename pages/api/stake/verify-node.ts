@@ -5,6 +5,9 @@ import algosdk from 'algosdk';
 import type { indexerModels } from 'algosdk'; // Reuse Algorand indexer typings to satisfy strict TypeScript checks
 import clientPromise from '../../../lib/mongoclient';
 import mongoose from 'mongoose';
+import logger, { loggers } from '../../../lib/logger';
+// ADDED: Import standardized error helpers for consistent API error responses
+import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
 import {
   Algodv2,
   Indexer,
@@ -140,14 +143,26 @@ export default async function handler(
     );
 
     if (result.matchedCount > 0) {
-      console.log('success');
+      loggers.stakeOperation('node_verification_completed', miner, {
+        txId,
+        amount: FRYamount,
+        asset_id,
+        matchedCount: result.matchedCount,
+      });
     } else {
-      console.log('failed');
+      logger.warn('Node verification update failed', {
+        miner_key: miner,
+        matchedCount: result.matchedCount,
+      });
     }
 
     res.status(200).json({ message: 'ok' });
   } catch (error) {
-    console.error(miner + ':' + error);
+    logger.error('Node verification operation failed', {
+      miner_key: miner,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     res.status(500).json({ message: 'error' });
   }
 }
@@ -183,7 +198,11 @@ async function confirmTransaction(
     amount = confirmedTxn['txn']['txn'][amountField] || 0; // Default to 0 if amt field is missing
     if (amount < lowerBound || amount > upperBound) return { code: 3 };
   } catch (error) {
-    console.error(error);
+    logger.error('Transaction confirmation failed', {
+      txId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return { code: 4 };
   }
   return { code: 0, amount };
