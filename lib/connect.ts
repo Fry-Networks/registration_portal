@@ -1,6 +1,8 @@
 'use server';
 import 'dotenv/config';
 import mongoose from 'mongoose';
+import logger from './logger';
+import { logDatabaseConnection } from './startup-logger';
 export async function connect() {
     if(mongoose.connection.readyState >= 1) return;
 
@@ -8,20 +10,20 @@ export async function connect() {
     if (!uri) {
         throw new Error('MONGO_URI not set!');
     }
-    console.log('Connecting to MongoDB...');
+    logger.info('Connecting to MongoDB...', { database: 'MongoDB' });
     await mongoose.connect(uri);
-    console.log('Connected to MongoDB!');
+    logDatabaseConnection('connected');
     mongoose.connection.useDb('main');
 
     mongoose.connection.on('connected', () => {
-        console.log('Connected to MongoDB!');
+        logDatabaseConnection('connected');
     });
 
     mongoose.connection.on('error', (err) => {
-        console.error(`Mongoose connection error:\n${err.stack}`);
+        logDatabaseConnection('error', err);
     });
 
     mongoose.connection.on('disconnected', () => {
-        console.log('Disconnected from MongoDB!');
+        logger.warn('Disconnected from MongoDB', { database: 'MongoDB' });
     });
 }
