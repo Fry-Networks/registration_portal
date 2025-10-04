@@ -45,6 +45,8 @@ import {
   FRY_1,
   fNODE
 } from '../lib/utils';
+import NotificationCenter, { Notification as AppNotification } from '../components/NotificationCenter';
+import { describeMacIssue } from '../lib/validators/macAddress';
 
 const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -72,6 +74,103 @@ const minerType = {
 
 type MinerCategory = keyof typeof minerType;
 type MinerType = (typeof minerType)[MinerCategory][number];
+
+type HardwareStatus = {
+  linked: boolean;
+  valid: boolean;
+  miner_mac?: string;
+  reason?: 'missing_mac' | 'invalid_mac';
+  detail?: string;
+};
+
+const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
+
+// Smart price formatting component with hover tooltip
+const TokenPricesBar = () => {
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+
+  useEffect(() => {
+    let active = true;
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/price/get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024'] })
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!active) return;
+        setPrices({
+          fry1: json?.prices?.['924268058'] ?? 0,
+          fry2: json?.prices?.['2485314946'] ?? 0,
+          fnode: json?.prices?.['2485202024'] ?? 0
+        });
+      } catch (error) {
+        console.error('Failed to fetch prices', error);
+      }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 300000); // 5 minutes
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const formatPrice = (price: number): { display: string; full: string } => {
+    const full = `$${price.toFixed(10).replace(/\.?0+$/, '')}`;
+    
+    if (price >= 1) {
+      return { display: `$${price.toFixed(2)}`, full };
+    } else if (price >= 0.01) {
+      // Show 4 decimals for values between $0.01 and $1
+      const trimmed = price.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+      return { display: `$${trimmed}`, full };
+    } else if (price >= 0.0001) {
+      const trimmed = price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+      return { display: `$${trimmed}`, full };
+    } else if (price > 0) {
+      return { display: `$${price.toExponential(1)}`, full };
+    }
+    return { display: '$0.00', full: '$0.00' };
+  };
+
+  const PriceWithTooltip = ({ label, price }: { label: string; price: number }) => {
+    const formatted = formatPrice(price);
+    return (
+      <span className="group relative inline-block">
+        <span className="font-bold text-white">
+          {label}: {formatted.display}
+        </span>
+        {formatted.display !== formatted.full && (
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg z-50">
+            {formatted.full}
+          </span>
+        )}
+      </span>
+    );
+  };
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
+      <PriceWithTooltip label="FRY 1.0" price={prices.fry1 || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <a
+        href="https://docs.frynetworks.com/dashboard/registration"
+        target="_blank"
+        rel="noreferrer"
+        className="font-bold text-white underline hover:text-gray-200 whitespace-nowrap"
+      >
+        Registration Guide
+      </a>
+    </div>
+  );
+};
 
 function getMinerCategory(miner_key: string): MinerCategory | null {
   const prefix = miner_key.split('-')[0];
@@ -359,6 +458,12 @@ const DevicesPage = ({
     nextUnlockAt?: string;
   } | null>(null);
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [hardwareStatus, setHardwareStatus] = useState<Record<string, HardwareStatus>>({});
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
+  const minerKeys = useMemo(() => {
+    const keys = devices.map((d) => d.miner_key).filter(Boolean);
+    return Array.from(new Set(keys));
+  }, [devices]);
 
   const handleAdd = () => {
     openModal('addDevice');
@@ -368,7 +473,126 @@ const DevicesPage = ({
     setShowFry1Check(true);
   };
 
-  
+  useEffect(() => {
+    if (!session?.user?.address || minerKeys.length === 0) {
+      if (minerKeys.length === 0) {
+        setHardwareStatus({});
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadHardwareStatus = async () => {
+      try {
+        const response = await fetch('/api/hardware/status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ miner_keys: minerKeys })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to load hardware status (${response.status})`);
+        }
+
+        const data: Record<string, HardwareStatus> = await response.json();
+        if (!cancelled) {
+          setHardwareStatus(data ?? {});
+        }
+      } catch (error) {
+        console.error('Failed to load hardware status', error);
+        if (!cancelled) {
+          setHardwareStatus({});
+        }
+      }
+    };
+
+    loadHardwareStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [minerKeys, session?.user?.address]);
+
+  const notifications = useMemo<AppNotification[]>(() => {
+    if (!devices || devices.length === 0) {
+      return [];
+    }
+
+    const dismissedSet = new Set(dismissedNotificationIds);
+    const pushed = new Set<string>();
+
+    return devices.reduce<AppNotification[]>((acc, device) => {
+      const key = device.miner_key;
+      if (!key) {
+        return acc;
+      }
+
+      const idBase = `${key}-link`;
+      const status = hardwareStatus[key];
+      const isLinked = Boolean(device.registered_portal_model && device.registered_portal_model.trim().length > 0);
+
+      if (!isLinked || !status || status.reason === 'missing_mac' || !status.linked) {
+        if (!dismissedSet.has(idBase) && !pushed.has(idBase)) {
+          acc.push({
+            id: idBase,
+            variant: 'warning',
+            title: `Link required for ${key}`,
+            message: (
+              <span>
+                Miner <code className="font-mono">{key}</code> is not linked to FryNetworks, so rewards cannot be delivered.
+                {' '}Open the device card&#39;s gear icon to link it, or review our{' '}
+                <a
+                  href={FRY_DOCS_LINK}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  linking guide
+                </a>
+                .
+              </span>
+            )
+          });
+          pushed.add(idBase);
+        }
+        return acc;
+      }
+
+      if (status && status.linked && !status.valid) {
+        const id = `${key}-mac`;
+        if (!dismissedSet.has(id) && !pushed.has(id)) {
+          const issue = describeMacIssue(status.detail ?? status.reason);
+          acc.push({
+            id,
+            variant: 'warning',
+            title: `Update MAC for ${key}`,
+            message: (
+              <span>
+                The recorded MAC address{status.miner_mac ? ` (${status.miner_mac})` : ''} for miner{' '}
+                <code className="font-mono">{key}</code> looks invalid ({issue}).
+                {' '}Please double-check the hardware label and update it via the gear icon, or follow the{' '}
+                <a
+                  href={FRY_DOCS_LINK}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  linking guide
+                </a>{' '}to resubmit the correct address.
+              </span>
+            )
+          });
+          pushed.add(id);
+        }
+      }
+
+      return acc;
+    }, []);
+  }, [devices, hardwareStatus, dismissedNotificationIds]);
+
+  const handleDismissNotification = (id: string) => {
+    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  };
 
   // const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
   //   const account = getWalletAddress(mnemonic);
@@ -792,20 +1016,22 @@ const DevicesPage = ({
       <div className="relative flex">
         <Image
           src={bgImg}
-          className="w-full h-[18vh] sm:h-[22vh] object-cover"
+          // Fixed height banner to prevent growth with window resizing
+          className="w-full h-32 sm:h-36 object-cover"
           alt="Background Image"
           priority
         />
         <Flex
           flexDirection="col"
-          className="absolute w-full h-full justify-center gap-6"
+          className="absolute w-full h-full justify-center gap-2"
         >
-          <Title className="text-white text-4xl sm:text-5xl w-full text-center font-extralight tracking-wide">
+          <Title className="text-white text-2xl sm:text-3xl lg:text-4xl w-full text-center font-extralight tracking-wide px-2">
             Onboard your miners and nodes to Fry Networks
           </Title>
-          <p className="text-lg text-center px-2 text-gray-300">
+          <p className="text-sm sm:text-base text-center px-2 text-gray-300">
             Register and manage miners and nodes: verify details, link portals, and handle rewards.
           </p>
+          <TokenPricesBar />
         </Flex>
       </div>
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
@@ -824,6 +1050,15 @@ const DevicesPage = ({
         nodeDevices={nodeDevices}
       />
 
+      {notifications.length > 0 && (
+        <div className="w-full px-2 sm:px-20 mt-6">
+          <NotificationCenter
+            notifications={notifications}
+            onDismiss={handleDismissNotification}
+          />
+        </div>
+      )}
+      
       <div className="w-full mt-10 px-2 sm:px-20">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <QuickActionCard

@@ -3,8 +3,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { MongoServerError } from 'mongodb';
+import { describeMacIssue, validateMacAddress } from '../../../lib/validators/macAddress';
 
-const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i;
 const HARDWARE_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const PORTAL_CREDS_COLLECTION = process.env.MONGO_PORTAL_CREDS_COLLECTION ?? 'portal_creds';
 const HARDWARE_COLLECTION = process.env.MONGO_CREDS_COLLECTION ?? 'hardware';
@@ -104,12 +104,12 @@ export default async function handler(
 
       const trimmedMac = miner_mac.trim();
 
-      if (!MAC_ADDRESS_REGEX.test(trimmedMac)) {
-        res.status(400).json({ message: 'Invalid MAC address format' });
+      const validation = validateMacAddress(trimmedMac);
+      if (!validation.valid || !validation.normalized) {
+        res.status(400).json({ message: describeMacIssue(validation.reason) });
         return;
       }
-
-      const normalizedMac = trimmedMac.toUpperCase();
+      const normalizedMac = validation.normalized;
       const [minerType = ''] = miner_key.split('-');
 
       const existingMiner = await portalCollection.findOne({ miner_key });
