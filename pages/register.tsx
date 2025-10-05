@@ -456,11 +456,11 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   // by the final save/register flows (persistCredentials + save-portal-type calls).
 
 
-  const findProduct = (minerKey: string) => {
+  const findProduct = useCallback((minerKey: string) => {
     const key = minerKey.split('-')[0];
     const specificProduct = products.find((product) => product.key === key);
     return specificProduct;
-  };
+  }, [products]);
 
   // State for each form's data
   const [personalInfoData, setPersonalInfoData] = useState({
@@ -500,8 +500,12 @@ export default function RegisterPage({ products }: { products: Product[] }) {
     const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
     const key = effectivePortalKey || queryType || '';
     const normalized = String(key).toLowerCase();
-    return PORTAL_SUBTYPES[normalized] ?? [];
-  }, [effectivePortalKey, type, product]);
+    const options = PORTAL_SUBTYPES[normalized] ?? [];
+    if (['node', 'aem', 'hardware'].includes(normalized)) {
+      return options.filter((option) => option.id !== 'mac');
+    }
+    return options;
+  }, [effectivePortalKey, type]);
 
   // Determine if current form values differ from stored existing credentials
   const credentialsChanged = useMemo(() => {
@@ -559,7 +563,7 @@ export default function RegisterPage({ products }: { products: Product[] }) {
     });
     setHexSynced(false);
   }
-}, [device, session, clickable]);
+}, [device, session, clickable, findProduct]);
   
   useEffect(() => {
     if (!isEditingExisting || !resolvedMinerKey || !session?.user?.address) {
@@ -682,7 +686,7 @@ const sections = [
       (availableSubtypes[0].sub_types ?? []).forEach((k) => (nextCreds[k] = credentials[k] ?? ''));
       setCredentials((prev) => ({ ...prev, ...nextCreds }));
     }
-  }, [availableSubtypes]);
+  }, [availableSubtypes, credentials, selectedSubtype]);
 
   // SwitchBot discovery state
   const [switchbotDevices, setSwitchbotDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType?: string }>>([]);
@@ -1444,20 +1448,22 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 }
                               }}
                             >
-                              {logo ? (
-                                <Image
-                                  src={logo}
-                                  alt={opt.name}
-                                  className="h-14 w-auto object-contain transition group-hover:scale-105"
-                                  width={96}
-                                  height={56}
-                                />
-                              ) : (
-                                <span className="px-3 py-2 text-sm font-medium text-gray-100">{opt.name}</span>
-                              )}
-                              <span className="mt-2 text-xs text-gray-300 text-center px-2">
-                                {existingCredentials?.api_type === opt.id ? `${opt.name} (linked)` : opt.name}
-                              </span>
+                             {logo ? (
+                               <Image
+                                 src={logo}
+                                 alt={opt.name}
+                                 className="h-14 w-auto object-contain transition group-hover:scale-105"
+                                 width={96}
+                                 height={56}
+                               />
+                             ) : (
+                               <span className="px-3 py-2 text-sm font-medium text-gray-100">{opt.name}</span>
+                             )}
+                              {existingCredentials?.api_type === opt.id ? (
+                                <span className="mt-2 text-[11px] text-red-200 text-center px-2">
+                                  Linked to stored credentials
+                                </span>
+                              ) : null}
                             </button>
                           );
                         })}
@@ -1479,14 +1485,14 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     {existingCredentials?.api_type ? (
                       <p className="text-xs text-red-300 mb-2">
                         Stored credentials are linked to subtype{' '}
-                        {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to switch to another subtype.
+                        {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
                       </p>
                     ) : null}
                     {selectedSubtype ? (
                       <>
                         <h4 className="font-semibold mb-3">
                           {(selectedSubtype === 'mac' || selectedSubtype === 'node-mac')
-                            ? "What's the MAC address of the device on which the software is installed?"
+                            ? "What is the MAC address of the device on which the software is installed?"
                             : `Credentials for ${selectedSubtype}`}
                         </h4>
 
@@ -1724,7 +1730,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 )}
                                 {!shellyLoading && shellyDevices.length === 0 && !shellyError && (
                                   <p className="text-xs text-gray-400">
-                                    Use "Discover devices" to pull available Shelly devices linked to this auth key and server URL.
+                                    Use &ldquo;Discover devices&rdquo; to pull available Shelly devices linked to this auth key and server URL.
                                   </p>
                                 )}
                                 {shellyDevices.length > 0 && (

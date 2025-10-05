@@ -10,6 +10,7 @@ import Navbar from '../components/Navbar';
 import { ModalProvider } from '../app/modalcontext';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
+import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 
 // import { createAppKit } from '@reown/appkit/react';
@@ -123,16 +124,18 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
             <SessionProvider session={pageProps.session}>
               <DevWalletProvider>
                 <ToastProvider>
-                  <Navbar />
-                  <div
-                    id="main"
-                    className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
-                  >
-                    <ProtectedComponent
-                      Component={Component}
-                      pageProps={pageProps}
-                    />
-                  </div>
+                  <NotificationProvider>
+                    <Navbar />
+                    <div
+                      id="main"
+                      className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
+                    >
+                      <ProtectedComponent
+                        Component={Component}
+                        pageProps={pageProps}
+                      />
+                    </div>
+                  </NotificationProvider>
                 </ToastProvider>
               </DevWalletProvider>
             </SessionProvider>

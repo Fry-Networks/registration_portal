@@ -1,5 +1,6 @@
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
+import fs from 'fs';
 import path from 'path';
 
 // Log levels
@@ -36,34 +37,44 @@ const format = winston.format.combine(
   winston.format.json()
 );
 
-// Define transports
-const transports = [
-  // Console transport for Docker logs
+const transports: winston.transport[] = [
+  // Always log to console so we still see output in serverless envs
   new winston.transports.Console({
-    format: winston.format.combine(
-      winston.format.json()
-    ),
-  }),
-  
-  // Daily rotate file for all logs
-  new DailyRotateFile({
-    filename: path.join(process.cwd(), 'logs', 'combined-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    maxSize: '20m',
-    maxFiles: '14d',
-    format,
-  }),
-  
-  // Daily rotate file for error logs only
-  new DailyRotateFile({
-    filename: path.join(process.cwd(), 'logs', 'error-%DATE%.log'),
-    datePattern: 'YYYY-MM-DD',
-    level: 'error',
-    maxSize: '20m',
-    maxFiles: '14d',
-    format,
+    format: winston.format.combine(winston.format.json()),
   }),
 ];
+
+const shouldUseFileLogs = process.env.LOG_TO_FILE !== 'false';
+if (shouldUseFileLogs) {
+  const logDir = path.join(process.cwd(), 'logs');
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.accessSync(logDir, fs.constants.W_OK);
+
+    transports.push(
+      new DailyRotateFile({
+        filename: path.join(logDir, 'combined-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        maxSize: '20m',
+        maxFiles: '14d',
+        format,
+      }),
+      new DailyRotateFile({
+        filename: path.join(logDir, 'error-%DATE%.log'),
+        datePattern: 'YYYY-MM-DD',
+        level: 'error',
+        maxSize: '20m',
+        maxFiles: '14d',
+        format,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      'Logger: disabling file transports (directory missing or not writable).',
+      error instanceof Error ? error.message : error
+    );
+  }
+}
 
 // Create the logger
 const logger = winston.createLogger({

@@ -45,8 +45,9 @@ import {
   FRY_1,
   fNODE
 } from '../lib/utils';
-import NotificationCenter, { Notification as AppNotification } from '../components/NotificationCenter';
+import type { Notification as AppNotification } from '../components/NotificationCenter';
 import { describeMacIssue } from '../lib/validators/macAddress';
+import { useNotifications } from '../app/notificationcontext';
 
 const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -84,6 +85,19 @@ type HardwareStatus = {
 };
 
 const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
+
+const NOTIFICATION_PREFIXES = new Set([
+  'SDN',
+  'SVN',
+  'RDN',
+  'CN',
+  'AEM',
+  'BM',
+  'ISM',
+  'OSM',
+  'IDM',
+  'ODM'
+]);
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
@@ -180,6 +194,31 @@ function getMinerCategory(miner_key: string): MinerCategory | null {
     }
   }
   return null;
+}
+
+function buildPortalLink(device: Device) {
+  const category = getMinerCategory(device.miner_key);
+  if (!category) {
+    return null;
+  }
+
+  const prefix = device.miner_key.split('-')[0];
+  const query: Record<string, string> = {
+    minerKey: device.miner_key,
+    clickable: 'true'
+  };
+
+  let portalType = device.registered_portal_model || category;
+  if (prefix === 'AEM') {
+    portalType = 'aem';
+  }
+
+  query.type = portalType;
+
+  return {
+    pathname: '/register',
+    query
+  } as const;
 }
 
 function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; minerDevices?: Device[]; nodeDevices?: Device[] }) {
@@ -459,7 +498,10 @@ const DevicesPage = ({
   } | null>(null);
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [hardwareStatus, setHardwareStatus] = useState<Record<string, HardwareStatus>>({});
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
+  const {
+    setNotifications: syncNotifications,
+    dismissedIds: dismissedNotificationIds
+  } = useNotifications();
   const minerKeys = useMemo(() => {
     const keys = devices.map((d) => d.miner_key).filter(Boolean);
     return Array.from(new Set(keys));
@@ -527,6 +569,16 @@ const DevicesPage = ({
         return acc;
       }
 
+      const prefix = key.split('-')[0];
+      if (!NOTIFICATION_PREFIXES.has(prefix)) {
+        return acc;
+      }
+
+      const portalLink = buildPortalLink(device);
+      if (!portalLink) {
+        return acc;
+      }
+
       const idBase = `${key}-link`;
       const status = hardwareStatus[key];
       const isLinked = Boolean(device.registered_portal_model && device.registered_portal_model.trim().length > 0);
@@ -539,8 +591,13 @@ const DevicesPage = ({
             title: `Link required for ${key}`,
             message: (
               <span>
-                Miner <code className="font-mono">{key}</code> is not linked to FryNetworks, so rewards cannot be delivered.
-                {' '}Open the device card&#39;s gear icon to link it, or review our{' '}
+                Miner <code className="font-mono">{key}</code> isn’t linked to FryNetworks. Rewards will pause soon for devices without completed portal links—please finish setup as soon as possible.{' '}
+                <Link
+                  href={portalLink}
+                  className="font-semibold text-red-200 underline"
+                >
+                  Go to portal
+                </Link>{' '}to complete the link or review our{' '}
                 <a
                   href={FRY_DOCS_LINK}
                   target="_blank"
@@ -569,8 +626,13 @@ const DevicesPage = ({
             message: (
               <span>
                 The recorded MAC address{status.miner_mac ? ` (${status.miner_mac})` : ''} for miner{' '}
-                <code className="font-mono">{key}</code> looks invalid ({issue}).
-                {' '}Please double-check the hardware label and update it via the gear icon, or follow the{' '}
+                <code className="font-mono">{key}</code> looks invalid ({issue}). Rewards will pause soon if the MAC stays incorrect—update it right away.{' '}
+                <Link
+                  href={portalLink}
+                  className="font-semibold text-red-200 underline"
+                >
+                  Go to portal
+                </Link>{' '}or review our{' '}
                 <a
                   href={FRY_DOCS_LINK}
                   target="_blank"
@@ -590,9 +652,10 @@ const DevicesPage = ({
     }, []);
   }, [devices, hardwareStatus, dismissedNotificationIds]);
 
-  const handleDismissNotification = (id: string) => {
-    setDismissedNotificationIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-  };
+  useEffect(() => {
+    syncNotifications(notifications);
+  }, [notifications, syncNotifications]);
+
 
   // const checkAlgoBalance = async (mnemonic: string): Promise<null | number> => {
   //   const account = getWalletAddress(mnemonic);
@@ -1049,16 +1112,6 @@ const DevicesPage = ({
         minerDevices={minerDevices}
         nodeDevices={nodeDevices}
       />
-
-      {notifications.length > 0 && (
-        <div className="w-full px-2 sm:px-20 mt-6">
-          <NotificationCenter
-            notifications={notifications}
-            onDismiss={handleDismissNotification}
-          />
-        </div>
-      )}
-      
       <div className="w-full mt-10 px-2 sm:px-20">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <QuickActionCard
@@ -1117,6 +1170,7 @@ const DevicesPage = ({
                 product={product!}
                 stakeable={isProductStakeAvailable(product!)}
                 initialStatus={statusFallback[device.miner_key]}
+                hardwareStatus={hardwareStatus[device.miner_key]}
                 handleStaking={handleStaking}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
