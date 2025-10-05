@@ -58,7 +58,7 @@ const minerType = {
   air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
   water: ['OLWQM', 'OHWQM'],
   radiation: ['IRM'],
-  hardware: ['ISM', 'OSM', 'BM', 'IDM', 'ODM'],
+  hardware: ['ISM', 'OSM', 'BM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN', 'AEM'],
   camera: [
     'AOWSCM',
     'AOWCM',
@@ -69,8 +69,7 @@ const minerType = {
     'AITCM',
     'AIWSCM'
   ],
-  energy: ['EM'],
-  node: ['SDN', 'SVN', 'RDN', 'CN', 'AEM']
+  energy: ['EM']
 };
 
 type MinerCategory = keyof typeof minerType;
@@ -223,7 +222,7 @@ function buildPortalLink(device: Device) {
 
 function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; minerDevices?: Device[]; nodeDevices?: Device[] }) {
   const miners = minerDevices ?? devices.filter(d => !['RDN','SVN','SDN','CN'].includes(d.miner_key.split('-')[0]));
-  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN','CN'].includes(d.miner_key.split('-')[0]));
+  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN','CN','AEM'].includes(d.miner_key.split('-')[0]));
   const countNotLinked = (arr: Device[]) => arr.filter(d => !d.registered_portal_model || d.registered_portal_model === '').length;
 
   const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
@@ -805,71 +804,14 @@ const DevicesPage = ({
   }, [totals?.totals]);
 
   const handleSetting = async (minerKey: string): Promise<void> => {
-    // Redirect to an edit page where the device details can be modified
-    try {
-      const response = await fetch(`/api/devices/${minerKey}`, {
-        method: 'POST',
-        headers: { 'Content-type': 'application/json' },
-        body: JSON.stringify({ address: session?.user.address })
-      });
-      if (!response.ok) {
-        toast.error({
-          heading: 'Error',
-          message: `Device not found.`
-        });
-        return;
+    // Gear icon should go directly to credentials (register page)
+    router.push({
+      pathname: '/register',
+      query: { 
+        minerKey,
+        clickable: 'true'
       }
-
-      const result = await response.json();
-
-      // if (!testMode) {
-      //   const missingBalance = await checkAlgoBalance(
-      //     result.device.connectivity_wallet
-      //   );
-      //   if (missingBalance !== null) {
-      //     toast.warning({
-      //       heading: 'Warning',
-      //       message: `Too Low ALGO Balance for PoC Wallet. Please transfer ${missingBalance} ALGO into your PoC wallet to continue.`
-      //     });
-      //     return;
-      //   }
-      // }
-
-      const prefix = getMinerCategory(minerKey);
-      if (!prefix) {
-        toast.error({
-          heading: 'Error',
-          message: `Invalid Miner Key! It doesn't exist the portal credential for miner key. Please double-check it and try again.`
-        });
-        return;
-      }
-
-      // Correct check for registered_portal_model existence in device object
-      if (
-        'registered_portal_model' in result.device &&
-        result.device.registered_portal_model
-      ) {
-        router.push({
-          pathname: `/${prefix}portal`,
-          query: {
-            minerKey,
-            portalType: result.device.registered_portal_model,
-            onlyPortal: true
-          }
-        });
-        return;
-      }
-
-      router.push({
-        pathname: `/${prefix}portal`,
-        query: { minerKey, onlyPortal: true }
-      });
-    } catch (error) {
-      toast.error({
-        heading: 'Error',
-        message: `Failed to fetch device information.`
-      });
-    }
+    });
   };
 
   const handleDeleteButton = (device: Device) => {
@@ -1063,7 +1005,7 @@ const DevicesPage = ({
 
   function isNodeDevice(d: Device): boolean {
     const prefix = d.miner_key.split('-')[0];
-    return ['RDN', 'SVN', 'SDN', 'CN'].includes(prefix);
+    return ['RDN', 'SVN', 'SDN', 'CN', 'AEM'].includes(prefix);
   }
 
   function isMinerDevice(d: Device): boolean {
