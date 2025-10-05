@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet-react';
@@ -14,6 +14,9 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId } from '../lib/utils';
+import { BellIcon } from '@heroicons/react/outline';
+import NotificationCenter from './NotificationCenter';
+import { useNotifications } from '../app/notificationcontext';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -40,6 +43,9 @@ export default function Navbar() {
   const [fryBalance, setFryBalance] = useState('0.00');
   const router = useRouter();
   const [countdown, setCountdown] = useState<string>("");
+  const { notifications, dismiss } = useNotifications();
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationTrayRef = useRef<HTMLDivElement | null>(null);
 
   const handleDisconnect = () => {
     if (devMode) {
@@ -58,56 +64,38 @@ export default function Navbar() {
   }
 
   useEffect(() => {
-    if (address && address.length > 0) {
-      if (devMode) {
-      } else {
-        const fetchBalances = async () => {
-          try {
-            // algodClient is already available from useWallet hook
-            if (activeAccount) {
-              const accountInfo = await algodClient.accountInformation(activeAccount.address).do();
-              
-              if (!accountInfo.amount) {
-                setAlgoBalance('0.00');
-              } else {
-                setAlgoBalance(
-                  (Number(accountInfo.amount) / 10 ** 6).toFixed(2).toString()
-                );
-              }
-
-              // Normalize asset ids returned by algod (they may come back as bigint).
-              const assets = (accountInfo.assets ?? []) as Array<{
-                ['asset-id']?: number | bigint | string;
-              }>;
-
-              if (!assets.length) {
-                setFryBalance('0.00');
-              } else {
-                const fryAsset = assets.find(
-                  (asset) => normalizeAssetId(asset['asset-id']) === 924268058
-                );
-                if (fryAsset) {
-                  setFryBalance(
-                    (Number((fryAsset as any).amount ?? 0) / 10 ** 6)
-                      .toFixed(2)
-                      .toString()
-                  );
-                } else {
-                  setFryBalance('0.00');
-                }
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching balances:', error);
-            setAlgoBalance('0.00');
-            setFryBalance('0.00');
-          }
-        };
-
-        fetchBalances();
+    if (devMode || !activeAccount) {
+      if (!devMode) {
+        setAlgoBalance('0.00');
+        setFryBalance('0.00');
       }
+      return;
     }
-  }, [address]);
+
+    const fetchBalances = async () => {
+      try {
+        const accountInfo = await algodClient.accountInformation(activeAccount.address).do();
+        setAlgoBalance(((Number(accountInfo.amount ?? 0) / 1e6) || 0).toFixed(2));
+
+        const assets = (accountInfo.assets ?? []) as Array<{
+          ['asset-id']?: number | bigint | string;
+          amount?: number | bigint | string;
+        }>;
+        const fryAsset = assets.find(
+          (asset) => normalizeAssetId(asset['asset-id']) === 924268058
+        );
+        setFryBalance(
+          fryAsset ? ((Number((fryAsset as any).amount ?? 0) / 1e6) || 0).toFixed(2) : '0.00'
+        );
+      } catch (error) {
+        console.error('Error fetching balances:', error);
+        setAlgoBalance('0.00');
+        setFryBalance('0.00');
+      }
+    };
+
+    fetchBalances();
+  }, [activeAccount, algodClient, devMode]);
 
   useEffect(() => {
     if ((router.pathname !== '/' && !session) || !session?.user) {
@@ -116,28 +104,49 @@ export default function Navbar() {
   }, [router.pathname, session, activeAccount]);
 
   useEffect(() => {
+    if (!showNotifications) {
+      return;
+    }
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        notificationTrayRef.current &&
+        !notificationTrayRef.current.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [showNotifications]);
+
+  useEffect(() => {
+    if (notifications.length === 0) {
+      setShowNotifications(false);
+    }
+  }, [notifications.length]);
+
+  useEffect(() => {
     if (devMode) {
       if (devConnect && devAccount) {
-        setAddress(
-          devAccount.addr.toString().substring(0, 4) +
-            '...' +
-            devAccount.addr.toString().slice(-4)
-        );
+        const addr = devAccount.addr.toString();
+        setAddress(`${addr.slice(0, 4)}...${addr.slice(-4)}`);
       } else {
         setAddress('');
       }
-    } else {
-      if (activeAccount) {
-        setAddress(
-          activeAccount.address.substring(0, 4) +
-            '...' +
-            activeAccount.address.slice(-4)
-        );
-      } else {
-        setAddress('');
-      }
+      return;
     }
-  }, [activeAccount, devConnect]);
+
+    const rawAddress = activeAccount?.address || activeWallet?.accounts?.[0]?.address;
+    if (rawAddress) {
+      setAddress(`${rawAddress.slice(0, 4)}...${rawAddress.slice(-4)}`);
+    } else {
+      setAddress('');
+    }
+  }, [activeAccount, activeWallet, devAccount, devConnect, devMode]);
 
   // Countdown to next Friday 00:05 UTC
   useEffect(() => {
@@ -187,10 +196,7 @@ export default function Navbar() {
           </Link>
         </div>
         
-        <div
-          className="flex items-center justify-between gap-2"
-          key="connect-button"
-        >
+        <div className="flex items-center gap-3" key="connect-button">
           {!address || address.length === 0 ? (
             <Button
               className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
@@ -205,30 +211,33 @@ export default function Navbar() {
               Connect Wallet
             </Button>
           ) : (
-            <DownMenu 
-              address={address} 
-              disconnect={handleDisconnect} 
-            />
-            // <Button
-            //   className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-            //   onClick={(e) => {
-            //     if (devMode) {
-            //       setDevConnect(false);
-            //       if (session) {
-            //         signOut();
-            //       }
-            //     } else {
-            //       providers
-            //         ?.filter((provider) => provider.isConnected)[0]
-            //         .disconnect();
-            //       if (session) {
-            //         signOut();
-            //       }
-            //     }
-            //   }}
-            // >
-            //   {`Disconnect: ${address}`}
-            // </Button>
+            <>
+              <DownMenu address={address} disconnect={handleDisconnect} />
+              {notifications.length > 0 && (
+                <div className="relative" ref={notificationTrayRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowNotifications((prev) => !prev)}
+                    aria-expanded={showNotifications}
+                    aria-label="View device notifications"
+                    className="relative flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
+                  >
+                    <BellIcon className="h-5 w-5" aria-hidden="true" />
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {notifications.length}
+                    </span>
+                  </button>
+                  {showNotifications && (
+                    <div className="absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1rem)] overflow-auto rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 p-5 shadow-2xl shadow-red-900/40 z-[200]">
+                      <NotificationCenter
+                        notifications={notifications}
+                        onDismiss={dismiss}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </Flex>
@@ -270,12 +279,18 @@ export default function Navbar() {
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
-            {wallets.map((wallet, index) => (
+            {wallets.map((wallet, index) => {
+              const alreadyConnected = wallet.isActive && (wallet.accounts?.length ?? 0) > 0;
+              return (
               <div
                 key={`wallet ${index}`}
                 className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
                 onClick={async () => {
                   try {
+                    if (alreadyConnected) {
+                      setIsWalletModalOpen(false);
+                      return;
+                    }
                     await wallet.connect();
                     setIsWalletModalOpen(false);
                   } catch (error) {
@@ -292,9 +307,11 @@ export default function Navbar() {
                 />
                 <div className="cursor-default">
                   {wallet.metadata.name} Wallet
+                  {alreadyConnected && <span className="ml-2 text-xs text-red-200">Connected</span>}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </Flex>
         </div>
       </Modal>
