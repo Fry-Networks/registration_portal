@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { ALLOWED_PORTALS } from '../devices/save-credentials';
+import { collectionFor, NAMED_COLLECTIONS } from './utils';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -23,9 +23,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const db = client.db('creds');
 
   const portalKey = typeof portal === 'string' ? portal.toLowerCase() : null;
+  const defaultCollections = Array.from(new Set([...Array.from(NAMED_COLLECTIONS), 'hardware', 'other']));
   const candidateCollections = portalKey
-    ? [ALLOWED_PORTALS.includes(portalKey) ? portalKey : 'other']
-    : [...ALLOWED_PORTALS, 'other'];
+    ? Array.from(new Set([collectionFor({ miner_key, portalType: portalKey }), 'other']))
+    : defaultCollections;
 
   try {
     for (const name of candidateCollections) {
