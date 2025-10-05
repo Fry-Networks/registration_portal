@@ -27,6 +27,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+  const [isRibbonExpanded, setIsRibbonExpanded] = useState(false);
 
   // Token amount formatting (2 decimals)
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -77,6 +78,12 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
       return () => clearTimeout(timer);
     }
   }, [scrollY, isScrolled, isExpanded]);
+
+  useEffect(() => {
+    if (isScrolled) {
+      setIsRibbonExpanded(false);
+    }
+  }, [isScrolled]);
 
   // Circular progress for countdown
   const getCountdownProgress = useMemo(() => {
@@ -158,6 +165,36 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     return () => { active = false; clearInterval(id); };
   }, []);
 
+  const toggleRibbon = useCallback(() => {
+    setIsRibbonExpanded((prev) => !prev);
+  }, []);
+
+  const collapsedAssets = useMemo(() => {
+    if (!totals?.totals) {
+      return [] as Array<{ key: string; name: string; claimable: string; pending: string }>;
+    }
+    return [
+      {
+        key: 'fry1',
+        name: 'FRY 1.0',
+        claimable: fmt(totals.totals.fry1.claimable),
+        pending: fmt(totals.totals.fry1.pending)
+      },
+      {
+        key: 'fnode',
+        name: 'fNode',
+        claimable: fmt(totals.totals.fnode.claimable),
+        pending: fmt(totals.totals.fnode.pending)
+      },
+      {
+        key: 'tfry',
+        name: 'tFry',
+        claimable: fmt(totals.totals.tfry?.claimable || 0),
+        pending: fmt(totals.totals.tfry?.pending || 0)
+      }
+    ];
+  }, [totals?.totals]);
+
   if (!totals?.totals) return null;
 
   return (
@@ -170,55 +207,105 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
           visibility: isScrolled ? 'hidden' : 'visible',
           pointerEvents: isScrolled ? 'none' : 'auto'
         }}
-        aria-hidden={isScrolled}
       >
           <div className="mx-auto max-w-7xl px-2 sm:px-20 py-2">
-            <div className="grid gap-2 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-              {/* FRY 1.0 Totals */}
-              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">FRY 1.0 Totals</div>
-                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
-                  <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div></div>
-                  <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
-                  <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimable)}</div></div>
-                  <div><div className="text-gray-400">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimed)}</div></div>
+            <div className="rounded-2xl border border-gray-800/70 bg-black/70 p-4 text-white shadow-lg shadow-black/40">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.25em] text-gray-500">Weekly rewards</div>
+                  <div className="mt-1 text-lg font-semibold">Totals overview</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={toggleRibbon}
+                  className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-black/60 px-3 py-1 text-xs uppercase tracking-wide text-gray-300 transition-colors hover:border-red-500 hover:text-red-300"
+                >
+                  {isRibbonExpanded ? 'Collapse' : 'Expand'}
+                </button>
               </div>
-
-              {/* fNode Totals */}
-              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">fNode Totals</div>
-                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
-                  <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div></div>
-                  <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.pending)}</div></div>
-                  <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.claimable)}</div></div>
-                  <div><div className="text-gray-400">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.claimed)}</div></div>
-                </div>
-              </div>
-
-              {/* tFry Totals */}
-              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">tFry Totals 
-                  <span className="ml-2 px-2 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full">Coming Soon</span>
-                </div>
-                <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
-                  <div><div className="text-gray-400">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
-                  <div><div className="text-gray-400">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
-                  <div><div className="text-gray-400">Claimable</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimable || 0)}</div></div>
-                  <div><div className="text-gray-400">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimed || 0)}</div></div>
-                </div>
-              </div>
-
-              {/* Countdown */}
-              <div className="rounded-xl p-3 shadow-md shadow-gray-600 text-white">
-                <div className="text-xs uppercase tracking-wide text-gray-300">Next FRYday</div>
-                <div className="mt-1 text-xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/,''); return countdown; })()}</div>
-                <div className="mt-1 text-xs text-gray-200 space-y-0.5">
-                  <div><span className="text-gray-400">FRY 1.0:</span> <span className="font-semibold">{fmt(estimatedFry1)}</span></div>
-                  <div><span className="text-gray-400">fNode:</span> <span className="font-semibold">{fmt(estimatedFnode)}</span></div>
-                  <div><span className="text-gray-400">tFry:</span> <span className="font-semibold">{fmt(estimatedTfry)}</span></div>
-                </div>
-              </div>
+              <AnimatePresence initial={false} mode="wait">
+                {isRibbonExpanded ? (
+                  <motion.div
+                    key="ribbon-expanded"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="mt-4 space-y-4"
+                  >
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-400">FRY 1.0 Totals</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div></div>
+                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
+                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.fry1.claimable)}</div></div>
+                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimed)}</div></div>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-400">fNode Totals</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div></div>
+                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.pending)}</div></div>
+                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.fnode.claimable)}</div></div>
+                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.claimed)}</div></div>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals
+                          <span className="ml-2 rounded-full bg-gray-700/50 px-2 py-0.5 text-[0.6rem] uppercase tracking-wide text-gray-300">Coming soon</span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
+                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
+                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.tfry?.claimable || 0)}</div></div>
+                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimed || 0)}</div></div>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Next FRYday</div>
+                        <div className="mt-2 text-xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/, ''); return countdown || '--'; })()}</div>
+                        <div className="mt-2 space-y-0.5 text-xs text-gray-300">
+                          <div><span className="text-gray-500">FRY 1.0:</span> <span className="font-semibold">{fmt(estimatedFry1)}</span></div>
+                          <div><span className="text-gray-500">fNode:</span> <span className="font-semibold">{fmt(estimatedFnode)}</span></div>
+                          <div><span className="text-gray-500">tFry:</span> <span className="font-semibold">{fmt(estimatedTfry)}</span></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-gray-800/70 bg-black/60 px-3 py-2 text-xs leading-relaxed text-gray-300">
+                      Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="ribbon-collapsed"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="mt-3 space-y-3 text-xs text-gray-300"
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {collapsedAssets.map((asset) => (
+                        <span
+                          key={asset.key}
+                          className="inline-flex items-center gap-1 rounded-full border border-gray-800/70 bg-black/70 px-3 py-1 font-semibold text-gray-100"
+                        >
+                          <span className="text-[0.65rem] uppercase tracking-[0.2em] text-gray-500">{asset.name}</span>
+                          <span className="text-white">{asset.claimable}</span>
+                          <span className="text-gray-400">claimable</span>
+                          <span className="text-gray-600">/ {asset.pending} pending</span>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-[0.7rem] text-gray-500">
+                      <span>Next unlock {countdown || '--'}</span>
+                      <span className="hidden sm:inline text-gray-600">Expand for the full breakdown and estimates</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
@@ -236,7 +323,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
           >
             {/* Compact Widget */}
             <motion.div
-              className="bg-gradient-to-br from-gray-800/90 to-gray-900/95 backdrop-blur-md border border-red-600/50 shadow-2xl"
+              className="bg-gradient-to-br from-black/80 to-black/95 backdrop-blur-md border border-red-600/50 shadow-2xl"
               animate={isExpanded ? 'expanded' : 'compact'}
               variants={{
                 compact: {
@@ -396,6 +483,9 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     <div className="text-lg font-semibold text-red-400">{countdown}</div>
                     <div className="text-xs text-gray-500 mt-1">
                       Est. weekly: {fmt(estimatedFry1)} FRY 1.0, {fmt(estimatedFnode)} fNode, {fmt(estimatedTfry)} tFry
+                    </div>
+                    <div className="mt-2 text-[0.65rem] leading-relaxed text-gray-500">
+                      Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.
                     </div>
                   </div>
                 </div>
