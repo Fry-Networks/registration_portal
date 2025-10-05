@@ -394,7 +394,7 @@ const StakeModal = ({
                   name="stakeOption"
                   value="one"
                   checked={stakeType === 'one'}
-                  onClick={() => setStateType('one')}
+                  onChange={() => setStateType('one')}
                   className="border border-red-600 text-red-600"
                 />
                 <span>24-Hour Staking(1.5x)</span>
@@ -405,7 +405,7 @@ const StakeModal = ({
                   name="stakeOption"
                   value="two"
                   checked={stakeType === 'two'}
-                  onClick={() => setStateType('two')}
+                  onChange={() => setStateType('two')}
                   className="border border-red-600 text-red-600"
                 />
                 <span>6-months Staking(3x)</span>
@@ -423,9 +423,9 @@ const StakeModal = ({
                 type="number"
                 min="0"
                 className="p-2 w-full border ml-2 text-black border-gray-500 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50"
-                defaultValue={0}
                 disabled={true}
                 value={stakeAmount}
+                readOnly
               />
             </div>
           </Flex>

@@ -13,6 +13,7 @@ import {
   isRegistrationNeeded,
   isNodeStakingNeeded
 } from '../lib/utils';
+import { describeMacIssue } from '../lib/validators/macAddress';
 import { InformationCircleIcon } from '@heroicons/react/outline';
 import AlertWithTooltip from './AlertIcon';
 // import WithdrawIcon from './WithdrawIcon';
@@ -42,7 +43,8 @@ export default function DeviceListItem({
   handleClaimButton,
   handleWithdrawStake,
   handleWithdrawAllButton,
-  initialStatus
+  initialStatus,
+  hardwareStatus
   // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
@@ -57,6 +59,13 @@ export default function DeviceListItem({
   handleWithdrawStake: (device: Device) => void;
   handleWithdrawAllButton: (device: Device) => void;
   initialStatus?: { [key: string]: string } | undefined;
+  hardwareStatus?: {
+    linked: boolean;
+    valid: boolean;
+    miner_mac?: string;
+    reason?: string;
+    detail?: string;
+  };
   // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
   const [pendingAmount, setPendingAmount] = useState(0);
@@ -85,6 +94,10 @@ export default function DeviceListItem({
 
     return true;
   };
+
+  const minerPrefix = device.miner_key.split('-')[0];
+  const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix);
+  const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
 
   // Determine verification prerequisites based on product config and current device state
   const needsRegistration = isRegistrationNeeded(product);
@@ -162,17 +175,40 @@ export default function DeviceListItem({
     }
   };
 
-  const checkDeviceStatus = (device: Device) => {
+  const checkDeviceStatus = (
+    device: Device,
+    currentHardwareStatus?: {
+      linked: boolean;
+      valid: boolean;
+      miner_mac?: string;
+      reason?: string;
+      detail?: string;
+    }
+  ) => {
     const status = computeDeviceStatus(device, product);
+    const combinedStatus: { [key: string]: string } = status ? { ...status } : {};
+    let hasIssue = Boolean(status);
 
-    if (status === undefined) {
-      setAlertShow(false);
-      setDeviceStatus({});
-      return;
+    const prefix = device.miner_key.split('-')[0];
+    const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(prefix);
+
+    if (needsHardwareCheck && currentHardwareStatus) {
+      if (!currentHardwareStatus.linked) {
+        combinedStatus.hardware = 'MAC address not linked to FryNetworks.';
+        hasIssue = true;
+      } else if (!currentHardwareStatus.valid) {
+        combinedStatus.hardware = describeMacIssue(currentHardwareStatus.detail ?? currentHardwareStatus.reason);
+        hasIssue = true;
+      }
     }
 
-    setDeviceStatus(status);
-    setAlertShow(true);
+    if (hasIssue) {
+      setDeviceStatus(combinedStatus);
+      setAlertShow(true);
+    } else {
+      setDeviceStatus({});
+      setAlertShow(false);
+    }
   };
 
   useEffect(() => {
@@ -186,8 +222,8 @@ export default function DeviceListItem({
       setClaimableAmount(rewardSummary.claimable || 0);
       setClaimedAmount(rewardSummary.claimed || 0);
     }
-    checkDeviceStatus(device);
-  }, [device, rewardSummary]);
+    checkDeviceStatus(device, hardwareStatus);
+  }, [device, rewardSummary, hardwareStatus]);
 
   // Simple countdown to next unlock (Friday 00:05 UTC) if provided by API
   useEffect(() => {
@@ -386,7 +422,7 @@ export default function DeviceListItem({
           className={`relative w-full border-2 m-1 rounded-lg p-4 text-white shadow-lg ${
             stakeable === false && !device.verified
               ? 'border-gray-500'
-              : !device.registered_portal_model
+              : !device.registered_portal_model || hardwareWarning
                 ? 'border-yellow-400'
                 : isDeviceStatusOkay(device)
                   ? 'border-green-500'

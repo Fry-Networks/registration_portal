@@ -93,28 +93,28 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     return ((totalHours - remainingHours) / totalHours) * 100;
   }, [countdown]);
 
-  // Animation variants
-  const widgetVariants = {
-    full: {
-      scale: 1,
-      x: 0,
-      y: 0,
-      width: '100%',
-      height: 'auto',
-      borderRadius: '0.75rem',
-      transition: { duration: 0.5, ease: 'easeInOut' }
-    },
-    compact: {
-      scale: 0.8,
-      x: window.innerWidth > 768 ? 'calc(50vw - 120px)' : 'calc(50vw - 100px)',
-      y: window.innerWidth > 768 ? -20 : -15,
-      width: window.innerWidth > 768 ? '240px' : '200px',
-      height: '80px',
-      borderRadius: '2rem',
-      transition: { duration: 0.5, ease: 'easeInOut' }
-    }
-  };
+  const compactCountdownLabel = useMemo(() => {
+    if (!countdown) return '--';
+    const daysMatch = countdown.match(/(\d+)d/);
+    const hoursMatch = countdown.match(/(\d+)h/);
+    const minutesMatch = countdown.match(/(\d+)m/);
 
+    const days = daysMatch ? parseInt(daysMatch[1]) : 0;
+    const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
+    const minutes = minutesMatch ? parseInt(minutesMatch[1]) : 0;
+
+    if (days > 0) {
+      return `${days}d`;
+    }
+
+    if (hours > 0) {
+      return `${hours}h`;
+    }
+
+    return `${minutes}m`;
+  }, [countdown]);
+
+  // Animation variants
   const contentVariants = {
     full: {
       opacity: 1,
@@ -240,13 +240,16 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               animate={isExpanded ? 'expanded' : 'compact'}
               variants={{
                 compact: {
-                  width: window.innerWidth > 768 ? '240px' : '200px',
-                  height: '80px',
-                  borderRadius: '2rem',
-                  padding: '12px'
+                  width: '72px',
+                  height: '72px',
+                  borderRadius: '9999px',
+                  padding: '8px'
                 },
                 expanded: {
-                  width: window.innerWidth > 768 ? '400px' : '320px',
+                  width:
+                    (typeof window !== 'undefined' && window.innerWidth <= 768)
+                      ? '320px'
+                      : '380px',
                   height: 'auto',
                   borderRadius: '1rem',
                   padding: '20px'
@@ -255,58 +258,38 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
               transition={{ duration: 0.3 }}
             >
               {/* Compact Content */}
-              <motion.div
-                className={`${isExpanded ? 'hidden' : 'flex'} items-center justify-between h-full text-white`}
-              >
-                {/* Circular Countdown */}
-                <div className="relative">
-                  <svg className="w-12 h-12 transform -rotate-90" viewBox="0 0 36 36">
-                    {/* Background circle */}
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="#374151"
-                      strokeWidth="2"
-                    />
-                    {/* Progress circle */}
-                    <path
-                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      fill="none"
-                      stroke="#dc2626"
-                      strokeWidth="2"
-                      strokeDasharray={`${getCountdownProgress}, 100`}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xs font-semibold text-red-400">
-                      {countdown.split(' ')[0]}
-                    </span>
+              {!isExpanded && (
+                <motion.div
+                  key="compact"
+                  className="flex flex-col items-center justify-center h-full text-white gap-1"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                >
+                  <div className="relative">
+                    <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 36 36">
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#374151"
+                        strokeWidth="2"
+                      />
+                      <path
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                        fill="none"
+                        stroke="#dc2626"
+                        strokeWidth="2"
+                        strokeDasharray={`${getCountdownProgress}, 100`}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xs font-semibold text-red-400">
+                        {compactCountdownLabel}
+                      </span>
+                    </div>
                   </div>
-                </div>
-
-                {/* Compact Totals - Show accruing amounts for current epoch */}
-                <div className="flex-1 ml-3 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">FRY 1.0:</span>
-                    <span className="font-semibold text-orange-400">{fmt(totals.totals.fry1.accruing)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">fNode:</span>
-                    <span className="font-semibold text-orange-400">{fmt(totals.totals.fnode.accruing)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-400">tFry:</span>
-                    <span className="font-semibold text-orange-400">{fmt(totals.totals.tfry?.accruing || 0)}</span>
-                  </div>
-                </div>
-
-                {/* Expand Icon */}
-                <div className="ml-2">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                  </svg>
-                </div>
-              </motion.div>
+                </motion.div>
+              )}
 
               {/* Expanded Content */}
               <motion.div
