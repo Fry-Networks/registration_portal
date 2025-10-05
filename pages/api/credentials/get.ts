@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { ALLOWED_PORTALS } from '../devices/save-credentials';
+import { NAMED_COLLECTIONS } from './utils';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const client = await clientPromise;
     const db = client.db('creds');
 
-    const collections = [...ALLOWED_PORTALS, 'other'];
+    const collections = [...Array.from(NAMED_COLLECTIONS), 'hardware', 'other'];
     for (const name of collections) {
       const doc = await db.collection(name).findOne({
         miner_key,

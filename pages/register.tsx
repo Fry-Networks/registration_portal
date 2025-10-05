@@ -260,15 +260,14 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (!mk) return '';
   const minerType = String(mk).split('-')[0];
 
-  if (['OHAQM', 'IHAQM', 'ILAQM', 'IMAQM', 'OMAQM',].includes(minerType)) return 'air';
+  if (['OHAQM', 'IHAQM', 'ILAQM', 'IMAQM', 'OMAQM'].includes(minerType)) return 'air';
   if (['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'].includes(minerType)) return 'camera';
   if (['HWM', 'LWM'].includes(minerType)) return 'weather';
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
   if (minerType === 'IRM') return 'radiation';
-  if (minerType === 'AEM') return "aem"; 
-  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM'].includes(minerType)) return "hardware"; 
-  if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return "node";                     
+  if (minerType === 'AEM') return 'aem';
+  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return minerType.toLowerCase();
 
   return '';
 };
