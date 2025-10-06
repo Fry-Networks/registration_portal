@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { getMinerType, collectionFor } from './utils';
+import { deviceValidatorRegistry } from '../../../lib/validators';
 
 const DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 
@@ -52,22 +53,8 @@ const inferApiTypeFromCreds = async (params: {
 
 // -------------------- validator registry --------------------
 
-type ValidatorCtx = {
-  req: NextApiRequest;
-  res: NextApiResponse;
-  db: any;
-  session: any;
-  miner_key: string;
-  minerType: string;
-  apiType: string;
-  portalType?: string;
-  credentials: Record<string, any>;
-};
-
-type Validator = (ctx: ValidatorCtx) => Promise<void>;
-
-// Delegate validators: redirect to specific endpoints
-const delegateToEndpoint = (endpoint: string): Validator => async ({ req, res }) => {
+// Fallback delegation for device types not yet migrated to the new validator system
+const delegateToEndpoint = async (endpoint: string, req: NextApiRequest, res: NextApiResponse) => {
   const baseUrl =
     process.env.NEXTAUTH_URL ||
     `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers.host}`;
@@ -95,13 +82,9 @@ const delegateToEndpoint = (endpoint: string): Validator => async ({ req, res })
   }
 };
 
-const API_VALIDATORS: Record<string, Validator> = {
-  mac: delegateToEndpoint('hardware/mac'),
-  hardware: delegateToEndpoint('hardware/mac'),
-  node: delegateToEndpoint('hardware/mac'),
-  switchbot: delegateToEndpoint('energy/switchbot'),
-  shelly: delegateToEndpoint('energy/shelly'),
-  rtsp: delegateToEndpoint('camera/rtsp'),
+// Legacy endpoints that haven't been migrated to the new validator system yet
+const LEGACY_DELEGATED_VALIDATORS: Record<string, string> = {
+  rtsp: 'camera/rtsp',
 };
 
 // -------------------- handler --------------------
@@ -134,25 +117,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const db = await getDb();
 
   try {
-    const validator = API_VALIDATORS[apiType];
-    if (!validator) {
-      // No special validation for this subtype → accept
-      return res.status(200).json({ message: 'Validation successful' });
+    // Check if we have a modern validator for this device type
+    const validator = deviceValidatorRegistry.getValidator(apiType);
+    
+    if (validator) {
+      // Use the new validator system
+      const validationContext = {
+        session,
+        minerKey: miner_key,
+        currentDeviceId: credentials.deviceId
+      };
+
+      const result = await validator.validateCredentials(credentials, validationContext);
+
+      if (!result.success) {
+        return res.status(400).json({ 
+          message: result.error || 'Validation failed',
+          success: false
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Credentials validated successfully',
+        success: true,
+        devices: result.devices,
+        additionalData: result.additionalData
+      });
     }
 
-    await validator({
-      req,
-      res,
-      db,
-      session,
-      miner_key,
-      minerType,
-      apiType,
-      portalType: portal_type as string | undefined,
-      credentials,
-    });
+    // Check if this device type needs legacy delegation
+    const legacyEndpoint = LEGACY_DELEGATED_VALIDATORS[apiType];
+    if (legacyEndpoint) {
+      return await delegateToEndpoint(legacyEndpoint, req, res);
+    }
 
-    // validators handle the response
+    // No special validation for this subtype → accept
+    return res.status(200).json({ message: 'Validation successful' });
+
   } catch (err) {
     console.error('Validation error:', err);
     return res.status(500).json({ message: 'Internal server error' });

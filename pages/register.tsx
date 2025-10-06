@@ -31,6 +31,7 @@ import { isValidCell } from "h3-js";
 import dynamic from 'next/dynamic';
 import mapboxgl, { LngLat, Map } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { deviceValidatorRegistry } from '../lib/validators';
 const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {  ssr: false});
 const HexMap = dynamic(() => import('../components/HexMap'), { ssr: false });
 mapboxgl.accessToken ='REDACTED_ROTATE_ME';
@@ -703,41 +704,129 @@ const sections = [
       return false;
     }
 
-    const needed = (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []);
-    const bad = validateCredentialsGroup(needed);
-
-    if (bad.length > 0) {
-      toast.error({ heading: 'Error', message: `Fix invalid fields: ${bad.join(', ')}` });
+    if (!selectedSubtype) {
+      toast.error({ heading: 'Error', message: 'Please select a device subtype.' });
       return false;
     }
 
-    try {
-      const res = await fetch('/api/credentials/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials })
-      });
+    // Get the validator for this device type
+    const validator = deviceValidatorRegistry.getValidator(selectedSubtype);
+    if (!validator) {
+      // Fallback to original validation for unsupported device types
+      const needed = (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []);
+      const bad = validateCredentialsGroup(needed);
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        toast.error({ heading: 'Error', message: data.message ?? 'Credentials validation failed' });
+      if (bad.length > 0) {
+        toast.error({ heading: 'Error', message: `Fix invalid fields: ${bad.join(', ')}` });
         return false;
       }
 
-      setCredentialsValidated(true);
-      if (!options.suppressToast) {
-        toast.success({ heading: 'Success', message: data.message ?? 'Credentials validated successfully.' });
-      }
+      try {
+        const res = await fetch('/api/credentials/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials })
+        });
 
-      return true;
-    } catch (error) {
-      console.error(error);
-      toast.error({ heading: 'Error', message: 'Failed to validate credentials' });
-      return false;
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          setCredentialsValidated(false);
+          toast.error({ heading: 'Error', message: data.message ?? 'Credentials validation failed' });
+          return false;
+        }
+
+        setCredentialsValidated(true);
+        if (!options.suppressToast) {
+          toast.success({ heading: 'Success', message: data.message ?? 'Credentials validated successfully.' });
+        }
+        return true;
+      } catch (error) {
+        setCredentialsValidated(false);
+        console.error(error);
+        toast.error({ heading: 'Error', message: 'Failed to validate credentials' });
+        return false;
+      }
     }
 
+    // Use the new validator system
+    try {
+      const validationContext = {
+        session,
+        minerKey: resolvedMinerKey,
+        currentDeviceId: credentials['deviceId']
+      };
+
+      const result = await validator.validateCredentials(credentials, validationContext);
+      
+      if (!result.success) {
+        setCredentialsValidated(false);
+        // Handle device-specific error states
+        if (selectedSubtype.toLowerCase() === 'switchbot') {
+          setSwitchbotError(result.error || 'Validation failed');
+        }
+        if (selectedSubtype.toLowerCase() === 'shelly') {
+          setShellyError(result.error || 'Validation failed');
+        }
+        if (!options.suppressToast) {
+          toast.error({ heading: 'Error', message: result.error || 'Credentials validation failed' });
+        }
+        return false;
+      }
+
+      // Validation successful
+      setCredentialsValidated(true);
+      
+      // Handle device-specific success states
+      if (selectedSubtype.toLowerCase() === 'switchbot') {
+        setSwitchbotError(null);
+        if (result.devices) {
+          setSwitchbotDevices(result.devices.map(d => ({
+            deviceId: d.deviceId,
+            deviceName: d.deviceName,
+            deviceType: d.deviceType
+          })));
+        }
+      }
+      if (selectedSubtype.toLowerCase() === 'shelly') {
+        setShellyError(null);
+        if (result.devices) {
+          setShellyDevices(result.devices.map(d => ({
+            deviceId: d.deviceId,
+            deviceName: d.deviceName,
+            deviceType: d.deviceType
+          })));
+        }
+      }
+
+      if (!options.suppressToast) {
+        toast.success({ 
+          heading: 'Success', 
+          message: result.devices?.length 
+            ? `Found ${result.devices.length} device(s)` 
+            : 'Credentials validated successfully.' 
+        });
+      }
+      
+      return true;
+    } catch (error: any) {
+      setCredentialsValidated(false);
+      console.error(error);
+      
+      // Handle device-specific error states
+      if (selectedSubtype.toLowerCase() === 'switchbot') {
+        setSwitchbotError(error?.message || 'Validation failed');
+      }
+      if (selectedSubtype.toLowerCase() === 'shelly') {
+        setShellyError(error?.message || 'Validation failed');
+      }
+      
+      if (!options.suppressToast) {
+        toast.error({ heading: 'Error', message: error?.message || 'Failed to validate credentials' });
+      }
+      return false;
+    }
   };
 
   // helper to return keys for the currently selected credential subtype
@@ -1568,30 +1657,56 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   setSwitchbotDevices([]);
                                   setSwitchbotLoading(true);
                                   try {
-                                    const res = await fetch('/api/energy/switchbot-devices', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      credentials: 'include',
-                                      body: JSON.stringify({
-                                        token: credentials['token'],
-                                        secret: credentials['secret'],
-                                        address: session?.user?.address,
-                                        miner_key: resolvedMinerKey,
-                                      }),
-                                    });
-
-                                    if (!res.ok) {
-                                      const j = await res.json().catch(() => ({}));
-                                      setSwitchbotError(j?.message ?? 'Failed to fetch SwitchBot devices');
-                                      setSwitchbotLoading(false);
-                                      return;
-                                    }
-
-                                    const j = await res.json();
-                                    if (Array.isArray(j.devices)) {
-                                      setSwitchbotDevices(j.devices);
+                                    const validator = deviceValidatorRegistry.getValidator('switchbot');
+                                    if (validator && validator.discoverDevices) {
+                                      const validationContext = {
+                                        session,
+                                        minerKey: resolvedMinerKey,
+                                        currentDeviceId: credentials['deviceId']
+                                      };
+                                      
+                                      const result = await validator.discoverDevices(credentials, validationContext);
+                                      
+                                      if (!result.success) {
+                                        setSwitchbotError(result.error ?? 'Failed to fetch SwitchBot devices');
+                                        return;
+                                      }
+                                      
+                                      if (result.devices && Array.isArray(result.devices)) {
+                                        setSwitchbotDevices(result.devices.map(d => ({
+                                          deviceId: d.deviceId,
+                                          deviceName: d.deviceName,
+                                          deviceType: d.deviceType
+                                        })));
+                                      } else {
+                                        setSwitchbotError('No devices returned');
+                                      }
                                     } else {
-                                      setSwitchbotError('No devices returned');
+                                      // Fallback to original API call
+                                      const res = await fetch('/api/energy/switchbot-devices', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        credentials: 'include',
+                                        body: JSON.stringify({
+                                          token: credentials['token'],
+                                          secret: credentials['secret'],
+                                          address: session?.user?.address,
+                                          miner_key: resolvedMinerKey,
+                                        }),
+                                      });
+
+                                      if (!res.ok) {
+                                        const j = await res.json().catch(() => ({}));
+                                        setSwitchbotError(j?.message ?? 'Failed to fetch SwitchBot devices');
+                                        return;
+                                      }
+
+                                      const j = await res.json();
+                                      if (Array.isArray(j.devices)) {
+                                        setSwitchbotDevices(j.devices);
+                                      } else {
+                                        setSwitchbotError('No devices returned');
+                                      }
                                     }
                                   } catch (err: any) {
                                     setSwitchbotError(err?.message ?? String(err));
@@ -1674,30 +1789,56 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   setShellyDevices([]);
                                   setShellyLoading(true);
                                   try {
-                                    const res = await fetch('/api/energy/shelly-devices', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      credentials: 'include',
-                                      body: JSON.stringify({
-                                        authKey: credentials['auth_key'],
-                                        serverURL: credentials['serverUrl'],
-                                        address: session?.user?.address,
-                                        miner_key: resolvedMinerKey,
-                                      }),
-                                    });
-
-                                    if (!res.ok) {
-                                      const j = await res.json().catch(() => ({}));
-                                      setShellyError(j?.message ?? 'Failed to fetch Shelly devices');
-                                      setShellyLoading(false);
-                                      return;
-                                    }
-
-                                    const j = await res.json();
-                                    if (Array.isArray(j.devices)) {
-                                      setShellyDevices(j.devices);
+                                    const validator = deviceValidatorRegistry.getValidator('shelly');
+                                    if (validator && validator.discoverDevices) {
+                                      const validationContext = {
+                                        session,
+                                        minerKey: resolvedMinerKey,
+                                        currentDeviceId: credentials['deviceId']
+                                      };
+                                      
+                                      const result = await validator.discoverDevices(credentials, validationContext);
+                                      
+                                      if (!result.success) {
+                                        setShellyError(result.error ?? 'Failed to fetch Shelly devices');
+                                        return;
+                                      }
+                                      
+                                      if (result.devices && Array.isArray(result.devices)) {
+                                        setShellyDevices(result.devices.map(d => ({
+                                          deviceId: d.deviceId,
+                                          deviceName: d.deviceName,
+                                          deviceType: d.deviceType
+                                        })));
+                                      } else {
+                                        setShellyError('No devices returned');
+                                      }
                                     } else {
-                                      setShellyError('No devices returned');
+                                      // Fallback to original API call
+                                      const res = await fetch('/api/energy/shelly-devices', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        credentials: 'include',
+                                        body: JSON.stringify({
+                                          authKey: credentials['auth_key'],
+                                          serverURL: credentials['serverUrl'],
+                                          address: session?.user?.address,
+                                          miner_key: resolvedMinerKey,
+                                        }),
+                                      });
+
+                                      if (!res.ok) {
+                                        const j = await res.json().catch(() => ({}));
+                                        setShellyError(j?.message ?? 'Failed to fetch Shelly devices');
+                                        return;
+                                      }
+
+                                      const j = await res.json();
+                                      if (Array.isArray(j.devices)) {
+                                        setShellyDevices(j.devices);
+                                      } else {
+                                        setShellyError('No devices returned');
+                                      }
                                     }
                                   } catch (err: any) {
                                     setShellyError(err?.message ?? String(err));

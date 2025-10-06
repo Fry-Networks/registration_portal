@@ -80,3 +80,53 @@ export function describeMacIssue(reason?: string): string {
   }
 }
 
+import { BaseValidator } from './BaseValidator';
+import { DeviceValidationResult, ValidationContext } from './types';
+
+/**
+ * Mac address validator class that uses the shared validateMacAddress logic
+ */
+export class MacAddressValidator extends BaseValidator {
+  private deviceType: string;
+
+  constructor(deviceType: string) {
+    super();
+    this.deviceType = deviceType;
+  }
+
+  getDeviceType(): string {
+    return this.deviceType;
+  }
+
+  getRequiredFields(): string[] {
+    return ['mac_address'];
+  }
+
+  async validateCredentials(
+    credentials: Record<string, string>,
+    context: ValidationContext
+  ): Promise<DeviceValidationResult> {
+    const missing = this.validateRequiredFields(credentials);
+    if (missing.length > 0) {
+      return this.createErrorResult(`Missing required fields: ${missing.join(', ')}`);
+    }
+
+    const macRaw = credentials['mac_address'];
+    const validation = validateMacAddress(macRaw);
+    if (!validation.valid) {
+      const reason = validation.reason;
+      const message = describeMacIssue(reason);
+      return this.createErrorResult(message);
+    }
+
+    const normalized = validation.normalized ?? String(macRaw).toUpperCase();
+
+    return this.createSuccessResult([
+      {
+        deviceId: normalized,
+        deviceName: `${this.deviceType.charAt(0).toUpperCase() + this.deviceType.slice(1)} Device (${normalized})`,
+        deviceType: this.deviceType,
+      },
+    ]);
+  }
+}
