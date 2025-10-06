@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import clientPromise from '../../../lib/mongoclient';
 import { authOptions } from '../auth/[...nextauth]';
-import { validateMacAddress } from '../../../lib/validators/macAddress';
+import { validateMacAddress } from '../../../lib/validators/macAddressValidator';
 
 type HardwareStatus = {
   linked: boolean;

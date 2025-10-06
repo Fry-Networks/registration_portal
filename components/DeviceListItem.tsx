@@ -15,7 +15,7 @@ import {
   isRegistrationNeeded,
   isNodeStakingNeeded
 } from '../lib/utils';
-import { describeMacIssue } from '../lib/validators/macAddress';
+import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
 import AlertWithTooltip from './AlertIcon';
 // import WithdrawIcon from './WithdrawIcon';

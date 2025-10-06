@@ -46,7 +46,7 @@ import {
   fNODE
 } from '../lib/utils';
 import type { Notification as AppNotification } from '../components/NotificationCenter';
-import { describeMacIssue } from '../lib/validators/macAddress';
+import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
 
 const testMode =

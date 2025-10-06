@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { MongoServerError } from 'mongodb';
-import { describeMacIssue, validateMacAddress } from '../../../lib/validators/macAddress';
+import { describeMacIssue, validateMacAddress } from '../../../lib/validators/macAddressValidator';
 
 const HARDWARE_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const PORTAL_CREDS_COLLECTION = process.env.MONGO_PORTAL_CREDS_COLLECTION ?? 'portal_creds';
