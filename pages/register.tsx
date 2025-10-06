@@ -344,6 +344,24 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [credentialsValidated, setCredentialsValidated] = useState(false);
 
+  // Check if credentials are needed based on env variable
+  const credentialsNotNeeded = useMemo(() => {
+    const credentialsNeeded = process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED;
+    if (!credentialsNeeded || !resolvedMinerKey) return true; // Default to not needing creds if env not set
+    
+    const deviceTypes = credentialsNeeded.split(',').map(type => type.trim().toUpperCase());
+    const minerType = resolvedMinerKey.split('-')[0]?.toUpperCase();
+    
+    return !deviceTypes.includes(minerType); // Invert: true if NOT in the list
+  }, [resolvedMinerKey]);
+
+  // Auto-set credentialsValidated when credentials aren't needed
+  useEffect(() => {
+    if (credentialsNotNeeded) {
+      setCredentialsValidated(true);
+    }
+  }, [credentialsNotNeeded]);
+
   function validateField(
     key: string,
     value: string,
@@ -1598,14 +1616,35 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 {/* Right column: credentials card */}
                 <div className="lg:col-span-2">
                   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
-                    {loadingStoredCredentials ? <p className="text-sm text-gray-400 mb-3">Loading stored credentials…</p> : null}
-                    {existingCredentials?.api_type ? (
-                      <p className="text-xs text-red-300 mb-2">
-                        Stored credentials are linked to subtype{' '}
-                        {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
-                      </p>
-                    ) : null}
-                    {selectedSubtype ? (
+                    {credentialsNotNeeded ? (
+                      /* Temporary page for devices that don't need credentials */
+                      <div className="text-center py-8">
+                        <div className="mb-4">
+                          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center">
+                            <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-semibold text-white mb-2">No Credentials Required</h3>
+                          <p className="text-gray-300 mb-4">
+                            This device type ({resolvedMinerKey?.split('-')[0]}) doesn't require credentials configuration at this time.
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            You can proceed directly to the next step to complete your device registration.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Original credentials form */
+                      <>
+                        {loadingStoredCredentials ? <p className="text-sm text-gray-400 mb-3">Loading stored credentials…</p> : null}
+                        {existingCredentials?.api_type ? (
+                          <p className="text-xs text-red-300 mb-2">
+                            Stored credentials are linked to subtype{' '}
+                            {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
+                          </p>
+                        ) : null}
+                        {selectedSubtype ? (
                       <>
                         <h4 className="font-semibold mb-3">
                           {(selectedSubtype === 'mac' || selectedSubtype === 'node-mac')
@@ -2000,8 +2039,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           )}
                         </div>
                       </>
-                    ) : (
-                      <div className="text-sm text-gray-300">Choose a subtype on the left to enter credentials.</div>
+                        ) : (
+                          <div className="text-sm text-gray-300">Choose a subtype on the left to enter credentials.</div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -2023,10 +2064,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button
                   className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={() => {
-                    if (credentialsInvalid || !credentialsValidated) return;
+                    if (!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) return;
                     setCurrentSection(1);
                   }}
-                  disabled={credentialsInvalid || !credentialsValidated}
+                  disabled={!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)}
                 >
                   Next
                 </button>
