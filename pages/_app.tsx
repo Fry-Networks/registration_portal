@@ -128,7 +128,7 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
                     <Navbar />
                     <div
                       id="main"
-                      className="w-full h-[calc(100vh-96px)] dark text-foreground bg-background"
+                      className="w-full min-h-screen bg-background pt-24 text-foreground dark"
                     >
                       <ProtectedComponent
                         Component={Component}

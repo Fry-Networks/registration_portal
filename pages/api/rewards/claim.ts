@@ -5,6 +5,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { Device } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { getAssetDecimals } from '../../../lib/utils';
+import { loggers } from '../../../lib/logger';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -267,7 +268,18 @@ export default async function handler(
     });
 
   } catch (error) {
-    console.error(miner_key + ':' + error);
+    const claimError = error as any;
+    const detailMessage =
+      claimError?.response?.body?.message ||
+      claimError?.response?.text ||
+      claimError?.message ||
+      (typeof claimError === 'string' ? claimError : JSON.stringify(claimError));
+
+    loggers.apiError('/api/rewards/claim', claimError, {
+      miner_key,
+      step: step.value,
+      detail: detailMessage,
+    });
     lockSet.delete(miner_key);
 
     if (step.id === 2) {

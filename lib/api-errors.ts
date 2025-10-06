@@ -5,6 +5,9 @@
  * with clear error codes, messages, and actionable guidance for users.
  */
 
+import type { NextApiResponse } from 'next';
+import { loggers } from './logger';
+
 export interface ApiErrorResponse {
   success: false;
   code: string;
@@ -174,4 +177,32 @@ export const CommonErrors = {
     'Please try again. If the problem persists, contact support.',
     errorId ? { errorId } : undefined
   ),
+};
+
+type HandleApiErrorOptions = {
+  status?: number;
+  response?: ApiErrorResponse;
+  metadata?: Record<string, any>;
+};
+
+/**
+ * Logs an API error with full server-side context and returns a sanitized response to the client.
+ *
+ * @param res - Next.js response object
+ * @param endpoint - Identifier for the current endpoint (e.g. '/api/rewards/claim')
+ * @param error - The caught error object
+ * @param options - Optional overrides for status/response/metadata
+ */
+export const handleApiError = (
+  res: NextApiResponse,
+  endpoint: string,
+  error: unknown,
+  options: HandleApiErrorOptions = {}
+) => {
+  const { status = 500, response, metadata } = options;
+
+  loggers.apiError(endpoint, error, metadata);
+
+  const payload = response ?? CommonErrors.internalError();
+  res.status(status).json(payload);
 };

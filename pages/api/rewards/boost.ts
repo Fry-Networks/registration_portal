@@ -9,6 +9,8 @@ import algosdk, { mnemonicToSecretKey, Account } from 'algosdk';
 import { fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET } from '../../../lib/utils';
 import { VERIFY_RESULT } from '../../../lib/txn';
 import { AssetWithIdAndAmount } from '@tinymanorg/tinyman-js-sdk';
+import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+import { loggers } from '../../../lib/logger';
 
 // Algod client configuration (align with other API routes)
 const token = '';
@@ -151,22 +153,54 @@ export default async function handler(
       if (Number(resultArray[i].asset_id) === Number(FRY_1.id)) {
         if (feeAmount > 10) {
           swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount, rekey);
-          
+
           if (swappedAsset === undefined) {
-            console.error("Failed to swap FRY1.0 asset for FRY2.0");
-            res.status(500).json({ success: false, code: 'SWAP_FAILED', message: `Failed to swap FRY1.0 asset for FRY2.0` });
+            loggers.apiError('/api/rewards/boost', new Error('FRY 1.0 swap failed'), {
+              miner_key,
+              asset_id: FRY_1.id,
+              amount: feeAmount,
+            });
+            res
+              .status(500)
+              .json(
+                createApiError(
+                  ErrorCodes.SWAP_FAILED,
+                  'Unable to convert reward asset for instant claim',
+                  'Please try again later.'
+                )
+              );
             return;
           }
         } else {
-          res.status(400).json({ success: false, code: 'INSUFFICIENT_SWAP_AMOUNT', message: `Too little FRY1.0 to swap for FRY2.0` });
+          res
+            .status(400)
+            .json(
+              createApiError(
+                ErrorCodes.INVALID_INPUT,
+                'Reward amount is too small for instant claim',
+                'Please claim this reward normally.'
+              )
+            );
           return;
         }
       } else if (Number(resultArray[i].asset_id) === Number(fNODE.id) || Number(resultArray[i].asset_id) === Number(fVPN.id)){
         swappedAsset = await swapWithInputAsset(account, resultArray[i].asset_id.toString(), feeAmount, rekey);
         
         if (swappedAsset === undefined) {
-          console.error(`Failed to swap ${resultArray[i].asset_id} asset for FRY2.0`);
-          res.status(500).json({ success: false, code: 'SWAP_FAILED', message: `Failed to swap ${resultArray[i].asset_id} asset for FRY2.0` });
+          loggers.apiError('/api/rewards/boost', new Error('Swap to FRY 2.0 failed'), {
+            miner_key,
+            asset_id: resultArray[i].asset_id,
+            amount: feeAmount,
+          });
+          res
+            .status(500)
+            .json(
+              createApiError(
+                ErrorCodes.SWAP_FAILED,
+                'Unable to convert reward asset for instant claim',
+                'Please try again later.'
+              )
+            );
           return;
         }
       }
@@ -201,7 +235,19 @@ export default async function handler(
     algosdk.assignGroupID(txns);
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
     if (!tx) {
-      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: `Failed to submit boost transaction` });
+      loggers.apiError('/api/rewards/boost', new Error('Broadcast returned empty response'), {
+        miner_key,
+        txCount: signedTxns.length,
+      });
+      res
+        .status(500)
+        .json(
+          createApiError(
+            ErrorCodes.TRANSACTION_FAILED,
+            'Instant claim could not be submitted',
+            'Please try again later.'
+          )
+        );
       return;
     }
 
@@ -237,11 +283,13 @@ export default async function handler(
         { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
       );
       if (!modifiedAny) {
-        return res.status(409).json({
-          success: false,
-          code: 'ALREADY_TRANSITIONED',
-          message: 'Nothing to boost — selected rewards are no longer pending. Please refresh.'
-        });
+        return res.status(409).json(
+          createApiError(
+            ErrorCodes.UPDATE_FAILED,
+            'Nothing to boost — selected rewards are no longer pending',
+            'Please refresh and try again.'
+          )
+        );
       }
     } else {
       // WEEKLY MODE: Update many weekly entries: pending -> claimable and 70% amount
@@ -258,11 +306,13 @@ export default async function handler(
         { arrayFilters: [{ 'elem.reward_number': { $in: targetNos }, 'elem.status': 'pending' }] }
       );
       if (!updateRes.modifiedCount || updateRes.modifiedCount <= 0) {
-        return res.status(409).json({
-          success: false,
-          code: 'ALREADY_TRANSITIONED',
-          message: 'Nothing to boost — selected rewards are no longer pending. Please refresh.'
-        });
+        return res.status(409).json(
+          createApiError(
+            ErrorCodes.UPDATE_FAILED,
+            'Nothing to boost — selected rewards are no longer pending',
+            'Please refresh and try again.'
+          )
+        );
       }
       rewards_nos = targetNos;
     }
@@ -281,8 +331,13 @@ export default async function handler(
     // Respond immediately; confirmation handled by client background polling
     res.status(200).json({ success: true, message: `Boost submitted for ${miner_key}`, txId: tx.txid });
   } catch (error) {
-    console.error(miner_key + ':' + error);
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
+    handleApiError(res, '/api/rewards/boost', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Instant claim failed',
+        'Please try again. If the problem continues, contact support.'
+      )
+    });
     return;
   }
 }

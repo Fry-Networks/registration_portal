@@ -2,6 +2,7 @@ import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 // Log levels
 const levels = {
@@ -47,32 +48,46 @@ const transports: winston.transport[] = [
 const shouldUseFileLogs = process.env.LOG_TO_FILE !== 'false';
 if (shouldUseFileLogs) {
   const logDir = path.join(process.cwd(), 'logs');
+
+  const createFileTransports = (dir: string) => [
+    new DailyRotateFile({
+      filename: path.join(dir, 'combined-%DATE%.json'),
+      datePattern: 'YYYY-MM-DD',
+      maxSize: '20m',
+      maxFiles: '14d',
+      format,
+    }),
+    new DailyRotateFile({
+      filename: path.join(dir, 'error-%DATE%.json'),
+      datePattern: 'YYYY-MM-DD',
+      level: 'error',
+      maxSize: '20m',
+      maxFiles: '14d',
+      format,
+    }),
+  ];
+
   try {
     fs.mkdirSync(logDir, { recursive: true });
     fs.accessSync(logDir, fs.constants.W_OK);
 
-    transports.push(
-      new DailyRotateFile({
-        filename: path.join(logDir, 'combined-%DATE%.log'),
-        datePattern: 'YYYY-MM-DD',
-        maxSize: '20m',
-        maxFiles: '14d',
-        format,
-      }),
-      new DailyRotateFile({
-        filename: path.join(logDir, 'error-%DATE%.log'),
-        datePattern: 'YYYY-MM-DD',
-        level: 'error',
-        maxSize: '20m',
-        maxFiles: '14d',
-        format,
-      })
-    );
+    transports.push(...createFileTransports(logDir));
   } catch (error) {
     console.warn(
-      'Logger: disabling file transports (directory missing or not writable).',
+      'Logger: primary logs directory not writable, attempting fallback.',
       error instanceof Error ? error.message : error
     );
+
+    try {
+      const fallbackDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fry-logs-'));
+      transports.push(...createFileTransports(fallbackDir));
+      console.warn(`Logger: using fallback log directory ${fallbackDir}`);
+    } catch (fallbackError) {
+      console.warn(
+        'Logger: disabling file transports after fallback failure.',
+        fallbackError instanceof Error ? fallbackError.message : fallbackError
+      );
+    }
   }
 }
 

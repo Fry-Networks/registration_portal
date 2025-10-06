@@ -10,6 +10,8 @@ import { getFRYPrice } from '../../../lib/price';
 import { Device, Product } from '../../../lib/types';
 import { confirmTransaction, VERIFY_RESULT } from '../../../lib/txn';
 import { verifyTransaction } from '../algorand/verify-txn';
+import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+import { loggers } from '../../../lib/logger';
 
 // Algorand client setup
 const token = '';
@@ -129,7 +131,15 @@ export default async function handler(
     result = await withdraw(miner_key, address, amount, assetId); // Send back the same asset that was originally staked
     if (!result) {
       lockSet.delete(miner_key);
-      res.status(500).json({ message: 'error' });
+      res
+        .status(500)
+        .json(
+          createApiError(
+            ErrorCodes.TRANSACTION_FAILED,
+            'Unable to withdraw verification stake',
+            'Please try again. If this persists, contact support.'
+          )
+        );
       return;
     }
 
@@ -152,8 +162,14 @@ export default async function handler(
     res.status(200).json({ message: 'ok', txId: result });
   } catch (error) {
     lockSet.delete(miner_key);
-    console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/stake/verification-withdraw', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to withdraw verification stake',
+        'Please try again. If this persists, contact support.'
+      ),
+      metadata: { miner_key }
+    });
   }
 }
 
@@ -208,7 +224,12 @@ export async function withdraw(
     const checking = await verifyTransaction(address, tx.txid);
     return checking === VERIFY_RESULT.OK ? tx.txid : '';
   } catch (error) {
-    console.error(miner_key + ':' + error);
+    loggers.apiError('/api/stake/stake-withdraw#withdraw', error, {
+      miner_key,
+      address,
+      asset_id,
+      amount,
+    });
     return null;
   }
 }

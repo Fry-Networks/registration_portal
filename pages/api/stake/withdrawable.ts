@@ -6,6 +6,8 @@ import algosdk from 'algosdk';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
 import { Device, Product } from '../../../lib/types';
+import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+import { loggers } from '../../../lib/logger';
 
 const lockSet: Set<string> = new Set();
 
@@ -109,7 +111,13 @@ export default async function handler(
     res.status(200).json({ message: 'ok', data });
   } catch (error) {
     lockSet.delete(miner_key);
-    console.error(miner_key + ':' + error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/stake/withdrawable', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to determine withdraw availability',
+        'Please try again. If this persists, contact support.'
+      ),
+      metadata: { miner_key }
+    });
   }
 }
