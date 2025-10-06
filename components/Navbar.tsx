@@ -17,6 +17,9 @@ import { normalizeAssetId } from '../lib/utils';
 import { BellIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
+import { RiBugLine } from '@remixicon/react';
+import BugReportModal, { BugReportPayload } from './BugReportModal';
+import { useToastContext } from '../hooks/ToastContext';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
@@ -46,6 +49,103 @@ export default function Navbar() {
   const { notifications, dismiss } = useNotifications();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
+  const bugSuccessCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isBugModalOpen, setIsBugModalOpen] = useState(false);
+  const [isSubmittingBug, setIsSubmittingBug] = useState(false);
+  const [bugSubmitError, setBugSubmitError] = useState<string | null>(null);
+  const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
+  const toast = useToastContext();
+  const { success: showToastSuccess, error: showToastError } = toast;
+
+  const openBugModal = () => {
+    if (bugSuccessCloseTimeoutRef.current) {
+      clearTimeout(bugSuccessCloseTimeoutRef.current);
+      bugSuccessCloseTimeoutRef.current = null;
+    }
+    setBugSubmitError(null);
+    setBugSuccessMessage(null);
+    setIsBugModalOpen(true);
+  };
+
+  const closeBugModal = () => {
+    if (isSubmittingBug) {
+      return;
+    }
+    if (bugSuccessCloseTimeoutRef.current) {
+      clearTimeout(bugSuccessCloseTimeoutRef.current);
+      bugSuccessCloseTimeoutRef.current = null;
+    }
+    setIsBugModalOpen(false);
+    setBugSubmitError(null);
+    setBugSuccessMessage(null);
+  };
+
+  const handleBugSubmit = async (payload: BugReportPayload) => {
+    try {
+      setIsSubmittingBug(true);
+      setBugSubmitError(null);
+      setBugSuccessMessage(null);
+
+      const response = await fetch('/api/bug-report', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        let userMessage = 'We could not submit your bug report. Please try again.';
+        try {
+          const data = await response.json();
+          if (data?.message) {
+            userMessage = data.message;
+          }
+          if (data?.action) {
+            userMessage = `${userMessage} — ${data.action}`;
+          }
+          if (response.status === 429 && typeof data?.retryAfterSeconds === 'number') {
+            const minutes = Math.ceil(data.retryAfterSeconds / 60);
+            userMessage = `${data.message ?? 'Bug report rate limit reached'}. Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+          }
+        } catch (parseError) {
+          console.error('Failed to parse bug report error response', parseError);
+        }
+
+        setBugSubmitError(userMessage);
+        showToastError({
+          heading: 'Bug report failed',
+          message: userMessage,
+          duration: 6000
+        });
+        return;
+      }
+
+      const successMessage = 'Your bug has been submitted. Our developer team will review it. Thank you for helping us improve!';
+      setBugSuccessMessage(successMessage);
+      showToastSuccess({
+        heading: 'Bug report received',
+        message: 'Thanks for helping us improve the dashboard!',
+        duration: 5000
+      });
+
+      bugSuccessCloseTimeoutRef.current = setTimeout(() => {
+        bugSuccessCloseTimeoutRef.current = null;
+        closeBugModal();
+      }, 2000);
+    } catch (error) {
+      console.error('Bug report submission failed', error);
+      const fallback = 'We could not submit your bug report. Please try again.';
+      setBugSubmitError(fallback);
+      showToastError({
+        heading: 'Bug report failed',
+        message: fallback,
+        duration: 6000
+      });
+    } finally {
+      setIsSubmittingBug(false);
+    }
+  };
 
   const handleDisconnect = () => {
     if (devMode) {
@@ -181,66 +281,91 @@ export default function Navbar() {
   // (Ribbon moved to devices page)
 
   return (
-    <div>
-      <Flex
-        flexDirection="row"
-        className="w-full px-2 border-b h-24 border-white/10 sm:px-20"
-      >
-        <div className="flex" key="logo">
-          <Link
-            href="https://frynetworks.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image src={fryLogo} className="logo" alt="Fry logo" priority />
-          </Link>
-        </div>
-        
-        <div className="flex items-center gap-3" key="connect-button">
-          {!address || address.length === 0 ? (
-            <Button
-              className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
-              onClick={(e) => {
-                if (devMode) {
-                  setDevConnect(true);
-                } else {
-                  setIsWalletModalOpen(true);
-                }
-              }}
+    <Fragment>
+      <header className="fixed top-0 left-0 right-0 z-[150] border-b border-white/10 bg-[#08080b]/90 backdrop-blur">
+        <div className="mx-auto flex h-24 w-full max-w-[1600px] items-center justify-between px-3 sm:px-20">
+          <div className="flex">
+            <Link
+              href="https://frynetworks.com"
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              Connect Wallet
-            </Button>
-          ) : (
-            <>
-              <DownMenu address={address} disconnect={handleDisconnect} />
-              {notifications.length > 0 && (
-                <div className="relative" ref={notificationTrayRef}>
+              <Image src={fryLogo} className="logo" alt="Fry logo" priority />
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {!address || address.length === 0 ? (
+              <Button
+                className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+                onClick={() => {
+                  if (devMode) {
+                    setDevConnect(true);
+                  } else {
+                    setIsWalletModalOpen(true);
+                  }
+                }}
+              >
+                Connect Wallet
+              </Button>
+            ) : (
+              <Fragment>
+                <DownMenu address={address} disconnect={handleDisconnect} />
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowNotifications((prev) => !prev)}
-                    aria-expanded={showNotifications}
-                    aria-label="View device notifications"
-                    className="relative flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
+                    onClick={openBugModal}
+                    aria-label="Report a bug"
+                    className="flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
                   >
-                    <BellIcon className="h-5 w-5" aria-hidden="true" />
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      {notifications.length}
-                    </span>
+                    <RiBugLine className="h-5 w-5" />
                   </button>
-                  {showNotifications && (
-                    <div className="absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1rem)] overflow-auto rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 p-5 shadow-2xl shadow-red-900/40 z-[200]">
-                      <NotificationCenter
-                        notifications={notifications}
-                        onDismiss={dismiss}
-                      />
-                    </div>
-                  )}
+                  <div className="relative" ref={notificationTrayRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (notifications.length === 0) {
+                          return;
+                        }
+                        setShowNotifications(prev => !prev);
+                      }}
+                      aria-expanded={showNotifications}
+                      aria-label="View device notifications"
+                      className="relative flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={notifications.length === 0}
+                    >
+                      <BellIcon className="h-5 w-5" aria-hidden="true" />
+                      {notifications.length > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {notifications.length}
+                        </span>
+                      )}
+                    </button>
+                    {showNotifications && notifications.length > 0 && (
+                      <div className="absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1rem)] overflow-auto rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 p-5 shadow-2xl shadow-red-900/40 z-[200]">
+                        <NotificationCenter
+                          notifications={notifications}
+                          onDismiss={dismiss}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </>
-          )}
+              </Fragment>
+            )}
+          </div>
         </div>
-      </Flex>
+      </header>
+
+      <BugReportModal
+        isOpen={isBugModalOpen}
+        onRequestClose={closeBugModal}
+        onSubmit={handleBugSubmit}
+        isSubmitting={isSubmittingBug}
+        errorMessage={bugSubmitError}
+        successMessage={bugSuccessMessage}
+      />
+
       <Modal
         isOpen={isWalletModalOpen}
         style={customStyles}
@@ -316,7 +441,7 @@ export default function Navbar() {
         </div>
       </Modal>
       {/* Totals ribbon moved to devices page to appear under hero section */}
-    </div>
+    </Fragment>
   );
 };
 

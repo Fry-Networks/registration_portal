@@ -158,6 +158,10 @@ Feature flags
 - `WEEKLY_REWARDS_ENABLED=true|false` or `NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED`
 - `WEEKLY_CUTOFF_UTC=YYYY-MM-DDTHH:mm:ss.sssZ`
 
+Bug reporting
+- `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives submitted bug reports (required to enable the UI button)
+- `BUG_REPORT_RATE_LIMIT_HOURS` — optional override for the submission cooldown window (defaults to 12 hours if unset)
+
 Hardware DB (optional)
 - `MONGO_CREDS_DB`, `MONGO_CREDS_COLLECTION`
 
@@ -183,4 +187,3 @@ Hardware DB (optional)
 2) `npm install`
 3) `npm run dev`
 4) Sign in at `/signin`; connect a supported Algorand wallet.
-
