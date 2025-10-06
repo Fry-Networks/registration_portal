@@ -1,6 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import algosdk, { mnemonicToSecretKey, waitForConfirmation } from 'algosdk';
+import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { verifyTransaction } from '../algorand/verify-txn';
@@ -61,122 +61,193 @@ export default async function handler(
     }
 
     const assetId = convertType === FRY_2.id ? FRY_2.id : fNODE.id;
+    const claimableAmount = Number(user.claimableAmount ?? 0);
 
     const vaultBalance = await getFRYAssetBalances(assetId);
-    if (vaultBalance < user.claimableAmount) {
+    if (vaultBalance < claimableAmount) {
       res.status(402).json({
-        message: `Conversion failed: Insufficient funds available in the rewards vault to process your claim. Vault Balance: ${vaultBalance}, Your Claimable Amount: ${(user.claimableAmount).toFixed(5)} Please contact support to resolve this.`
+        message: `Conversion failed: Insufficient funds available in the rewards vault to process your claim. Vault Balance: ${vaultBalance}, Your Claimable Amount: ${claimableAmount.toFixed(5)} Please contact support to resolve this.`
       });
       return;
     }
 
-    const accountInfo = await algodClient.accountInformation(address).do();
-    // Keep comparisons stable even when indexer returns bigint ids.
-    const normalizedTarget = normalizeAssetId(assetId);
-    const assets = (accountInfo.assets ?? []) as Array<{
-      ['asset-id']?: number | string | bigint;
-      assetId?: number | string | bigint;
-      asset_id?: number | string | bigint;
-    }>;
-    const isOptedIn = assets.some((a) => {
-      const candidate =
-        a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ??
-        null;
-      return normalizeAssetId(candidate) === normalizedTarget;
-    });
+    const claimableMonths = Number(user.claimableMonths ?? 0);
+    const claimedMonths = Number(user.claimedMonths ?? 0);
+    const pendingAmount = Number(user.pendingAmount ?? 0);
 
-    if (!isOptedIn) {
-      res.status(402).json({
-        message: `Please opt-in the ${convertType === FRY_2.id ? 'FRY2.0' :'fNODE'} asset to your account.`
-      });
-      return;
-    }
-
-    const t = convertType === FRY_2.id
-        ? user.claimableAmount * (user?.ratio ? user.ratio[0] : 80)
-        : user.claimableAmount * (user?.ratio ? user.ratio[1] : 40); 
-
-    const updateResult = await collection.updateOne(
-      { address },
-      {
-        $set: {
-          claimableAmount: 0,
-          claimedMonths: user.claimableMonths + user.claimedMonths,
-          claimableMonths: 0,
-          pendingAmount: user.pendingAmount - t,
-        },
-        $push: {
-          history: {
-            amount: user.claimableAmount,
-            tokenType: convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE',
-            date: new Date()
-          }
-        }
-      }
-    );
-
-    let success = true;
-    if (updateResult.matchedCount <= 0) {
-      success = false;
-    }
-
-    if (success === false) {
-      res.status(401).json({
+    if (claimableAmount <= 0 || claimableMonths <= 0) {
+      res.status(400).json({
         success: false,
-        message: `Failed to add the rewards for account ${address}.`
+        message: 'No claimable conversion amount available yet. Refresh to check your vesting schedule.'
       });
       return;
     }
 
-    const suggestedParams = await algodClient.getTransactionParams().do();
-    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
+    const ratio = Array.isArray(user.ratio) && user.ratio.length >= 2 ? user.ratio : [80, 40];
 
-    const from = account.addr;
+    const tokenLabel = convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE';
 
-    const noteInfo = {
-      title: 'FRY 1.0 Conversion',
-      asset_id: convertType === FRY_2.id ? FRY_2.id : fNODE.id,
-      amount: user.claimableAmount,
-      date: new Date(Date.now())
+    const fryPortion = convertType === FRY_2.id
+      ? claimableAmount * ratio[0]
+      : claimableAmount * ratio[1];
+
+    const pendingAfter = Math.max(0, Number((pendingAmount - fryPortion).toFixed(8)));
+
+    const lockFilter: Record<string, any> = {
+      address,
+      claimableAmount,
+      claimableMonths,
+      claimedMonths,
+      isProcessing: { $ne: true }
     };
 
-    const enc = new TextEncoder();
-    const note = enc.encode(JSON.stringify(noteInfo));
+    const now = new Date();
 
-    const decimals = FRY_2.decimals;
-    const amount = user.claimableAmount;
-
-    const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      sender: from,
-      receiver: address,
-      amount: testMode ? 0 : BigInt(Math.floor(amount * Math.pow(10, decimals || 0))),
-      assetIndex: Number(convertType === FRY_2.id ? FRY_2.id : fNODE.id),
-      note,
-      suggestedParams,
+    const lockResult = await collection.updateOne(lockFilter, {
+      $set: {
+        isProcessing: true,
+        processingStartedAt: now,
+        lastConversionAttemptAt: now
+      }
     });
 
-    const signedTxn = txn.signTxn(rekey.sk);
-    const tx = await algodClient.sendRawTransaction(signedTxn).do();
-    if (!tx) {
-      res.status(402).json({
-        message: 'Failed to make claiming transaction for conversion'
+    if (lockResult.modifiedCount <= 0) {
+      res.status(409).json({
+        success: false,
+        message: 'Another conversion is already in progress. Please wait a moment and try again.'
       });
       return;
     }
 
-    const result = await verifyTransaction(account.addr.toString(), tx.txid);
-    if (result !== VERIFY_RESULT.OK) {
-      res
-        .status(402)
-        .json({ message: 'Failed to make verify claim transaction' });
-      return;
-    }
+    let shouldReleaseLock = true;
 
-    return res.status(200).json({
-      success: true,
-      message: `You’ve received "${user.claimableMonths}/12" month’s ${convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE'} from your vesting schedule. Check back next month for your next claim!`,
-    });
+    try {
+      const accountInfo = await algodClient.accountInformation(address).do();
+      // Keep comparisons stable even when indexer returns bigint ids.
+      const normalizedTarget = normalizeAssetId(assetId);
+      const assets = (accountInfo.assets ?? []) as Array<{
+        ['asset-id']?: number | string | bigint;
+        assetId?: number | string | bigint;
+        asset_id?: number | string | bigint;
+      }>;
+      const isOptedIn = assets.some((a) => {
+        const candidate =
+          a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ??
+          null;
+        return normalizeAssetId(candidate) === normalizedTarget;
+      });
+
+      if (!isOptedIn) {
+        res.status(402).json({
+          message: `Please opt-in the ${tokenLabel} asset to your account.`
+        });
+        return;
+      }
+
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
+      const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
+
+      const from = account.addr;
+
+      const noteInfo = {
+        title: 'FRY 1.0 Conversion',
+        asset_id: assetId,
+        amount: claimableAmount,
+        date: now
+      };
+
+      const enc = new TextEncoder();
+      const note = enc.encode(JSON.stringify(noteInfo));
+
+      const decimals = FRY_2.decimals;
+
+      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        sender: from,
+        receiver: address,
+        amount: testMode
+          ? 0
+          : BigInt(Math.floor(claimableAmount * Math.pow(10, decimals || 0))),
+        assetIndex: Number(assetId),
+        note,
+        suggestedParams,
+      });
+
+      const signedTxn = txn.signTxn(rekey.sk);
+      const tx = await algodClient.sendRawTransaction(signedTxn).do();
+      if (!tx) {
+        res.status(402).json({
+          message: 'Failed to make claiming transaction for conversion'
+        });
+        return;
+      }
+
+      const result = await verifyTransaction(account.addr.toString(), tx.txid);
+      if (result !== VERIFY_RESULT.OK) {
+        res
+          .status(402)
+          .json({ message: 'Failed to verify claim transaction' });
+        return;
+      }
+
+      const finalUpdate = await collection.updateOne(
+        { address },
+        {
+          $set: {
+            claimableAmount: 0,
+            claimedMonths: claimableMonths + claimedMonths,
+            claimableMonths: 0,
+            pendingAmount: pendingAfter,
+            isProcessing: false,
+            lastConversionAt: now,
+            lastConversionTxId: tx.txid
+          },
+          $unset: {
+            processingStartedAt: ''
+          },
+          $push: {
+            history: {
+              amount: claimableAmount,
+              tokenType: tokenLabel,
+              date: now
+            }
+          }
+        }
+      );
+
+      if (finalUpdate.matchedCount <= 0) {
+        throw new Error(`Failed to persist conversion state for ${address}`);
+      }
+
+      shouldReleaseLock = false;
+
+      return res.status(200).json({
+        success: true,
+        message: `You’ve received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule. Check back next month for your next claim!`,
+        txId: tx.txid
+      });
+    } finally {
+      if (shouldReleaseLock) {
+        try {
+          await collection.updateOne(
+            { address },
+            {
+              $set: {
+                isProcessing: false
+              },
+              $unset: {
+                processingStartedAt: ''
+              }
+            }
+          );
+        } catch (unlockError) {
+          console.error('Failed to release fry conversion processing lock', {
+            address,
+            error: unlockError instanceof Error ? unlockError.message : unlockError
+          });
+        }
+      }
+    }
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: 'Internal Server Error' });

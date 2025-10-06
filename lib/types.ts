@@ -124,4 +124,9 @@ export interface FryConversion extends mongoose.Document {
     tokenType: string;
     date: string;
   }>;
+  isProcessing?: boolean;
+  processingStartedAt?: Date;
+  lastConversionAttemptAt?: Date;
+  lastConversionAt?: Date;
+  lastConversionTxId?: string;
 }

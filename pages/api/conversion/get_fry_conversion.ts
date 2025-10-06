@@ -51,7 +51,7 @@ export default async function handler(
 
     // Only allow up to 12 months
     const monthsVested = Math.min(Math.floor(differenceInDays / 30), 11);
-    if (monthsVested + 1> user.claimedMonths) {
+    if (monthsVested + 1 > user.claimedMonths) {
       const times = (monthsVested + 1) - user.claimedMonths;
       const src = (user.amount / 12) * times;
       const convertedAmount =
@@ -64,7 +64,11 @@ export default async function handler(
         {
           $set: {
             claimableMonths: times,
-            claimableAmount: convertedAmount
+            claimableAmount: convertedAmount,
+            isProcessing: false
+          },
+          $unset: {
+            processingStartedAt: ''
           }
         }
       );

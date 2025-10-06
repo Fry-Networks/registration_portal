@@ -177,7 +177,11 @@ export default async function handler(
           claimableAmount: 0,
           pendingAmount: user.amount,
           claimableMonths: 0,
-          claimedMonths: 0
+          claimedMonths: 0,
+          isProcessing: false
+        },
+        $unset: {
+          processingStartedAt: ''
         }
       }
     );

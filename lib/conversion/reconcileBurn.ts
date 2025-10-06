@@ -330,12 +330,14 @@ export const reconcileFryBurn = async ({
         claimableAmount: 0,
         pendingAmount: user.amount,
         claimableMonths: 0,
-        claimedMonths: 0
+        claimedMonths: 0,
+        isProcessing: false
       },
       $unset: {
         supportReconcile: '',
         burnAttempted: '',
-        burnAttemptedAt: ''
+        burnAttemptedAt: '',
+        processingStartedAt: ''
       }
     }
   );
