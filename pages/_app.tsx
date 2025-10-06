@@ -13,38 +13,6 @@ import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 
-// import { createAppKit } from '@reown/appkit/react';
-// import { iotex, mainnet } from '@reown/appkit/networks';
-// import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-// import { WagmiProvider } from 'wagmi';
-
-// import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-
-// const projectId = "74761852c2f607c540bb116a1bc9f011";
-// const queryClient = new QueryClient();
-
-// const metadata = { //optional
-//   name: 'AppKit',
-//   description: 'AppKit',
-//   url: 'https://example.com',
-//   icons: ['https://avatars.githubusercontent.com/u/179229932']
-// }
-
-// const wagmiAdapter = new WagmiAdapter({
-//   networks: [mainnet, iotex],
-//   projectId
-// });
-
-// export const walletModal = createAppKit({
-//   adapters: [wagmiAdapter],
-//   networks: [mainnet, iotex],
-//   metadata: metadata,
-//   projectId,
-//   features: {
-//     analytics: true,
-//   }
-//  })
-
 interface MyAppProps extends AppProps {
   Component: NextPage;
 }
