@@ -89,9 +89,7 @@ export default function DeviceListItem({
   const openDetails = () => setExpanded(true);
   const closeDetails = () => setExpanded(false);
 
-  const isDeviceStatusOkay = (device: Device) => {
-    return device.verified && device.verified === true && alertShow === false;
-  };
+  const deviceStatusOkay = device?.verified === true && alertShow === false;
 
   const router = useRouter();
   const isStaked = () => {
@@ -109,14 +107,6 @@ export default function DeviceListItem({
   const minerPrefix = device.miner_key.split('-')[0];
   const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
-  const borderClass =
-    stakeable === false && !device.verified
-      ? 'border-gray-500'
-      : !device.registered_portal_model || hardwareWarning
-        ? 'border-yellow-400'
-        : isDeviceStatusOkay(device)
-          ? 'border-green-500'
-          : 'border-red-500';
 
   const summaryBadges: Array<{ label: string; className: string }> = [];
   if (!device.registered_portal_model) {
@@ -143,6 +133,10 @@ export default function DeviceListItem({
   const hasRegistration = isRegistrationStaked(device);
   const hasNode = isNodeStaked(device);
   const verificationBlocked = (needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode);
+  const portalMissing = !device.registered_portal_model;
+  const stakingPrereqsMissing = verificationBlocked;
+  const shouldShowRed = stakingPrereqsMissing || portalMissing || hardwareWarning;
+  const shouldShowYellow = !shouldShowRed && !device.verified;
   const verificationReason = verificationBlocked
     ? `Complete ${
         needsRegistration && !hasRegistration && needsNodeStake && !hasNode
@@ -152,6 +146,41 @@ export default function DeviceListItem({
             : 'node operation staking'
       } before verification`
     : undefined;
+
+  const { borderClass, hoverRingClass } = useMemo(() => {
+    if (stakeable === false && !device.verified) {
+      return {
+        borderClass: 'border-gray-500',
+        hoverRingClass: 'hover:ring-2 hover:ring-gray-400/70 hover:ring-offset-0',
+      };
+    }
+
+    if (shouldShowRed) {
+      return {
+        borderClass: 'border-red-500',
+        hoverRingClass: 'hover:ring-2 hover:ring-red-500/70 hover:ring-offset-0',
+      };
+    }
+
+    if (shouldShowYellow) {
+      return {
+        borderClass: 'border-yellow-400',
+        hoverRingClass: 'hover:ring-2 hover:ring-yellow-300/70 hover:ring-offset-0',
+      };
+    }
+
+    if (deviceStatusOkay) {
+      return {
+        borderClass: 'border-green-500',
+        hoverRingClass: 'hover:ring-2 hover:ring-green-400/70 hover:ring-offset-0',
+      };
+    }
+
+    return {
+      borderClass: 'border-gray-500',
+      hoverRingClass: 'hover:ring-2 hover:ring-gray-400/70 hover:ring-offset-0',
+    };
+  }, [stakeable, device, shouldShowRed, shouldShowYellow, deviceStatusOkay]);
 
   const { data: rewardSummary } = useRewardSummary(device?.miner_key);
   const [countdown, setCountdown] = useState<string>("");
@@ -561,7 +590,7 @@ export default function DeviceListItem({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 md:gap-4 self-end md:self-auto">
+        <div className="flex items-center gap-3 md:gap-4 self-end md:self-auto pr-12">
           {alertShow && (
             <div>
               <AlertWithTooltip deviceStatus={deviceStatus} />
@@ -732,6 +761,11 @@ export default function DeviceListItem({
               <div className="font-semibold text-sky-300">{formatTokenAmount(rewardSummary?.accruing ?? 0)}</div>
             </div>
           </div>
+          {pendingAmount > 0 && (
+            <div className="mt-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-100">
+              Rewards collect as pending for up to 30 days. Once that timer completes they unlock for a fee-free claim; claiming earlier with Instant Claim applies the 30% boost fee.
+            </div>
+          )}
         </div>
         <div className="rounded-xl border border-gray-800 bg-black/70 p-4 space-y-2">
           <div className="text-xs uppercase tracking-wide text-gray-500">Unlock window</div>
@@ -857,7 +891,7 @@ export default function DeviceListItem({
         tabIndex={0}
         onClick={openDetails}
         onKeyDown={handleCardKeyDown}
-        className={`group relative w-full cursor-pointer select-none rounded-xl border bg-black/60 px-4 py-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:border-red-400/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${borderClass}`}
+        className={`group relative w-full cursor-pointer select-none rounded-xl border bg-black/60 px-4 py-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${borderClass} ${hoverRingClass}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-2">
@@ -906,20 +940,106 @@ export default function DeviceListItem({
             </div>
           ))}
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-gray-400 sm:grid-cols-2">
-          <div className="flex flex-col gap-1">
-            <span className="uppercase tracking-widest text-[0.6rem] text-gray-500">Owner wallet</span>
-            <span className="font-mono text-[0.7rem] text-gray-300">
-              {truncateAddress(device.address)}
+        <div className="mt-4 flex flex-col gap-1 text-xs text-gray-400">
+          <span className="uppercase tracking-widest text-[0.6rem] text-gray-500">Reward wallet</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[0.7rem] text-gray-200 break-all">
+              {device.reward_wallet ?? '—'}
             </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="uppercase tracking-widest text-[0.6rem] text-gray-500">Reward wallet</span>
-            <span className="font-mono text-[0.7rem] text-gray-300">
-              {truncateAddress(device.reward_wallet)}
-            </span>
+            {device.reward_wallet && <CopyAddress address={device.reward_wallet} />}
           </div>
         </div>
+        <div
+          className="mt-4 flex flex-wrap items-center gap-2"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {(isProductStakeAvailable(product) || device.verified) && (
+            <Button
+              className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+                isStaked()
+                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  : verificationBlocked
+                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+              }`}
+              disabled={!isStaked() && verificationBlocked}
+              onClick={() => {
+                if (!isStaked() && verificationBlocked) return;
+                handleWithdrawStake(device);
+              }}
+              title={verificationReason}
+            >
+              {isStaked() ? 'Verification Withdraw' : 'Verification Stake'}
+            </Button>
+          )}
+          {verificationBlocked && (
+            <Button
+              className="min-w-[110px] bg-transparent text-[0.6rem] py-1 border-red-500 hover:bg-red-500 hover:border-red-500"
+              onClick={() => handleStaking(device.miner_key)}
+            >
+              Stake
+            </Button>
+          )}
+          <Button
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 transition-colors duration-150 ${
+              !isProductStakeAvailable(product)
+                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20'
+                : isStaked()
+                  ? 'border-green-500 text-green-300 hover:bg-green-600/10'
+                  : 'border-red-500 text-red-300 hover:bg-red-600/10'
+            }`}
+            disabled={claimableAmount <= 0}
+            onClick={() => handleClaimButton(device)}
+          >
+            Claim Reward
+          </Button>
+          <Button
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 transition-colors duration-150 ${
+              !isProductStakeAvailable(product)
+                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20 cursor-not-allowed'
+                : pendingAmount > 0
+                  ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200'
+                  : isStaked()
+                    ? 'border-green-500 text-green-300 cursor-not-allowed'
+                    : 'border-gray-500 text-gray-500 cursor-not-allowed'
+            }`}
+            disabled={pendingAmount <= 0}
+            onClick={() => handleBoostButton(device)}
+          >
+            Instant Claim (30% fee)
+          </Button>
+          <Button
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+              !isProductStakeAvailable(product)
+                ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                : isStaked()
+                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+            }`}
+            onClick={() => viewHistory()}
+          >
+            History
+          </Button>
+          {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
+            <Button
+              className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+                !isProductStakeAvailable(product)
+                  ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                  : isStaked()
+                    ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+              }`}
+              onClick={() => handleWithdrawAllButton(device)}
+            >
+              Unstake
+            </Button>
+          )}
+        </div>
+        {pendingAmount > 0 && (
+          <div className="mt-2 text-[0.6rem] text-yellow-200/80">
+            Pending rewards unlock after 30 days from accrual. Wait for the unlock to claim at 0% fee, or use Instant Claim (30% fee) if you need the funds early.
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
           <span className="font-mono text-[0.7rem] text-gray-400">
             {truncateAddress(device.miner_key)}

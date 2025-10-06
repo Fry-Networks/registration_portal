@@ -89,6 +89,11 @@ export default function RewardListItem({
                 specificDate={reward.createdAt}
                 boosted={reward.status === 'claimable'}
               />
+              {reward.status === 'pending' && (
+                <p className="mt-2 text-xs text-yellow-200/80">
+                  Rewards unlock for a fee-free claim after 30 days of accrual. The bar above shows how far along this payout is; use Instant Claim (30% fee) if you want to withdraw early.
+                </p>
+              )}
               <Flex
                 justifyContent="start"
                 className="gap-3 mt-3 w-full sm:auto"

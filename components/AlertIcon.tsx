@@ -1,4 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+
+const LABELS: Record<string, string> = {
+  position: 'Position',
+  reward_wallet: 'Reward Wallet',
+  registration: 'Registration Staking',
+  node: 'Node Staking',
+  hardware: 'Hardware',
+};
 
 const AlertWithTooltip = ({
   deviceStatus
@@ -7,44 +15,38 @@ const AlertWithTooltip = ({
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
+  const issues = useMemo(() => {
+    return Object.entries(deviceStatus)
+      .filter(([_, value]) => Boolean(value))
+      .map(([key, value]) => ({
+        key,
+        label: LABELS[key] ?? key.replace(/_/g, ' '),
+        message: value,
+      }));
+  }, [deviceStatus]);
+
+  if (!issues.length) return null;
+
   return (
-    <div className="relative flex justify-end items-center">
-      {/* Red Alert Icon */}
+    <div className="relative flex items-center justify-end">
       <div
-        className="w-4 h-4 bg-red-500 text-white flex justify-center items-center rounded-full cursor-pointer"
+        className="flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-red-500 text-[0.6rem] font-bold text-white"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
         !
       </div>
 
-      {/* Tooltip */}
       {isHovered && (
-        <div className="absolute min-w-[250px] sm:min-w-[500px] left-0 top-full mt-2 bg-gray-900 text-white text-sm px-3 py-2 rounded shadow-lg">
-          {deviceStatus['position'] && (
-            <p>
-              <strong>Position: </strong>Not set
-            </p>
-          )}
-          {deviceStatus['reward_wallet'] && (
-            <p>
-              <strong>Reward Wallet: </strong>Not set
-            </p>
-          )}
-
-          {/* Connectivity wallet removed from requirements */}
-          {deviceStatus['registration'] && (
-            <p>
-              <strong>Registration Staking: </strong>
-              {deviceStatus['registration']}
-            </p>
-          )}
-          {deviceStatus['node'] && (
-            <p>
-              <strong>Node Staking: </strong>
-              {deviceStatus['node']}
-            </p>
-          )}
+        <div className="absolute right-0 top-full z-50 mt-2 max-w-xs sm:max-w-sm rounded-md border border-red-500/40 bg-black/90 px-3 py-2 text-xs text-gray-100 shadow-lg">
+          <div className="space-y-2">
+            {issues.map(({ key, label, message }) => (
+              <div key={key} className="leading-snug">
+                <div className="font-semibold text-red-200">{label}</div>
+                <div className="text-gray-200 whitespace-pre-wrap break-words">{message}</div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
