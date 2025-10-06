@@ -21,11 +21,6 @@ import { RiBugLine } from '@remixicon/react';
 import BugReportModal, { BugReportPayload } from './BugReportModal';
 import { useToastContext } from '../hooks/ToastContext';
 
-const navigation = [
-  { name: 'My registrations', href: '/my_registrations' },
-  { name: 'New registration', href: '/new_registration' }
-];
-
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
 }

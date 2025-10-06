@@ -13,19 +13,26 @@ import PasteAddress from '../components/PasteAddress';
 import bgImg from '../assets/background.png';
 import Image, { StaticImageData } from 'next/image';
 import airthingsLogo from '../assets/portals/air-things.png';
-import awairLogo from '../assets/portals/awair.svg';
+import ambientLogo from '../assets/portals/ambient.png';
 import atmotubeLogo from '../assets/portals/atmotube.png';
-import kaiterraLogo from '../assets/portals/kaiterra.png';
-import switchbotLogo from '../assets/portals/switchbot.png';
-import shellyLogo from '../assets/portals/shelly.png';
-import weatherxmLogo from '../assets/portals/weatherxm.png';
-import tempestLogo from '../assets/portals/tempest.png';
-import iopoolLogo from '../assets/portals/iopool.png';
+import awairLogo from '../assets/portals/awair.svg';
+import ecowittLogo from '../assets/portals/ecowitt.png';
 import gmcmapLogo from '../assets/portals/GMCMap.png';
+import goveeLogo from '../assets/portals/govee.png';
+import iopoolLogo from '../assets/portals/iopool.png';
+import kaiterraLogo from '../assets/portals/kaiterra.png';
+import lacrosseLogo from '../assets/portals/lacrosse.jpg';
+import nrfLogo from '../assets/portals/nrf.png';
+import pebbleLogo from '../assets/portals/pebble.svg';
+import purpleairLogo from '../assets/portals/purple-air.png';
 import RTSPLogo from '../assets/portals/RTSP.jpg';
-import tapoLogo from '../assets/portals/tapo.png';
 import sensecapLogo from '../assets/portals/sensecap.webp';
-import iotexLogo from '../assets/portals/iotex.svg';
+import shellyLogo from '../assets/portals/shelly.png';
+import switchbotLogo from '../assets/portals/switchbot.png';
+import tapoLogo from '../assets/portals/tapo.png';
+import tempestLogo from '../assets/portals/tempest.png';
+import weatherxmLogo from '../assets/portals/weatherxm.png';
+
 import * as h3 from 'h3-js';
 import { isValidCell } from "h3-js";
 import dynamic from 'next/dynamic';
@@ -212,10 +219,8 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
   camera: 'Camera Portal',
   energy: 'Energy Portal',
   weather: 'Weather Portal',
-  node: 'Node Portal',
   hardware: 'Hardware Portal',
-  radiation: 'Radiation Portal',
-  aem: 'AI Edge Miner Portal'
+  radiation: 'Radiation Portal'
 };
 
 export const FIELD_LABELS: Record<string, string> = {
@@ -229,31 +234,49 @@ export const FIELD_LABELS: Record<string, string> = {
   password: 'Password',
   station: 'Station',
   api_key: 'API Key',
+  app_key: 'APP Key',
   rtsp_url: 'RTSP URL',
   mac_address: 'MAC Address',
-  gmcmap_id: 'GMCMap ID'
+  gmcmap_id: 'GMCMap ID',
+  sensorId: 'Sensor ID',
+  readKey: 'Read Key',
+  IP: 'Public IP Address',
 };
 
 export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_types?: string[] }[]> = {
   air: [
+    { id: 'ambient', name: 'Ambient', sub_types: ['api_key'] },
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] },
     { id: 'pebble', name: 'Pebble', sub_types: ['imei'] },
+    { id: 'airthings', name: 'Airthings', sub_types: ['token', 'deviceId'] },
+    { id: 'purpleair', name: 'PurpleAir', sub_types: ['sensorId', 'readKey'] },
     { id: 'awair', name: 'Awair', sub_types: ['token', 'deviceId'] },
+    { id: 'kaiterra', name: 'Kaiterra', sub_types: ['token', 'deviceId'] },
     { id: 'atmotube', name: 'Atmotube', sub_types: ['token', 'deviceId'] },
-    { id: 'kaiterra', name: 'Kaiterra', sub_types: ['token', 'deviceId'] }
+    { id: 'govee', name: 'Govee', sub_types: ['api_key', 'deviceId'] },
+    { id: 'nrf', name: 'NRF', sub_types: ['token', 'deviceId'] },
+    { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
   ],
   energy: [
     { id: 'switchbot', name: 'SwitchBot', sub_types: ['token', 'secret', 'deviceId'] },
-    { id: 'shelly', name: 'Shelly', sub_types: ['serverUrl', 'auth_key', 'deviceId'] }
+    { id: 'shelly', name: 'Shelly', sub_types: ['serverUrl', 'auth_key', 'deviceId'] },
+    { id: 'tapo', name: 'TP-Link Tapo', sub_types: ['username', 'password', 'IP'] },
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key']}
   ],
   weather: [
+    { id: 'ambient', name: 'Ambient', sub_types: ['api_key'] },
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] },
     { id: 'weather-xm', name: 'Weather-XM', sub_types: ['username', 'password'] },
-    { id: 'tempest', name: 'Tempest', sub_types: ['station', 'token'] }
+    { id: 'tempest', name: 'Tempest', sub_types: ['station', 'token'] },
+    { id: 'lacrosse', name: 'LaCrosse', sub_types: ['api_key'] },
+    { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
   ],
-  water: [{ id: 'iopool', name: 'Iopool', sub_types: ['api_key'] }],
+  water: [
+    { id: 'iopool', name: 'Iopool', sub_types: ['api_key'] },
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] }
+  ],
   camera: [{ id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] }],
   hardware: [{ id: 'hardware', name: 'MAC Address', sub_types: ['mac_address'] }],
-  node: [{ id: 'node', name: 'MAC Address', sub_types: ['mac_address'] }],
-  aem: [{ id: 'aem', name: 'MAC Address', sub_types: ['mac_address'] }],
   radiation: [{ id: 'GMCMap', name: 'GMCMap', sub_types: ['gmcmap_id'] }]
 };
 
@@ -266,9 +289,8 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (['HWM', 'LWM'].includes(minerType)) return 'weather';
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
-  if (minerType === 'IRM') return 'radiation';
-  if (minerType === 'AEM') return 'aem';
-  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return minerType.toLowerCase();
+  if (minerType === 'IRM') return 'radiation'; 
+  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'CN', 'RDN', 'SDN', 'SVN', 'AEM'].includes(minerType)) return minerType.toLowerCase();
 
   return '';
 };
@@ -1403,19 +1425,26 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
   const subtypeLogoMap: Record<string, StaticImageData> = useMemo(
     () => ({
-      pebble: iotexLogo,
-      awair: awairLogo,
-      atmotube: atmotubeLogo,
-      kaiterra: kaiterraLogo,
       airthings: airthingsLogo,
+      ambient: ambientLogo,
+      atmotube: atmotubeLogo,
+      awair: awairLogo,
+      ecowitt: ecowittLogo,
+      gmcmap: gmcmapLogo,
+      govee: goveeLogo,
+      iopool: iopoolLogo,
+      kaiterra: kaiterraLogo,
+      lacrosse: lacrosseLogo,
+      nrf: nrfLogo,
+      pebble: pebbleLogo,
+      purpleair: purpleairLogo,
+      rtsp: RTSPLogo,
+      sensecap: sensecapLogo,
+      shelly: shellyLogo,
       switchbot: switchbotLogo,
       tapo: tapoLogo,
-      shelly: shellyLogo,
-      'weather-xm': weatherxmLogo,
       tempest: tempestLogo,
-      iopool: iopoolLogo,
-      gmcmap: gmcmapLogo,
-      rtsp: RTSPLogo,
+      weatherxm: weatherxmLogo
     }),
     []
   );
@@ -1682,16 +1711,16 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                         setSwitchbotError('No devices returned');
                                       }
                                     } else {
-                                      // Fallback to original API call
-                                      const res = await fetch('/api/energy/switchbot-devices', {
+                                      // Fallback to validator-backed credentials/validate
+                                      const res = await fetch('/api/credentials/validate', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
                                         credentials: 'include',
                                         body: JSON.stringify({
-                                          token: credentials['token'],
-                                          secret: credentials['secret'],
-                                          address: session?.user?.address,
                                           miner_key: resolvedMinerKey,
+                                          api_type: 'switchbot',
+                                          credentials: { token: credentials['token'], secret: credentials['secret'], deviceId: credentials['deviceId'] },
+                                          portal_type: 'energy'
                                         }),
                                       });
 

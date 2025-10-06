@@ -150,12 +150,19 @@ export default function Convert({ products }: { products: Product[] }) {
         return;
       }
 
+      // Redirect to the registration credentials step (index 1) instead of old portal pages
       if (result.device.registered_portal_model !== undefined) {
-        router.push({ pathname: `/${prefix}portal`, query: { minerKey, portalType: result.device.registered_portal_model } });
+        router.push({
+          pathname: '/register',
+          query: { minerKey, type: result.device.registered_portal_model, index: '0' }
+        });
         return;
       }
 
-      router.push({ pathname: `/${prefix}portal`, query: { minerKey } });
+      router.push({
+        pathname: '/register',
+        query: { minerKey, type: prefix, index: '0' }
+      });
     } catch (error) {
       toast.error({
         heading: 'Error',

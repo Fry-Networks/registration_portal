@@ -1,12 +1,25 @@
 // This approach is taken from https://github.com/vercel/next.js/tree/canary/examples/with-mongodb
 import { MongoClient } from "mongodb";
+import dns from 'dns';
 
 declare global {
   var _mongoClientPromise: Promise<MongoClient>;
 }
 
+
+// Prefer IPv4 when resolving DNS to avoid environments where IPv6 lookups
+// cause SRV resolution failures (ESERVFAIL). This is safe to call when the
+// Node.js version supports it; wrap in try/catch for older versions.
+try {
+  if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+  }
+} catch (e) {
+  // ignore if not supported
+}
+
 if (!process.env.MONGO_URI) {
-  throw new Error('Invalid/Missing environment variable: "MONGODB_URI"');
+  throw new Error('Invalid/Missing environment variable: "MONGO_URI"');
 }
 
 const uri = process.env.MONGO_URI;

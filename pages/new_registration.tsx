@@ -23,7 +23,7 @@ export default function NewRegistrationPage() {
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
   useEffect(() => {
     if (activeAccount && !session) {
-      router.push(`/signin?callbackUrl=${encodeURIComponent('/new_registration')}`);
+      router.push(`/signin?callbackUrl=${encodeURIComponent('/devices')}`);
     }
   }, [activeAccount, session, router]);
   

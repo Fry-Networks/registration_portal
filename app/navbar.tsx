@@ -11,8 +11,7 @@ import { Button } from '@tremor/react';
 
 const navigation = [
   { name: 'My registrations', href: '/my_registrations' },
-  { name: 'New registration', href: '/new_registration' },
-  
+  // 'New registration' removed from top-level nav
 ];
 
 function classNames(...classes: string[]) {
