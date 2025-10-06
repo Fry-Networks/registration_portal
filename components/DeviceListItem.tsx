@@ -1055,13 +1055,13 @@ export default function DeviceListItem({
         </div>
       </div>
       {expanded && isPortalReady &&
-        createPortal(
+          createPortal(
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 py-8 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-start justify-center bg-black/70 px-4 py-8 pt-20 backdrop-blur-sm"
             onClick={closeDetails}
           >
             <div
-              className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-800 bg-black/95 p-6 shadow-2xl"
+              className="relative mt-6 max-h-[82vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-800 bg-black/95 p-6 shadow-2xl"
               onClick={(event) => event.stopPropagation()}
             >
               <button
