@@ -26,6 +26,30 @@ import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
 import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 
+// Env-driven portal credential requirement parsing (matches logic in pages/devices.tsx)
+const _CREDENTIALS_NEEDED_RAW = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
+function parseCredentialsNeeded(): Set<string> {
+  if (!_CREDENTIALS_NEEDED_RAW) {
+    return new Set(['ALL']);
+  }
+  const v = _CREDENTIALS_NEEDED_RAW.toUpperCase();
+  if (v === 'NONE' || v === 'FALSE' || v === '0') return new Set();
+  if (v === 'ALL' || v === 'TRUE' || v === '1') return new Set(['ALL']);
+  return new Set(v.split(',').map(s => s.trim()).filter(Boolean));
+}
+const CREDENTIALS_NEEDED = parseCredentialsNeeded();
+
+function isLinkRequiredForPrefix(prefix: string) {
+  if (!CREDENTIALS_NEEDED || CREDENTIALS_NEEDED.size === 0) return false;
+  if (CREDENTIALS_NEEDED.has('ALL')) return true;
+  return CREDENTIALS_NEEDED.has(prefix);
+}
+
+// Hardware check uses the same `NEXT_PUBLIC_CREDENTIALS_NEEDED` parsing above.
+function isHardwareCheckRequiredForPrefix(prefix: string) {
+  return isLinkRequiredForPrefix(prefix);
+}
+
 type TokenConfig = {
   stake?: string;
   reward?: string;
@@ -105,15 +129,18 @@ export default function DeviceListItem({
   };
 
   const minerPrefix = device.miner_key.split('-')[0];
-  const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix);
+  const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) && isHardwareCheckRequiredForPrefix(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
 
   const summaryBadges: Array<{ label: string; className: string }> = [];
   if (!device.registered_portal_model) {
-    summaryBadges.push({
-      label: 'Portal link needed',
-      className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
-    });
+    const prefix = minerPrefix;
+    if (isLinkRequiredForPrefix(prefix)) {
+      summaryBadges.push({
+        label: 'Portal link needed',
+        className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
+      });
+    }
   }
   if (hardwareWarning) {
     summaryBadges.push({
@@ -274,9 +301,12 @@ export default function DeviceListItem({
       let hasIssue = Boolean(status);
 
       const prefix = targetDevice.miner_key.split('-')[0];
+      // Only perform hardware-related status checks when the environment
+      // indicates hardware checks are required for this prefix.
       const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(prefix);
+      const hardwareAllowed = needsHardwareCheck && isHardwareCheckRequiredForPrefix(prefix);
 
-      if (needsHardwareCheck && currentHardwareStatus) {
+      if (hardwareAllowed && currentHardwareStatus) {
         if (!currentHardwareStatus.linked) {
           combinedStatus.hardware = 'MAC address not linked to FryNetworks.';
           hasIssue = true;
@@ -554,7 +584,7 @@ export default function DeviceListItem({
 
   const detailContent = (
     <div className="space-y-6 text-sm text-gray-100">
-      {!device.registered_portal_model && (
+      {!device.registered_portal_model && isLinkRequiredForPrefix(minerPrefix) && (
         <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-200">
           This device is not linked to FryNetworks. Click the <b>gear icon</b> to link it.
         </div>

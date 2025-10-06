@@ -98,6 +98,36 @@ const NOTIFICATION_PREFIXES = new Set([
   'ODM'
 ]);
 
+// Hardware checks follow the same configuration as credentials needed setting
+function isHardwareCheckRequiredForPrefix(prefix: string) {
+  return isLinkRequiredForPrefix(prefix);
+}
+
+// Determine which prefixes require portal credentials/linking based on env.
+// NEXT_PUBLIC_CREDENTIALS_NEEDED can be:
+//  - empty/undefined => default to requiring links for ALL known prefixes (preserves current behavior)
+//  - 'NONE' or 'FALSE' => no prefixes require linking
+//  - 'ALL' or 'TRUE' => all prefixes require linking
+//  - comma-separated list like 'AEM,ISM' => only those prefixes require linking
+const _CREDENTIALS_NEEDED_RAW = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
+function parseCredentialsNeeded(): Set<string> {
+  if (!_CREDENTIALS_NEEDED_RAW) {
+    // default: require links for all prefixes (preserve existing behavior)
+    return new Set(['ALL']);
+  }
+  const v = _CREDENTIALS_NEEDED_RAW.toUpperCase();
+  if (v === 'NONE' || v === 'FALSE' || v === '0') return new Set();
+  if (v === 'ALL' || v === 'TRUE' || v === '1') return new Set(['ALL']);
+  return new Set(v.split(',').map(s => s.trim()).filter(Boolean));
+}
+const CREDENTIALS_NEEDED = parseCredentialsNeeded();
+
+function isLinkRequiredForPrefix(prefix: string) {
+  if (!CREDENTIALS_NEEDED || CREDENTIALS_NEEDED.size === 0) return false;
+  if (CREDENTIALS_NEEDED.has('ALL')) return true;
+  return CREDENTIALS_NEEDED.has(prefix);
+}
+
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
   const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
@@ -225,6 +255,13 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
   const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN','CN','AEM'].includes(d.miner_key.split('-')[0]));
   const countNotLinked = (arr: Device[]) => arr.filter(d => !d.registered_portal_model || d.registered_portal_model === '').length;
 
+  // Count not linked but consider env-driven requirements
+  const countNotLinkedHonoringEnv = (arr: Device[]) => arr.filter(d => {
+    const prefix = d.miner_key.split('-')[0];
+    if (!isLinkRequiredForPrefix(prefix)) return false; // linking not required for this prefix
+    return !d.registered_portal_model || d.registered_portal_model === '';
+  }).length;
+
   const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
     const colorMap: Record<typeof color, string> = {
       gray: 'bg-gray-900/40 text-gray-300',
@@ -245,7 +282,7 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
     const total = items.length;
     const unverified = items.filter(d => !d.verified).length;
     const verified = items.filter(d => d.verified).length;
-    const notLinked = countNotLinked(items);
+  const notLinked = countNotLinkedHonoringEnv(items);
     return (
       <div className="border border-gray-800 rounded-xl p-4 w-full">
         <div className="text-white text-sm font-semibold mb-2">{title}</div>
@@ -267,7 +304,7 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
       const total = items.length;
       const unverified = items.filter(d => !d.verified).length;
       const verified = items.filter(d => d.verified).length;
-      const notLinked = countNotLinked(items);
+    const notLinked = countNotLinkedHonoringEnv(items);
       return (
         <div>
           <div className="text-white text-sm font-medium mb-2">{title}</div>
@@ -582,7 +619,10 @@ const DevicesPage = ({
       const status = hardwareStatus[key];
       const isLinked = Boolean(device.registered_portal_model && device.registered_portal_model.trim().length > 0);
 
-      if (!isLinked || !status || status.reason === 'missing_mac' || !status.linked) {
+  // Skip link-required warnings if linking is not required for this prefix
+  if (!isLinkRequiredForPrefix(prefix)) return acc;
+
+  if (!isLinked || !status || (!isHardwareCheckRequiredForPrefix(prefix) ? false : status.reason === 'missing_mac') || !status.linked) {
         if (!dismissedSet.has(idBase) && !pushed.has(idBase)) {
           acc.push({
             id: idBase,
@@ -614,7 +654,7 @@ const DevicesPage = ({
         return acc;
       }
 
-      if (status && status.linked && !status.valid) {
+  if (isHardwareCheckRequiredForPrefix(prefix) && status && status.linked && !status.valid) {
         const id = `${key}-mac`;
         if (!dismissedSet.has(id) && !pushed.has(id)) {
           const issue = describeMacIssue(status.detail ?? status.reason);
