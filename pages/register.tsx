@@ -1627,7 +1627,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           </div>
                           <h3 className="text-xl font-semibold text-white mb-2">No Credentials Required</h3>
                           <p className="text-gray-300 mb-4">
-                            This device type ({resolvedMinerKey?.split('-')[0]}) doesn't require credentials configuration at this time.
+                            This device type ({resolvedMinerKey?.split('-')[0]}) does not require credentials configuration at this time.
                           </p>
                           <p className="text-sm text-gray-400">
                             You can proceed directly to the next step to complete your device registration.
