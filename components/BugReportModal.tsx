@@ -35,9 +35,14 @@ const modalStyles = {
     backgroundColor: '#0d0d10',
     borderRadius: '24px',
     border: '1px solid rgba(239, 68, 68, 0.4)',
-    padding: '2rem',
+    padding: '1.75rem',
     maxWidth: '32rem',
-    width: '90vw',
+    width: '92vw',
+    height: '85vh',
+    maxHeight: '700px',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
     color: '#f5f5f5',
     boxShadow: '0 20px 40px rgba(0, 0, 0, 0.45)'
   },
@@ -172,7 +177,9 @@ export default function BugReportModal({
       contentLabel="Report a bug"
       shouldCloseOnOverlayClick={!isSubmitting}
     >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <form onSubmit={handleSubmit} className="flex h-full flex-col">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2 scrollbar-thin scrollbar-thumb-red-600/40 scrollbar-track-transparent">
+        <div className="flex flex-col gap-5 pb-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-white">Report a Bug</h2>
@@ -282,13 +289,16 @@ export default function BugReportModal({
             {successMessage}
           </div>
         )}
+        </div>
+        </div>
 
-        <div className="flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onRequestClose}
-            className="rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:border-red-400"
-            disabled={isSubmitting}
+        <div className="flex-shrink-0 mt-3 flex flex-col gap-3 border-t border-red-500/20 bg-[#0d0d10] pt-3">
+          <div className="flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              onClick={onRequestClose}
+              className="rounded-lg border border-transparent px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:border-red-400"
+              disabled={isSubmitting}
           >
             Cancel
           </button>
@@ -299,6 +309,7 @@ export default function BugReportModal({
           >
             {isSubmitting ? 'Submitting…' : 'Submit bug report'}
           </button>
+          </div>
         </div>
       </form>
     </Modal>

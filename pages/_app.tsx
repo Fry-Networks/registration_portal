@@ -7,11 +7,13 @@ import Modal from 'react-modal';
 import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
 import { WalletProvider } from '@txnlab/use-wallet-react';
 import Navbar from '../components/Navbar';
+import AnnouncementBanner from '../components/AnnouncementBanner';
 import { ModalProvider } from '../app/modalcontext';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
+import { useRouter } from 'next/router';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -25,6 +27,10 @@ interface ProtectedComponentProps {
 
 export default function MyApp({ Component, pageProps }: MyAppProps) {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
+  const router = useRouter();
+
+  const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history';
+  const showAnnouncementBanner = notificationsEnabled;
 
   useEffect(() => {
     // Initialize WalletManager
@@ -80,6 +86,12 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
     Modal.setAppElement?.('#__next');
   }, []);
 
+  useEffect(() => {
+    if (!showAnnouncementBanner) {
+      document.documentElement.style.setProperty('--announcement-banner-height', '0px');
+    }
+  }, [showAnnouncementBanner]);
+
   if (!walletManager) {
     return <div>Loading wallet manager...</div>;
   }
@@ -92,16 +104,19 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
             <SessionProvider session={pageProps.session}>
               <DevWalletProvider>
                 <ToastProvider>
-                  <NotificationProvider>
+                  <NotificationProvider isEnabled={notificationsEnabled}>
                     <Navbar />
-                    <div
-                      id="main"
-                      className="w-full min-h-screen bg-background pt-24 text-foreground dark"
-                    >
-                      <ProtectedComponent
-                        Component={Component}
-                        pageProps={pageProps}
-                      />
+                    <div className="relative flex flex-col">
+                      {showAnnouncementBanner && <AnnouncementBanner />}
+                      <div
+                        id="main"
+                        className="w-full min-h-screen bg-background text-foreground dark"
+                      >
+                        <ProtectedComponent
+                          Component={Component}
+                          pageProps={pageProps}
+                        />
+                      </div>
                     </div>
                   </NotificationProvider>
                 </ToastProvider>
