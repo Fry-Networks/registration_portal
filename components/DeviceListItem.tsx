@@ -583,7 +583,7 @@ export default function DeviceListItem({
   }, [rewardSummary?.nextUnlockAt]);
 
   const detailContent = (
-    <div className="space-y-6 text-sm text-gray-100">
+    <div className="space-y-6 pt-8 text-sm text-gray-100">
       {!device.registered_portal_model && isLinkRequiredForPrefix(minerPrefix) && (
         <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-200">
           This device is not linked to FryNetworks. Click the <b>gear icon</b> to link it.
@@ -594,8 +594,8 @@ export default function DeviceListItem({
           We could not verify a MAC address for this device. Click the <b>gear icon</b> to re-link your MAC so rewards remain active.
         </div>
       )}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-3">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-3">
           <Title className="text-white text-2xl md:text-3xl">
             {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
           </Title>
@@ -620,56 +620,74 @@ export default function DeviceListItem({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3 md:gap-4 self-end md:self-auto pr-12">
+        <div className="flex items-center gap-3 self-end pr-12 md:self-auto md:gap-4">
           {alertShow && (
             <div>
               <AlertWithTooltip deviceStatus={deviceStatus} />
             </div>
           )}
-          {device && product && isNodeProduct(product) && (
-            <div
-              onClick={(event) => {
-                event.stopPropagation();
-                handleStaking(device.miner_key);
-              }}
-            >
-              <Tooltip text="Staking">
-                <StakingIcon />
+          <div className="flex items-center gap-2 md:gap-3">
+            {device && product && isNodeProduct(product) && (
+              <Tooltip text="Stake actions">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleStaking(device.miner_key);
+                  }}
+                  className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                >
+                  <span className="flex h-5 w-5 items-center justify-center">
+                    <StakingIcon />
+                  </span>
+                </button>
               </Tooltip>
-            </div>
-          )}
-          <div
-            onClick={(event) => {
-              event.stopPropagation();
-              handleChange(device.miner_key);
-            }}
-          >
+            )}
             <Tooltip text="Edit device">
-              <EditIcon />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleChange(device.miner_key);
+                }}
+                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <EditIcon />
+                </span>
+              </button>
             </Tooltip>
-          </div>
-          <div
-            onClick={(event) => {
-              event.stopPropagation();
-              handleSetting(device.miner_key);
-            }}
-          >
             <Tooltip text="Portal settings">
-              <SettingIcon />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleSetting(device.miner_key);
+                }}
+                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <SettingIcon />
+                </span>
+              </button>
             </Tooltip>
-          </div>
-          <div
-            onClick={(event) => {
-              event.stopPropagation();
-              handleDeleteButton(device);
-            }}
-          >
             <Tooltip text="Unregister">
-              <DeleteIcon />
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDeleteButton(device);
+                }}
+                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <DeleteIcon />
+                </span>
+              </button>
             </Tooltip>
           </div>
         </div>
-      </div>
+        </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border border-gray-800 bg-black/70 p-4 space-y-4">
           <div className="text-xs uppercase tracking-wide text-gray-500">Wallets & contact</div>
@@ -949,11 +967,71 @@ export default function DeviceListItem({
               ))}
             </div>
           </div>
-          {alertShow && (
-            <div className="shrink-0">
-              <AlertWithTooltip deviceStatus={deviceStatus} />
-            </div>
-          )}
+          <div className="flex items-center gap-2 sm:gap-3 pr-1 sm:pr-2">
+            {alertShow && (
+              <div className="shrink-0">
+                <AlertWithTooltip deviceStatus={deviceStatus} />
+              </div>
+            )}
+            {device && product && isNodeProduct(product) && (
+              <Tooltip text="Stake actions">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleStaking(device.miner_key);
+                  }}
+                  className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                >
+                  <span className="flex h-5 w-5 items-center justify-center">
+                    <StakingIcon />
+                  </span>
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip text="Edit device">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleChange(device.miner_key);
+                }}
+                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <EditIcon />
+                </span>
+              </button>
+            </Tooltip>
+            <Tooltip text="Portal settings">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleSetting(device.miner_key);
+                }}
+                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <SettingIcon />
+                </span>
+              </button>
+            </Tooltip>
+            <Tooltip text="Unregister">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDeleteButton(device);
+                }}
+                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+              >
+                <span className="flex h-5 w-5 items-center justify-center">
+                  <DeleteIcon />
+                </span>
+              </button>
+            </Tooltip>
+          </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {summaryMetrics.map((metric) => (
@@ -1097,7 +1175,7 @@ export default function DeviceListItem({
               <button
                 type="button"
                 onClick={closeDetails}
-                className="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full border border-gray-700 text-gray-400 transition-colors hover:border-red-500 hover:text-red-400"
+                className="absolute right-5 top-5 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-gray-300 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 hover:bg-red-600/30 hover:text-white"
                 aria-label="Close device details"
               >
                 <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">

@@ -20,12 +20,11 @@ const positionClasses: Record<string, string> = {
 };
 
 const Tooltip = ({ children, text, side = 'top', className = '' }: TooltipProps) => {
-  // `group` utilities let us show the tooltip on hover without additional JS.
   return (
-    <div className="relative inline-flex group">
+    <div className="relative inline-flex group/tooltip">
       {children}
       <div
-        className={`pointer-events-none absolute hidden group-hover:flex ${positionClasses[side]} ${className}`}
+        className={`pointer-events-none absolute hidden group-hover/tooltip:flex ${positionClasses[side]} ${className}`}
       >
         <div className="max-w-xs rounded-md bg-gray-900 px-3 py-2 text-xs text-white shadow-lg">
           {text}

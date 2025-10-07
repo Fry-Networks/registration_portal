@@ -44,6 +44,7 @@ export default function Navbar() {
   const { notifications, dismiss } = useNotifications();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLElement | null>(null);
   const bugSuccessCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
   const [isSubmittingBug, setIsSubmittingBug] = useState(false);
@@ -51,6 +52,32 @@ export default function Navbar() {
   const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
   const toast = useToastContext();
   const { success: showToastSuccess, error: showToastError } = toast;
+
+  useEffect(() => {
+    const root = document.documentElement;
+
+    const updateHeight = () => {
+      const height = headerRef.current?.offsetHeight ?? 0;
+      root.style.setProperty('--navbar-height', `${height}px`);
+    };
+
+    updateHeight();
+
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') {
+      return () => {
+        root.style.removeProperty('--navbar-height');
+      };
+    }
+
+    const observer = new ResizeObserver(() => updateHeight());
+    observer.observe(el);
+
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--navbar-height');
+    };
+  }, []);
 
   const openBugModal = () => {
     if (bugSuccessCloseTimeoutRef.current) {
@@ -277,7 +304,10 @@ export default function Navbar() {
 
   return (
     <Fragment>
-      <header className="fixed top-0 left-0 right-0 z-[150] border-b border-white/10 bg-[#08080b]/90 backdrop-blur">
+      <header
+        ref={headerRef}
+        className="sticky top-0 left-0 right-0 z-[150] border-b border-white/10 bg-[#08080b]/90 backdrop-blur"
+      >
         <div className="mx-auto flex h-24 w-full max-w-[1600px] items-center justify-between px-3 sm:px-20">
           <div className="flex">
             <Link
@@ -337,11 +367,13 @@ export default function Navbar() {
                       )}
                     </button>
                     {showNotifications && notifications.length > 0 && (
-                      <div className="absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1rem)] overflow-auto rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 p-5 shadow-2xl shadow-red-900/40 z-[200]">
-                        <NotificationCenter
-                          notifications={notifications}
-                          onDismiss={dismiss}
-                        />
+                      <div className="absolute right-0 mt-3 max-h-[70vh] w-[26rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 shadow-2xl shadow-red-900/40 z-[200]">
+                        <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
+                          <NotificationCenter
+                            notifications={notifications}
+                            onDismiss={dismiss}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

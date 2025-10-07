@@ -647,7 +647,8 @@ const DevicesPage = ({
                 </a>
                 .
               </span>
-            )
+            ),
+            source: 'device'
           });
           pushed.add(idBase);
         }
@@ -681,7 +682,8 @@ const DevicesPage = ({
                   linking guide
                 </a>{' '}to resubmit the correct address.
               </span>
-            )
+            ),
+            source: 'device'
           });
           pushed.add(id);
         }

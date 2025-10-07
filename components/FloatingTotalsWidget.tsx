@@ -74,7 +74,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   // Auto-collapse expanded state when scrolling
   useEffect(() => {
     if (isScrolled && isExpanded && scrollY > 0) {
-      const timer = setTimeout(() => setIsExpanded(false), 3000);
+      const timer = setTimeout(() => setIsExpanded(false), 15000);
       return () => clearTimeout(timer);
     }
   }, [scrollY, isScrolled, isExpanded]);
@@ -85,8 +85,8 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     }
   }, [isScrolled]);
 
-  // Circular progress for countdown
-  const getCountdownProgress = useMemo(() => {
+  // Countdown progress percentage (0-100)
+  const countdownProgress = useMemo(() => {
     if (!countdown) return 0;
     // Extract days from countdown string (e.g., "5d 7h 29m 18s")
     const daysMatch = countdown.match(/(\d+)d/);
@@ -95,9 +95,10 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     const hours = hoursMatch ? parseInt(hoursMatch[1]) : 0;
     
     // Calculate progress (assuming 7-day cycle)
-    const totalHours = (7 * 24);
-    const remainingHours = (days * 24) + hours;
-    return ((totalHours - remainingHours) / totalHours) * 100;
+    const totalHours = 7 * 24;
+    const remainingHours = days * 24 + hours;
+    const pct = ((totalHours - remainingHours) / totalHours) * 100;
+    return Math.min(100, Math.max(0, pct));
   }, [countdown]);
 
   const compactCountdownLabel = useMemo(() => {
@@ -314,67 +315,74 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
       <AnimatePresence>
         {isScrolled && (
           <motion.div
-            className="fixed top-28 right-4 z-50 cursor-pointer"
+            className="fixed right-3 top-24 z-50 cursor-pointer sm:right-4 sm:top-28"
             initial={{ opacity: 0, scale: 0.8, x: 100 }}
             animate={{ opacity: 1, scale: 1, x: 0 }}
             exit={{ opacity: 0, scale: 0.8, x: 100 }}
             transition={{ duration: 0.5, ease: 'easeInOut' }}
             onClick={() => setIsExpanded(!isExpanded)}
           >
-            {/* Compact Widget */}
             <motion.div
-              className="bg-gradient-to-br from-black/80 to-black/95 backdrop-blur-md border border-red-600/50 shadow-2xl"
+              className="backdrop-blur-md"
               animate={isExpanded ? 'expanded' : 'compact'}
               variants={{
                 compact: {
-                  width: '72px',
-                  height: '72px',
+                  width: '58px',
+                  height: '58px',
                   borderRadius: '9999px',
-                  padding: '8px'
+                  padding: '6px',
+                  background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.08), rgba(23,4,10,0.95))',
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  boxShadow: '0 10px 25px rgba(239,68,68,0.18)'
                 },
                 expanded: {
                   width:
                     (typeof window !== 'undefined' && window.innerWidth <= 768)
-                      ? '320px'
-                      : '380px',
+                      ? '300px'
+                      : '360px',
                   height: 'auto',
                   borderRadius: '1rem',
-                  padding: '20px'
+                  padding: '20px',
+                  background: 'linear-gradient(135deg, rgba(23,4,10,0.95), rgba(34,6,15,0.95))',
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  boxShadow: '0 18px 45px rgba(239,68,68,0.22)'
                 }
               }}
               transition={{ duration: 0.3 }}
             >
-              {/* Compact Content */}
               {!isExpanded && (
                 <motion.div
                   key="compact"
-                  className="flex flex-col items-center justify-center h-full text-white gap-1"
-                  initial={{ opacity: 0, scale: 0.85 }}
+                  className="relative flex h-full items-center justify-center text-white"
+                  initial={{ opacity: 0, scale: 0.92 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.85 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
                 >
-                  <div className="relative">
-                    <svg className="w-10 h-10 transform -rotate-90" viewBox="0 0 36 36">
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#374151"
-                        strokeWidth="2"
-                      />
-                      <path
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                        fill="none"
-                        stroke="#dc2626"
-                        strokeWidth="2"
-                        strokeDasharray={`${getCountdownProgress}, 100`}
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xs font-semibold text-red-400">
-                        {compactCountdownLabel}
-                      </span>
-                    </div>
-                  </div>
+                  <svg className="h-12 w-12 -rotate-90" viewBox="0 0 36 36">
+                    <path
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.08)"
+                      strokeWidth="3"
+                    />
+                    <path
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      fill="none"
+                      stroke="url(#countdown-gradient)"
+                      strokeLinecap="round"
+                      strokeWidth="3"
+                      strokeDasharray={`${Math.max(1, Math.min(99, countdownProgress || 0))}, 100`}
+                    />
+                    <defs>
+                      <linearGradient id="countdown-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#f43f5e" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  <span className="absolute text-sm font-semibold text-white">
+                    {compactCountdownLabel}
+                  </span>
                 </motion.div>
               )}
 
