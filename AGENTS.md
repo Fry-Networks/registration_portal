@@ -156,6 +156,7 @@ Required (examples in `.env`):
 - Weekly windows / cutoff: tune env vars above
 - Claim or boost behavior: see `pages/api/rewards/*`
 - Staking and withdrawals: see `pages/api/stake/*` and `components/modals/*`
+- Announcements banner + tray entries: see `pages/api/announcements/*`, `app/notificationcontext.tsx`, and `components/AnnouncementBanner.tsx`
 - Authentication rules: `lib/WalletAuthProvider.ts:18`, `lib/auth.ts:5`
 
 
@@ -188,4 +189,3 @@ Required (examples in `.env`):
 - Provide `.env` with `MONGO_URI`, NextAuth secret, and required mnemonics.
 - `npm i && npm run dev`
 - Sign in at `/signin` with a supported Algorand wallet (Pera/Defly via `@txnlab/use-wallet`).
-
