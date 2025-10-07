@@ -33,9 +33,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       miner_type,
     };
 
-    // Only include api_type for non-MAC-only types. For hardware/node we intentionally omit api_type
+    // Only include api_type for non-MAC-only types. For hardware/node/aem we intentionally omit api_type
     // since the only credential is mac_address and we only want miner_type stored.
-    if (api_type && !['hardware', 'node'].includes(String(api_type).toLowerCase())) {
+    if (api_type && !['hardware', 'node', 'aem'].includes(String(api_type).toLowerCase())) {
       updateSet.api_type = String(api_type).toLowerCase();
     }
 

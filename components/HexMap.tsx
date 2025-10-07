@@ -64,7 +64,7 @@ export default function HexMap({
   const mapRef = useRef<any | null>(null);
 
   // internalResolution: if user provided a static resolution prop, we prefer that.
-  const [internalResolution, setInternalResolution] = useState<number>(resolution ?? 4);
+  const [internalResolution, setInternalResolution] = useState<number>(resolution ?? 2);
   const [cells, setCells] = useState<string[]>([]);
 
   const notifyDisplayCellChange = useCallback(
@@ -215,6 +215,32 @@ export default function HexMap({
     new Promise<void>((resolve) => {
       obj.once(ev, () => resolve());
     });
+
+  // If parent sets `selectedCell`, ensure the map recenters and zooms to it.
+  useEffect(() => {
+    if (!selectedCell) return;
+    if (!isValidCell(selectedCell)) return;
+    const map = mapRef.current;
+    if (!map) return;
+    try {
+      const targetRes = getResolution(selectedCell);
+      const boundary = cellToBoundary(selectedCell) as LatLng[];
+      // update internal resolution and displayed cells
+      setInternalResolution(targetRes);
+      setCells(Array.from(gridDisk(selectedCell, neighborsK)));
+      notifyDisplayCellChange(selectedCell, targetRes);
+      // fit bounds to the cell boundary
+      try {
+        map.fitBounds(boundary as any, { padding: [40, 40], maxZoom: 16, animate: true });
+      } catch (e) {
+        // fallback: set view to cell center with approximate zoom
+        const [lat, lng] = cellToLatLng(selectedCell);
+        map.setView([lat, lng], resToZoom(targetRes), { animate: true });
+      }
+    } catch (err) {
+      // ignore fit errors
+    }
+  }, [selectedCell]);
 
   // handle a user click: drill progressively from current displayed resolution down to 7
   const handleClick = async (latlng: LatLng) => {

@@ -375,6 +375,11 @@ export default function RegisterPage({ products }: { products: Product[] }) {
     currentSubtype: string | null
   ): string | null {
   
+    // Normalize fields with a canonical format so validation is consistent.
+    if (key === 'reward_wallet') {
+      value = (value || '').trim().toUpperCase();
+    }
+
     const sub = (currentSubtype || '').toLowerCase();
 
     // 1) Subtype-specific overrides take precedence
@@ -526,8 +531,8 @@ export default function RegisterPage({ products }: { products: Product[] }) {
 
   const [hexSynced, setHexSynced] = useState(false);
   const mapCenter = useMemo<[number, number]>(() => {
-    const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 0;
-    const lng = mapInfoData?.longitude ? Number(mapInfoData.longitude) : 0;
+    const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 44.03;
+    const lng = mapInfoData?.longitude ? Number(mapInfoData.longitude) : -92.47;
     return [lat, lng];
   }, [mapInfoData?.latitude, mapInfoData?.longitude]);
   const [existingCredentials, setExistingCredentials] = useState<{
@@ -1487,11 +1492,18 @@ const savePersonalInformation = async (): Promise<boolean> => {
   }, [selectedSubtype, currentSubtypeKeys, credentials]);
 
   const rewardWalletInvalid = useMemo(() => {
-    const wallet = personalInfoData.reward_wallet ?? '';
-    // Use validateField to reuse existing validation rules; key 'reward_wallet'
-    const err = validateField('reward_wallet', wallet, null);
+    const walletRaw = personalInfoData.reward_wallet ?? '';
+    const wallet = (walletRaw || '').trim();
+    // Validate using a normalized uppercase representation so a lowercase or spaced
+    // paste doesn't cause a false negative during transient UI updates.
+    const err = validateField('reward_wallet', wallet.toUpperCase(), null);
     return !!err;
   }, [personalInfoData.reward_wallet]);
+
+  // Footer error rendering helpers: prefer explicit fieldErrors (set by validators/save) to avoid
+  // showing a transient wallet invalid message during quick UI state changes.
+  const footerHasWalletFieldError = Boolean(fieldErrors.reward_wallet);
+  const footerShouldShowErrors = ((!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) || footerHasWalletFieldError);
 
   const switchbotPrereqsOk = useMemo(() => {
     if ((selectedSubtype || '').toLowerCase() !== 'switchbot') return true;
@@ -2185,13 +2197,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
           {/* Localization (index 2) – AUTOFIT VERSION (v9: toolbar grid + HexMap auto-resolution) */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white p-2 sm:p-3 md:p-4">
+            <div className="flex h-full flex-col bg-gray-950 text-white p-1 sm:p-2 md:p-3">
               <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} />
 
               {/* Autofit card: fills available width/height */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-2 md:p-3 w-full h-full flex flex-col">
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col">
                 {/* Toolbar (search + lon/lat) — responsive grid that aligns labels + inputs */}
-                <div className="flex flex-col gap-2 mt-1">
+                <div className="flex flex-col gap-1 mt-0.5">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
                     {/* Search: spans 6 columns on md+ */}
                     <div className="md:col-span-6 flex flex-col">
@@ -2206,19 +2218,29 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           const parsedLat = Number(lat);
                           const parsedLng = Number(lng);
                           if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
+                            // Prefer resolution 7 for search zoom; use 6 if you want a slightly larger area
+                            const desiredRes = 6;
+                            const cell = h3.latLngToCell(parsedLat, parsedLng, desiredRes);
                             setMapInfoData((p: any) => ({
                               ...p,
                               latitude: String(parsedLat),
                               longitude: String(parsedLng),
-                              h3Index: h3.latLngToCell(parsedLat, parsedLng, 7),
+                              h3Index: cell,
                             }));
+                            // update displayed hex + resolution so HexMap can zoom/update view
+                            try {
+                              setDisplayedHex(cell);
+                              setDisplayedHexRes(desiredRes);
+                            } catch (e) {
+                              // silent fallback if state setters not available in this scope
+                            }
                             setFieldErrors((prev: any) => ({ ...prev, latitude: '', longitude: '' }));
                             setHexSynced(true);
                           }
                         }}
                       />
-                      {/* reserve error space to avoid vertical shifts */}
-                      <div className="min-h-[1.25rem] mt-1" />
+                      {/* reserve error space to avoid vertical shifts (smaller) */}
+                      <div className="min-h-[0.25rem] mt-0" />
                     </div>
 
                     {/* Longitude: spans 3 columns on md+ */}
@@ -2267,7 +2289,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                 {/* Show current displayed hex/res (if available) */}
                 {/* Map + H3 section fills remaining space — map grows to fill */}
-                <div className="flex-1 min-h-0 mt-1 flex flex-col">
+                  <div className="flex-1 min-h-0 flex flex-col">
                   <div className="relative flex-1 min-h-0">
                     {displayedHex && displayedHexRes !== null && (
                       <div className="absolute bottom-3 left-3 z-[500] bg-gray-900/80 px-3 py-1 rounded text-xs text-gray-200 shadow">
@@ -2277,6 +2299,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     <HexMap
                       resolution={undefined}
                       autoResolution={true}
+                      initialZoom={4}
                       center={mapCenter}
                       selectedCell={mapInfoData?.h3Index && isValidCell(mapInfoData.h3Index) ? mapInfoData.h3Index : undefined}
                       neighborsK={1}
@@ -2289,7 +2312,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         setDisplayedHex(cell);
                         setDisplayedHexRes(res);
                       }}
-                      className="rounded-2xl overflow-hidden w-full h-full min-h-[26rem]"
+                      className="rounded-2xl overflow-hidden w-full h-full min-h-[20rem]"
                     />
                   </div>
 
@@ -2314,11 +2337,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   >
                     {hexSynced ? 'Save' : 'Sync Hex'}
                   </button>
-                  {((( !credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) || rewardWalletInvalid)) && (
+                  {footerShouldShowErrors && (
                     <p className="mt-2 text-xs text-red-300 text-right">
                       {!credentialsNotNeeded && credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
-                      {!credentialsNotNeeded && credentialsInvalid && rewardWalletInvalid ? ' ' : ''}
-                      {rewardWalletInvalid ? 'Provide a valid rewards wallet address.' : ''}
+                      {!credentialsNotNeeded && credentialsInvalid && footerHasWalletFieldError ? ' ' : ''}
+                      {footerHasWalletFieldError ? fieldErrors.reward_wallet : ''}
                       {!credentialsNotNeeded && !credentialsInvalid && !credentialsValidated
                         ? 'Validate your credentials before continuing.'
                         : ''}
