@@ -220,7 +220,10 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
   energy: 'Energy Portal',
   weather: 'Weather Portal',
   hardware: 'Hardware Portal',
-  radiation: 'Radiation Portal'
+  radiation: 'Radiation Portal',
+  water: 'Water Portal',
+  node: 'Node Portal',
+  aem: 'AI Edge Miner Portal'
 };
 
 export const FIELD_LABELS: Record<string, string> = {
@@ -277,6 +280,8 @@ export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_typ
   ],
   camera: [{ id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] }],
   hardware: [{ id: 'hardware', name: 'MAC Address', sub_types: ['mac_address'] }],
+  node: [{ id: 'node', name: 'MAC Address', sub_types: ['mac_address'] }],
+  aem: [{ id: 'aem', name: 'MAC Address', sub_types: ['mac_address'] }],
   radiation: [{ id: 'GMCMap', name: 'GMCMap', sub_types: ['gmcmap_id'] }]
 };
 
@@ -290,7 +295,9 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
   if (minerType === 'IRM') return 'radiation'; 
-  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'CN', 'RDN', 'SDN', 'SVN', 'AEM'].includes(minerType)) return minerType.toLowerCase();
+  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM'].includes(minerType)) return 'hardware';
+  if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return 'node';
+  if (minerType === 'AEM') return 'aem'; 
 
   return '';
 };
@@ -2158,7 +2165,8 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button
                   className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={() => {
-                    if (rewardWalletInvalid || credentialsInvalid) {
+                    // Only enforce credential validity when credentials are required by env
+                    if (rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)) {
                       setFieldErrors((prev) => ({
                         ...prev,
                         reward_wallet: rewardWalletInvalid ? (FIELD_HINT.reward_wallet ?? 'Provide a valid rewards wallet address.') : prev.reward_wallet,
@@ -2167,7 +2175,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     }
                     handleNext();
                   }}
-                  disabled={rewardWalletInvalid || credentialsInvalid}
+                  disabled={rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)}
                 >
                   Next
                 </button>
@@ -2302,16 +2310,16 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     type="button"
                     onClick={handleSyncHexOrSave}
-                    disabled={credentialsInvalid || rewardWalletInvalid}
+                    disabled={( !credentialsNotNeeded && credentialsInvalid) || rewardWalletInvalid}
                   >
                     {hexSynced ? 'Save' : 'Sync Hex'}
                   </button>
-                  {(credentialsInvalid || rewardWalletInvalid || !credentialsValidated) && (
+                  {((( !credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) || rewardWalletInvalid)) && (
                     <p className="mt-2 text-xs text-red-300 text-right">
-                      {credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
-                      {credentialsInvalid && rewardWalletInvalid ? ' ' : ''}
+                      {!credentialsNotNeeded && credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
+                      {!credentialsNotNeeded && credentialsInvalid && rewardWalletInvalid ? ' ' : ''}
                       {rewardWalletInvalid ? 'Provide a valid rewards wallet address.' : ''}
-                      {!credentialsInvalid && !rewardWalletInvalid && !credentialsValidated
+                      {!credentialsNotNeeded && !credentialsInvalid && !credentialsValidated
                         ? 'Validate your credentials before continuing.'
                         : ''}
                     </p>
