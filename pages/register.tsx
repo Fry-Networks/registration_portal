@@ -107,7 +107,7 @@ export const FIELD_HINT: Record<string, string> = {
   password: 'At least 6 characters',
   station: 'Letters/digits/_-',
   api_key: 'At least 16 URL-safe characters',
-  rtsp_url: 'Must start with rtsp:// or rtsps://',
+  rtsp_url: 'Example: rtsp://user:pass@203.0.113.10:554/stream — use the device\'s public IP (not a private LAN IP) and ensure the port is forwarded to that device. Include protocol (rtsp:// or rtsps://), host, port and path.',
   mac_address: 'Example: AA:BB:CC:DD:EE:FF',
   gmcmap_id: '3–9 digits',
   email: 'example@domain.tld',
@@ -531,8 +531,8 @@ export default function RegisterPage({ products }: { products: Product[] }) {
 
   const [hexSynced, setHexSynced] = useState(false);
   const mapCenter = useMemo<[number, number]>(() => {
-    const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 44.03;
-    const lng = mapInfoData?.longitude ? Number(mapInfoData.longitude) : -92.47;
+    const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 44.03; // Rochester, MN lat
+    const lng = mapInfoData?.longitude ? Number(mapInfoData.longitude) : -92.47; // Rochester, MN lng
     return [lat, lng];
   }, [mapInfoData?.latitude, mapInfoData?.longitude]);
   const [existingCredentials, setExistingCredentials] = useState<{
@@ -1686,6 +1686,17 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 value={value}
                                 onChange={(e) => setCredAndValidate(field, e.target.value)}
                                 onBlur={(e) => setCredAndValidate(field, e.target.value)}
+                                onFocus={(e) => {
+                                  // For RTSP fields, if empty, prefill with rtsp:// to guide the user
+                                  if ((field || '').toLowerCase() === 'rtsp_url') {
+                                    const cur = e.currentTarget.value || '';
+                                    if (!cur) {
+                                      // set to rtsp:// but don't trigger validation until user types
+                                      setCredAndValidate(field, 'rtsp://');
+                                    }
+                                  }
+                                }}
+                                
                                 onPaste={(e) => {
                                   const pasted = e.clipboardData?.getData('text') || '';
                                   if (field === 'mac_address') {
@@ -1719,7 +1730,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 }
                                 placeholder={
                                   placeholder ??
-                                  (field === 'mac_address' ? 'AA:BB:CC:DD:EE:FF' : field === 'imei' ? '15 digits' : undefined)
+                                  ((field || '').toLowerCase() === 'rtsp_url'
+                                    ? 'rtsp://username:password@host:port/path'
+                                    : field === 'mac_address'
+                                    ? 'AA:BB:CC:DD:EE:FF'
+                                    : field === 'imei'
+                                    ? '15 digits'
+                                    : undefined)
                                 }
                                 autoCapitalize="off"
                                 autoCorrect="off"

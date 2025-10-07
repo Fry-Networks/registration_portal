@@ -83,7 +83,7 @@ components/modals/weather/Ecowitt.tsx
 
 **Issue**: All these files call:
 ```typescript
-const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/api/getDeviceCredential`, {
+const response = await fetch('/api/credentials/get', {
   method: 'POST',
   // ...
 });
@@ -171,12 +171,15 @@ pages/cameraportal.tsx
 **Camera Portal Endpoints to Replace**:
 ```typescript
 // CURRENT
-`${process.env.NEXT_PUBLIC_API_HOST}/api/getDeviceCredential`  // Get credentials
-`${process.env.NEXT_PUBLIC_API_HOST}/api/validateRtsp`         // Validate RTSP
+`/api/credentials/get`  // Get credentials (legacy callers should call this)
+`/api/credentials/camera/rtsp`         // Validate RTSP (canonical validator endpoint)
 
-// NEW
-'/api/credentials/get'           // Get credentials
-'/api/credentials/validate'      // Validate credentials
+// NEW (canonical)
+ '/api/credentials/get'           // Get credentials
+ '/api/credentials/validate'      // Validate credentials (portal-specific validators)
+
+// Support/Debug: A CLI is available for quick RTSP checks using the shared library:
+// node scripts/check-rtsp.js <rtsp-url>
 ```
 
 ### 2. Environment Variables
@@ -240,7 +243,7 @@ For each modal file in `components/modals/`:
 
 **Current Code Pattern**:
 ```typescript
-const response = await fetch(`${process.env.NEXT_PUBLIC_API_HOST}/api/getDeviceCredential`, {
+const response = await fetch('/api/credentials/get', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ miner_key, type })

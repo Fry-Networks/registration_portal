@@ -2,11 +2,12 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start -p 3007",
-    "lint": "next lint",
-    "cancel:registration": "node scripts/cancel-registration.js"
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start -p 3007",
+  "lint": "next lint",
+  "cancel:registration": "node scripts/cancel-registration.js",
+  "check-rtsp": "node ./scripts/check-rtsp.js"
   },
   "dependencies": {
     "@agoralabs-sh/avm-web-provider": "^1.7.0",

@@ -6,6 +6,7 @@ This document explains how the Fry user dashboard works end‑to‑end: authenti
 ## Overview
 
 - Next.js app (pages router) with NextAuth for wallet login (Algorand).
+- Server RTSP validation endpoint: `/api/credentials/camera/rtsp` (canonical for camera credential checks).
 - MongoDB for all state: users, devices, products, rewards, etc.
 - Algorand network for staking/claims. Wallets via `@txnlab/use-wallet(-react)`.
 - Rewards modeled weekly (with support for historical pre‑cutoff daily entries).
@@ -187,3 +188,19 @@ Hardware DB (optional)
 2) `npm install`
 3) `npm run dev`
 4) Sign in at `/signin`; connect a supported Algorand wallet.
+
+## Support CLI — RTSP quick check
+
+For support and debugging, there's a small CLI that uses the shared RTSP checker:
+
+```bash
+# from repo root
+node scripts/check-rtsp.js rtsp://user:pass@203.0.113.10:554/stream
+```
+
+The script prints a structured result and exits with:
+- 0 when the RTSP check succeeds
+- 1 when the RTSP check fails
+- 2 for usage errors or unexpected exceptions
+
+This CLI calls the same `lib/rtspCheck.ts` implementation used by the server APIs so results match what the backend would report.
