@@ -27,10 +27,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const miner_type = (collectionName === 'hardware') ? getMinerType(miner_key) : portalKey;
     const updateSet: any = {
       miner_key,
+      miner_type,
       address: session.user.address,
       credentials,
       credentials_saved_at: new Date(),
-      miner_type,
     };
 
     // Only include api_type for non-MAC-only types. For hardware/node/aem we intentionally omit api_type

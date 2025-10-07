@@ -1713,6 +1713,20 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   } else if (field === 'imei') {
                                     e.preventDefault();
                                     setCredAndValidate(field, (pasted || '').replace(/\D/g, '').slice(0, 15));
+                                  } else if (field === 'rtsp_url') {
+                                    // Prevent duplicate protocol prefixes when users paste a full RTSP URL
+                                    e.preventDefault();
+                                    const cur = (e.currentTarget as HTMLInputElement).value || '';
+                                    let p = (pasted || '').trim();
+                                    if (!p) return;
+                                    const pLower = p.toLowerCase();
+                                    const curLower = cur.toLowerCase();
+                                    // Determine if secure (rtsps) was intended either by paste or existing value
+                                    const useSecure = pLower.startsWith('rtsps://') || curLower.startsWith('rtsps://');
+                                    // Strip any leading rtsp:// or rtsps:// sequences (handles duplicated prefixes)
+                                    p = p.replace(/^(?:rtsps?:\/\/)+/i, '');
+                                    const prefix = useSecure ? 'rtsps://' : 'rtsp://';
+                                    setCredAndValidate(field, prefix + p);
                                   }
                                 }}
                                 inputMode={field === 'imei' ? 'numeric' : undefined}

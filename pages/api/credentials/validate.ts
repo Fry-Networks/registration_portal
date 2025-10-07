@@ -117,6 +117,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const db = await getDb();
 
   try {
+    // ------------------
+    // Uniqueness checks
+    // ------------------
+    // Ensure the submitted credential keys (rtsp_url, mac_address, miner_mac, imei, deviceId)
+    // are not already present in the target creds collection under a different miner_key.
+    try {
+      const colName = collectionFor({ miner_key, portalType: portal_type });
+      const checks: Array<{ field: string; value?: any }> = [];
+
+      // Exceptions: switchbot and shelly only check deviceId
+      const lowerApi = String(apiType).toLowerCase();
+      if (lowerApi === 'switchbot' || lowerApi === 'shelly') {
+        if (credentials?.deviceId) checks.push({ field: 'deviceId', value: credentials.deviceId });
+      } else {
+        // Skip MAC uniqueness here; MAC validation/ownership is handled by the
+        // dedicated `pages/api/credentials/hardware/mac.ts` endpoint which
+        // enforces ownership and linked-miner rules. Keep other uniqueness checks.
+        if (credentials?.rtsp_url) checks.push({ field: 'rtsp_url', value: credentials.rtsp_url });
+        if (credentials?.imei) checks.push({ field: 'imei', value: credentials.imei });
+        if (credentials?.deviceId) checks.push({ field: 'deviceId', value: credentials.deviceId });
+      }
+
+      if (checks.length > 0) {
+        for (const c of checks) {
+          if (c.value === undefined || c.value === null || String(c.value).trim() === '') continue;
+          try {
+            const existing = await db.collection(colName).findOne({ [c.field]: c.value });
+            if (existing) {
+              const existingKey = existing.miner_key ?? null;
+              if (String(existingKey) !== String(miner_key)) {
+                return res.status(400).json({ message: 'Credential already registered', details: `${c.field} already exists in ${colName}` });
+              }
+            }
+          } catch (e) {
+            // ignore individual check errors but log
+            console.warn('Uniqueness check failed for', c.field, 'in', colName, String((e as any)?.message || e));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to run uniqueness checks for credentials validation', String((e as any)?.message || e));
+      // continue to validation even if uniqueness checks fail
+    }
+
     // Check if we have a modern validator for this device type
     const validator = deviceValidatorRegistry.getValidator(apiType);
     

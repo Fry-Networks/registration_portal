@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import * as url from 'url';
 import checkRtspLink, { RtspCheckResult } from '../../../../lib/rtspCheck';
+import clientPromise from '../../../../lib/mongoclient';
 import { rateLimitMiddleware } from '../../../../lib/ratelimit';
 
 // Using shared lib: checkRtspLink
@@ -32,6 +33,30 @@ const validateRtsp = async (params: {
   }
 
   try {
+    // Before attempting network validation, ensure the RTSP URL isn't already
+    // registered to a different miner_key in the creds.camera collection.
+    try {
+      const client = await clientPromise;
+      const db = client.db(process.env.MONGO_CREDS_DB || 'creds');
+      const collName = process.env.MONGO_CREDS_COLLECTION || 'camera';
+      const coll = db.collection(collName);
+      // Look for an existing entry with this rtsp_url
+      const existing = await coll.findOne({ rtsp_url: rtspUrl });
+      const submittedMinerKey = credentials?.miner_key;
+      if (existing) {
+        // If the existing doc has a different miner_key, reject the validation
+        const existingKey = existing.miner_key || null;
+        if (!submittedMinerKey || String(existingKey) !== String(submittedMinerKey)) {
+          res.status(400).json({ message: 'RTSP URL already registered', details: 'This RTSP URL is already registered to another miner_key.' });
+          return;
+        }
+        // If the miner_key matches, continue — allow re-validation for the same miner.
+      }
+    } catch (mongoErr: any) {
+      console.warn('creds DB check failed, continuing with network validation', String(mongoErr?.message || mongoErr));
+      // Fall through to network validation; we don't want DB errors to block validation entirely
+    }
+
     const result: RtspCheckResult = await checkRtspLink(rtspUrl);
     if (!result.ok) {
       // map specific codes to friendly responses
