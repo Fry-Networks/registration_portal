@@ -312,7 +312,7 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   const [deviceStatus, setDeviceStatus] = useState(false);
   const [locationStatus, setLocationStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
-  const { minerKey, clickable, type } = router.query;
+  const { minerKey, clickable, type, section } = router.query;
   const isEditingExisting = useMemo(() => {
     if (typeof clickable === 'string') {
       const normalized = clickable.toLowerCase();
@@ -337,6 +337,25 @@ export default function RegisterPage({ products }: { products: Product[] }) {
     if (Array.isArray(minerKey) && minerKey.length > 0) return minerKey[0];
     return undefined;
   }, [minerKey]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const sectionParam = Array.isArray(section) ? section[0] : section;
+    if (!sectionParam) return;
+    const normalized = String(sectionParam).trim().toLowerCase();
+    const sectionMap: Record<string, number> = {
+      credentials: 0,
+      personal: 1,
+      'personal-information': 1,
+      info: 1,
+      localization: 2,
+      location: 2,
+      map: 2
+    };
+    if (normalized in sectionMap) {
+      setCurrentSection(sectionMap[normalized]);
+    }
+  }, [section, router.isReady]);
 
   // Note: we derive any explicit `type` query inside effectivePortalKey below.
   const [device, setDevice] = useState<Device | undefined>(undefined);
@@ -1560,15 +1579,16 @@ const savePersonalInformation = async (): Promise<boolean> => {
         >
           {/* Credentials / Portal intro page (index 0) */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white p-4 sm:p-6 md:p-8">
-              <SectionBanner
-                image={bgImg}
-                title={displayPortalTitle ?? ((typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : 'Portal'))}
-                subtitle="Select the subtype and provide credentials. You can validate and save before continuing."
-                height={160}
-                darkOverlay={0.45}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="flex h-full flex-col bg-gray-950 text-white">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
+                <SectionBanner
+                  image={bgImg}
+                  title={displayPortalTitle ?? ((typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : 'Portal'))}
+                  subtitle="Select the subtype and provide credentials. You can validate and save before continuing."
+                  height={160}
+                  darkOverlay={0.45}
+                />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left column */}
                 <div className="lg:col-span-1">
                   <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
@@ -2097,15 +2117,15 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   </div>
                 </div>
               </div>
-
+              </div>
               {/* Footer nav for section 0 */}
-              <div className="absolute bottom-4 right-4 flex gap-2 text-white">
+              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
                 <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
                   Cancel
                 </button>
                 {credentialsJustUpdated && (
                   <button
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed mr-2"
+                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleUpdateAndExit}
                   >
                     Save & Exit
@@ -2114,8 +2134,22 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 <button
                   className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={() => {
-                    if (!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) return;
-                    setCurrentSection(1);
+                    if (!credentialsNotNeeded && credentialsInvalid) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        reward_wallet: footerHasWalletFieldError ? prev.reward_wallet : prev.reward_wallet,
+                      }));
+                      return;
+                    }
+                    if (!credentialsNotNeeded && !switchbotPrereqsOk) {
+                      setSwitchbotError('Provide a valid token and secret before discovering devices.');
+                      return;
+                    }
+                    if (!credentialsNotNeeded && !shellyPrereqsOk) {
+                      setShellyError('Provide valid Shelly auth key and server URL.');
+                      return;
+                    }
+                    handleNext();
                   }}
                   disabled={!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)}
                 >
@@ -2127,10 +2161,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
           {/* Personal Information (index 1) - unchanged layout from earlier */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white p-4 sm:p-6 md:p-8">
-              <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} />
+            <div className="flex h-full flex-col bg-gray-950 text-white">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
+                <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} />
 
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5 w-full flex flex-col gap-4">
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5 w-full flex flex-col gap-4">
                 {/* Email */}
                 <div>
                   <label className="block text-sm mb-1 text-gray-200">Email</label>
@@ -2196,9 +2231,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   <p className="mt-1 text-xs text-gray-400">{FIELD_HINT.reward_wallet}</p>
                 </div>
               </div>
+              </div>
 
               {/* Footer nav for Personal */}
-              <div className="mt-auto flex justify-end gap-2 text-white">
+              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
                 <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
                   Cancel
                 </button>
@@ -2228,11 +2264,12 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
           {/* Localization (index 2) – AUTOFIT VERSION (v9: toolbar grid + HexMap auto-resolution) */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white p-1 sm:p-2 md:p-3">
-              <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} />
+            <div className="flex h-full flex-col bg-gray-950 text-white">
+              <div className="flex-1 overflow-y-auto p-1 sm:p-2 md:p-3 space-y-3">
+                <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} />
 
-              {/* Autofit card: fills available width/height */}
-              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col">
+                {/* Autofit card: fills available width/height */}
+                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col">
                 {/* Toolbar (search + lon/lat) — responsive grid that aligns labels + inputs */}
                 <div className="flex flex-col gap-1 mt-0.5">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
@@ -2351,8 +2388,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 </div>
               </div>
 
+              </div>
+
               {/* Footer nav for Localization */}
-              <div className="mt-3 flex justify-end gap-2 text-white">
+              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
                 <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
                   Cancel
                 </button>

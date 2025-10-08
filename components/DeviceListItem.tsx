@@ -17,7 +17,6 @@ import {
 } from '../lib/utils';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
-import AlertWithTooltip from './AlertIcon';
 // import WithdrawIcon from './WithdrawIcon';
 import StakingIcon from './StakeIcon';
 import EditIcon from './EditIcon';
@@ -132,27 +131,69 @@ export default function DeviceListItem({
   const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) && isHardwareCheckRequiredForPrefix(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
 
-  const summaryBadges: Array<{ label: string; className: string }> = [];
-  if (!device.registered_portal_model) {
-    const prefix = minerPrefix;
-    if (isLinkRequiredForPrefix(prefix)) {
-      summaryBadges.push({
-        label: 'Portal link needed',
-        className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
+  const issueMessages = useMemo(() => {
+    if (!alertShow) return [];
+    return Object.entries(deviceStatus)
+      .filter(([key]) => key !== 'hardware')
+      .map(([key, value]) => {
+        const trimmed = typeof value === 'string' ? value.trim() : '';
+        switch (key) {
+          case 'position':
+            return trimmed && trimmed.toLowerCase() !== 'not set' ? `Position ${trimmed}` : 'Position not set';
+          case 'reward_wallet':
+            return trimmed && trimmed.toLowerCase() !== 'not set'
+              ? `Reward wallet ${trimmed}`
+              : 'Reward wallet not set';
+          case 'registration':
+            return trimmed || 'Registration staking required';
+          case 'node':
+            return trimmed || 'Node operation staking required';
+          default:
+            return trimmed || key;
+        }
       });
+  }, [alertShow, deviceStatus]);
+
+  const summaryBadges = useMemo(() => {
+    type Badge = { label: string; className: string; severity: 'red' | 'yellow' | 'green' | 'default' };
+    const badges: Array<Badge> = [];
+    if (!device.registered_portal_model) {
+      if (isLinkRequiredForPrefix(minerPrefix)) {
+        badges.push({
+          label: 'Portal link needed',
+          className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+          severity: 'red'
+        });
+      }
     }
-  }
-  if (hardwareWarning) {
-    summaryBadges.push({
-      label: 'MAC attention required',
-      className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
-    });
-  }
-  summaryBadges.push(
-    device.verified
-      ? { label: 'Verified', className: 'bg-green-500/20 text-green-200 border border-green-400/40' }
-      : { label: 'Unverified', className: 'bg-red-500/20 text-red-200 border border-red-400/40' }
-  );
+
+    badges.push(
+      device.verified
+        ? { label: 'Verified', className: 'bg-green-500/20 text-green-200 border border-green-400/40', severity: 'green' }
+        : { label: 'Unverified', className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40', severity: 'yellow' }
+    );
+
+    issueMessages
+      .filter(Boolean)
+      .forEach((message) => {
+        if (!badges.some((b) => b.label === message)) {
+          badges.push({
+            label: message,
+            className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+            severity: 'red'
+          });
+        }
+      });
+
+    const severityRank: Record<Badge['severity'], number> = {
+      red: 0,
+      yellow: 1,
+      green: 2,
+      default: 3
+    };
+
+    return badges.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+  }, [device.registered_portal_model, device.verified, issueMessages, minerPrefix]);
 
   // Determine verification prerequisites based on product config and current device state
   const needsRegistration = isRegistrationNeeded(product);
@@ -621,11 +662,6 @@ export default function DeviceListItem({
           </div>
         </div>
         <div className="flex items-center gap-3 self-end pr-12 md:self-auto md:gap-4">
-          {alertShow && (
-            <div>
-              <AlertWithTooltip deviceStatus={deviceStatus} />
-            </div>
-          )}
           <div className="flex items-center gap-2 md:gap-3">
             {device && product && isNodeProduct(product) && (
               <Tooltip text="Stake actions">
@@ -643,7 +679,7 @@ export default function DeviceListItem({
                 </button>
               </Tooltip>
             )}
-            <Tooltip text="Edit device">
+            <Tooltip text="Edit info">
               <button
                 type="button"
                 onClick={(event) => {
@@ -939,7 +975,7 @@ export default function DeviceListItem({
         tabIndex={0}
         onClick={openDetails}
         onKeyDown={handleCardKeyDown}
-        className={`group relative w-full cursor-pointer select-none rounded-xl border bg-black/60 px-4 py-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${borderClass} ${hoverRingClass}`}
+        className={`group relative mb-6 w-full cursor-pointer select-none rounded-xl border bg-black/60 px-4 py-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${borderClass} ${hoverRingClass}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-2">
@@ -968,11 +1004,6 @@ export default function DeviceListItem({
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 pr-1 sm:pr-2">
-            {alertShow && (
-              <div className="shrink-0">
-                <AlertWithTooltip deviceStatus={deviceStatus} />
-              </div>
-            )}
             {device && product && isNodeProduct(product) && (
               <Tooltip text="Stake actions">
                 <button
@@ -989,7 +1020,7 @@ export default function DeviceListItem({
                 </button>
               </Tooltip>
             )}
-            <Tooltip text="Edit device">
+            <Tooltip text="Edit info">
               <button
                 type="button"
                 onClick={(event) => {

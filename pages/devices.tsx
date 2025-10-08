@@ -288,9 +288,9 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
         <div className="text-white text-sm font-semibold mb-2">{title}</div>
         <div className="grid grid-cols-4 gap-2">
           <SummaryRow label="Registered" value={total} color="gray" />
-          <SummaryRow label="Unverified" value={unverified} color="red" />
+          <SummaryRow label="Unverified" value={unverified} color="yellow" />
           <SummaryRow label="Verified" value={verified} color="green" />
-          <SummaryRow label="Not linked" value={notLinked} color="yellow" />
+          <SummaryRow label="Not linked" value={notLinked} color="red" />
         </div>
       </div>
     );
@@ -310,9 +310,9 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
           <div className="text-white text-sm font-medium mb-2">{title}</div>
           <div className="grid grid-cols-2 gap-2">
             <SummaryRow label="Registered" value={total} color="gray" />
-            <SummaryRow label="Unverified" value={unverified} color="red" />
+            <SummaryRow label="Unverified" value={unverified} color="yellow" />
             <SummaryRow label="Verified" value={verified} color="green" />
-            <SummaryRow label="Not linked" value={notLinked} color="yellow" />
+            <SummaryRow label="Not linked" value={notLinked} color="red" />
           </div>
         </div>
       );
@@ -903,30 +903,10 @@ const DevicesPage = ({
   };
 
   const handleChange = async (miner_key: string): Promise<void> => {
-    // Redirect to an edit page where the device details can be modified
-    try {
-      const response = await fetch(`/api/devices/${miner_key}`, {
-        method: 'POST',
-        headers: { 'Content-type': 'application/json' },
-        body: JSON.stringify({ address: session?.user.address })
-      });
-      if (!response.ok) {
-        toast.error({
-          heading: 'Error',
-          message: `Device not found.`
-        });
-      }
-
-      router.push({
-        pathname: '/register',
-        query: { minerKey: miner_key, clickable: 'true' }
-      });
-    } catch (error) {
-      toast.error({
-        heading: 'Error',
-        message: `Failed to fetch device information.`
-      });
-    }
+    router.push({
+      pathname: '/register',
+      query: { minerKey: miner_key, clickable: 'true', section: 'personal' }
+    });
   };
 
   const handleStaking = async (miner_key: string): Promise<void> => {
