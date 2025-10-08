@@ -8,7 +8,7 @@
  * 
  * Usage:
  *   npm run migrate-hardware-creds [options]
- * 
+ *   e.g.: npm run migrate-hardware-creds -- --miner-key BM-5EQ2HGKDDRBH4ZGNYMHIIKIGLHLSBEN0 --backup-dir ./backups
  * Options:
  *   --auto              Auto-approve all migrations (no prompts)
  *   --dry-run           Preview changes without executing
@@ -17,6 +17,7 @@
  *   --backup-dir <path> Custom backup directory (default: ./backups)
  */
 
+import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -68,6 +69,37 @@ interface MigrationOptions {
   backupDir: string;
 }
 
+const normalizeMacAddress = (value?: string | null): string => {
+  if (!value) return '';
+  const hex = value.replace(/[^A-Fa-f0-9]/g, '').toUpperCase();
+  if (hex.length !== 12) return '';
+  return hex.match(/.{1,2}/g)?.join(':') ?? '';
+};
+
+const deriveMinerType = (device: DeviceDocument): string => {
+  const prefix = (device.miner_key || '').split('-')[0]?.toUpperCase() ?? '';
+  if (prefix === 'CN' || prefix === 'RDN' || prefix === 'SDN' || prefix === 'SVN') return 'node';
+  if ((device.hd_type || '').toUpperCase() === 'AEM') return 'AEM';
+  if (prefix) return prefix;
+  const legacyType = (device.hd_type || device.node_type || '').toUpperCase();
+  return legacyType;
+};
+
+const determinePortalModel = (device: DeviceDocument): string => {
+  const prefix = (device.miner_key || '').split('-')[0]?.toUpperCase() ?? '';
+  switch (prefix) {
+    case 'AEM':
+      return 'aem';
+    case 'CN':
+    case 'RDN':
+    case 'SDN':
+    case 'SVN':
+      return 'node';
+    default:
+      return 'hardware';
+  }
+};
+
 class MigrationTool {
   private client: MongoClient;
   private stats: MigrationStats;
@@ -79,6 +111,13 @@ class MigrationTool {
     from_collection?: string;
     timestamp: string;
     details?: any;
+  }>;
+  private unregisteredWithMac: Array<{
+    miner_key: string;
+    address: string;
+    mac_address: string;
+    expected_portal: string;
+    source_collection: string;
   }>;
 
   constructor(mongoUri: string, options: MigrationOptions) {
@@ -98,6 +137,7 @@ class MigrationTool {
       output: process.stdout,
     });
     this.migrationLog = [];
+    this.unregisteredWithMac = [];
   }
 
   private log(message: string, color: keyof typeof colors = 'reset') {
@@ -183,28 +223,6 @@ class MigrationTool {
       const credsDb = this.client.db('creds');
       const mainDb = this.client.db('main');
 
-      // Check if already migrated
-      const existsInCreds = await credsDb
-        .collection('hardware')
-        .findOne({ miner_key });
-
-      if (existsInCreds) {
-        this.log('\nCreds DB Status:', 'yellow');
-        this.log('  ✓ Already migrated to creds.hardware', 'yellow');
-        this.stats.alreadyMigrated++;
-        this.logAction(miner_key, 'already_migrated', `air.${sourceCollection}`);
-
-        if (!this.options.dryRun) {
-          // Just clean up the old collection
-          await this.client
-            .db('air')
-            .collection(sourceCollection)
-            .deleteOne({ miner_key });
-          this.log('  ✓ Cleaned up old collection entry', 'green');
-        }
-        return true;
-      }
-
       // Check main.devices
       const mainDevice = (await mainDb
         .collection('devices')
@@ -232,11 +250,72 @@ class MigrationTool {
       }
 
       this.log('\nCreds DB Status:', 'blue');
-      this.log('  ✗ Not in creds.hardware', 'gray');
+      const ownerAddress = typeof mainDevice?.address === 'string' ? mainDevice.address : null;
+      if (!ownerAddress) {
+        this.log('  ✗ Cannot determine owner address in main.devices', 'red');
+        this.log('    → Skipping (address is required for new schema)', 'red');
+        this.stats.errors++;
+        this.logAction(miner_key, 'skip_missing_address', `air.${sourceCollection}`);
+        return true;
+      }
+
+      let existingDoc = await credsDb
+        .collection('hardware')
+        .findOne({ miner_key, address: ownerAddress });
+
+      if (existingDoc) {
+        this.log(`  ✓ Entry exists for address ${ownerAddress}`, 'yellow');
+      } else {
+        const legacyDoc = await credsDb
+          .collection('hardware')
+          .findOne({ miner_key });
+        if (legacyDoc) {
+          this.log('  ⚠ Legacy entry found without address; will rewrite in new schema', 'yellow');
+          existingDoc = legacyDoc;
+        } else {
+          this.log('  ✗ Not in creds.hardware', 'gray');
+        }
+      }
+
+      const macAddress = normalizeMacAddress(device.device_id);
+      if (!macAddress) {
+        this.log('  ✗ Invalid or missing MAC address; skipping', 'red');
+        this.stats.errors++;
+        this.logAction(miner_key, 'invalid_mac', `air.${sourceCollection}`);
+        return true;
+      }
+
+      const expectedPortal = determinePortalModel(device);
+      const needsPortalUpdate =
+        mainDevice &&
+        !this.options.skipPortalUpdate &&
+        (mainDevice.registered_portal_model || '').toLowerCase() !== expectedPortal.toLowerCase();
+
+      if (needsPortalUpdate) {
+        this.log(
+          `  ⚠ registered_portal_model mismatch (current: ${mainDevice?.registered_portal_model ?? 'none'}, expected: ${expectedPortal})`,
+          'yellow'
+        );
+      }
+
+      if (mainDevice && mainDevice.is_registered !== true) {
+        this.log('  ⚠ Device has MAC but is_registered=false', 'yellow');
+        this.unregisteredWithMac.push({
+          miner_key,
+          address: ownerAddress,
+          mac_address: macAddress,
+          expected_portal: expectedPortal,
+          source_collection: `air.${sourceCollection}`,
+        });
+      }
 
       this.log('\nActions to perform:', 'bold');
-      this.log('  1. Copy document to creds.hardware (preserve all fields)');
-      this.log('  2. Set registered_portal_model=\'hardware\' in main.devices');
+      this.log('  1. Upsert new-style credentials into creds.hardware');
+      if (this.options.skipPortalUpdate) {
+        this.log("  2. (Skipped) --skip-portal flag set", 'gray');
+      } else {
+        this.log(`  2. Set registered_portal_model='${expectedPortal}' in main.devices`);
+      }
       this.log(`  3. Delete from air.${sourceCollection}`);
 
       // Prompt for confirmation
@@ -257,24 +336,44 @@ class MigrationTool {
 
       if (this.options.dryRun) {
         this.log('\n[DRY RUN] Would migrate this device', 'yellow');
+        if (needsPortalUpdate) {
+          this.log('  [DRY RUN] Would update registered_portal_model', 'yellow');
+        }
         this.stats.newlyMigrated++;
         return true;
       }
 
       // Perform migration
-      // Step 1: Copy to creds.hardware (preserve all fields)
-      await credsDb.collection('hardware').insertOne(device);
-      this.log('  ✓ Copied to creds.hardware', 'green');
+      // Step 1: Transform + upsert into creds.hardware
+
+      const minerType = deriveMinerType(device) || 'HARDWARE';
+      const hardwareDoc = {
+        miner_key,
+        address: ownerAddress,
+        miner_type: minerType,
+        credentials: { mac_address: macAddress },
+        credentials_saved_at: device.timestamp ?? new Date(),
+      };
+
+      if (existingDoc) {
+        await credsDb
+          .collection('hardware')
+          .replaceOne({ _id: existingDoc._id }, hardwareDoc);
+        this.log('  ✓ Updated existing creds.hardware entry', 'green');
+        this.stats.alreadyMigrated++;
+      } else {
+        await credsDb.collection('hardware').insertOne(hardwareDoc);
+        this.log('  ✓ Inserted into creds.hardware', 'green');
+        this.stats.newlyMigrated++;
+      }
 
       // Step 2: Update registered_portal_model in main.devices
-      if (mainDevice && !this.options.skipPortalUpdate) {
-        if (!mainDevice.registered_portal_model) {
-          await mainDb.collection('devices').updateOne(
-            { miner_key },
-            { $set: { registered_portal_model: 'hardware' } }
-          );
-          this.log('  ✓ Set registered_portal_model=\'hardware\'', 'green');
-        }
+      if (mainDevice && needsPortalUpdate) {
+        await mainDb.collection('devices').updateOne(
+          { miner_key },
+          { $set: { registered_portal_model: expectedPortal } }
+        );
+        this.log(`  ✓ Set registered_portal_model='${expectedPortal}'`, 'green');
       }
 
       // Step 3: Delete from old collection
@@ -284,10 +383,10 @@ class MigrationTool {
         .deleteOne({ miner_key });
       this.log(`  ✓ Deleted from air.${sourceCollection}`, 'green');
 
-      this.stats.newlyMigrated++;
-      this.logAction(miner_key, 'migrated', `air.${sourceCollection}`, {
+      this.logAction(miner_key, existingDoc ? 'updated' : 'migrated', `air.${sourceCollection}`, {
         orphaned: !mainDevice,
-        portal_updated: mainDevice && !mainDevice.registered_portal_model,
+        portal_updated: needsPortalUpdate,
+        portal_expected: expectedPortal,
       });
 
       this.log('\n✅ Migration successful', 'green');
@@ -427,8 +526,10 @@ class MigrationTool {
       this.log(`  creds.hardware total: ${credsHardwareTotal}`, 'green');
     }
 
-    // Save log file
+    // Save log file(s)
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.mkdirSync(this.options.backupDir, { recursive: true });
+
     const logPath = path.join(
       this.options.backupDir,
       `migration-log-${timestamp}.json`
@@ -443,6 +544,20 @@ class MigrationTool {
 
     fs.writeFileSync(logPath, JSON.stringify(logData, null, 2));
     this.log(`\n📄 Log saved to: ${logPath}`, 'gray');
+
+    if (this.unregisteredWithMac.length > 0) {
+      const unregisteredPath = path.join(
+        this.options.backupDir,
+        `unregistered-with-mac-${timestamp}.json`
+      );
+      fs.writeFileSync(unregisteredPath, JSON.stringify(this.unregisteredWithMac, null, 2));
+      this.log(
+        `⚠ Found ${this.unregisteredWithMac.length} device(s) with MAC credentials but is_registered=false. Logged to ${unregisteredPath}`,
+        'yellow'
+      );
+    } else {
+      this.log('\n✓ No devices with MAC credentials and is_registered=false', 'green');
+    }
 
     this.log('\n✅ Migration complete!', 'green');
   }
@@ -501,9 +616,9 @@ async function main() {
   const options = parseArgs();
 
   // Get MongoDB URI from environment
-  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  const mongoUri = process.env.VER_MONGO_URI;
   if (!mongoUri) {
-    console.error('Error: MONGODB_URI or MONGO_URI environment variable not set');
+    console.error('Error: VER_MONGO_URI environment variable not set');
     process.exit(1);
   }
 
