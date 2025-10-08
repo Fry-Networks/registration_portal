@@ -6,6 +6,7 @@ export * from './ShellyValidator';
 export * from './AwairValidator';
 export * from './KaiterraValidator';
 export * from './AtmotubeValidator';
+export * from './EcowittValidator';
 export * from './macAddressValidator';
 export * from './DeviceValidatorRegistry';
 

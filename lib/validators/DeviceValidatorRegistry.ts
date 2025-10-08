@@ -4,6 +4,7 @@ import { ShellyValidator } from './ShellyValidator';
 import { AwairValidator } from './AwairValidator';
 import { KaiterraValidator } from './KaiterraValidator';
 import { AtmotubeValidator } from './AtmotubeValidator';
+import { EcowittValidator } from './EcowittValidator';
 import { MacAddressValidator } from './macAddressValidator';
 
 /**
@@ -31,6 +32,7 @@ export class DeviceValidatorRegistry {
     this.register(new AwairValidator());
     this.register(new KaiterraValidator());
     this.register(new AtmotubeValidator());
+    this.register(new EcowittValidator());
     
     // Register MAC-based validators for simpler devices
     this.register(new MacAddressValidator('mac'));

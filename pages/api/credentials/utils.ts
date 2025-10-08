@@ -34,6 +34,14 @@ export const NAMED_COLLECTIONS = new Set(['air', 'camera', 'energy', 'weather', 
 export const getMinerType = (miner_key?: string) => (miner_key ? String(miner_key).split('-')[0] : '');
 export const portalKeyFromMiner = (mk?: string) => MINER_PORTAL_KEY[getMinerType(mk)] ?? '';
 
+// Ecowitt device types that are supported for discovery (subset of portal keys)
+export const SUPPORTED_ECOWITT_TYPES = new Set(['air', 'weather', 'energy', 'water']);
+
+export const getEcowittDeviceType = (miner_key?: string): string | null => {
+  const portalKey = portalKeyFromMiner(miner_key);
+  return SUPPORTED_ECOWITT_TYPES.has(portalKey) ? portalKey : null;
+};
+
 /** Deterministic collection:
  *  - if portal_type ∈ {air, camera, energy, weather, water, radiation} → that collection
  *  - else infer portal key from miner_key; if in set → that collection
