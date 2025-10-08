@@ -7,7 +7,8 @@
   "start": "next start -p 3007",
   "lint": "next lint",
   "cancel:registration": "node scripts/cancel-registration.js",
-  "check-rtsp": "node ./scripts/check-rtsp.js"
+  "check-rtsp": "node ./scripts/check-rtsp.js",
+  "migrate-hardware-creds": "ts-node scripts/migrate-hardware-credentials.ts"
   },
   "dependencies": {
     "@agoralabs-sh/avm-web-provider": "^1.7.0",

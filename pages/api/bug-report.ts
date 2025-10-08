@@ -5,8 +5,28 @@ import { authOptions } from './auth/[...nextauth]';
 import { CommonErrors, ErrorCodes, createApiError } from '../../lib/api-errors';
 import logger from '../../lib/logger';
 
-const DEFAULT_RATE_LIMIT_HOURS = 12;
+const RATE_LIMIT_MAX_REPORTS = 2;
+const DEFAULT_RATE_LIMIT_MINUTES = 120;
 
+function getRateLimitWindowMs(): number {
+  const minutesEnv = process.env.BUG_REPORT_RATE_LIMIT_MINUTES;
+  if (minutesEnv) {
+    const parsedMinutes = Number(minutesEnv);
+    if (Number.isFinite(parsedMinutes) && parsedMinutes > 0) {
+      return parsedMinutes * 60 * 1000;
+    }
+  }
+
+  const hoursEnv = process.env.BUG_REPORT_RATE_LIMIT_HOURS;
+  if (hoursEnv) {
+    const parsedHours = Number(hoursEnv);
+    if (Number.isFinite(parsedHours) && parsedHours > 0) {
+      return parsedHours * 60 * 60 * 1000;
+    }
+  }
+
+  return DEFAULT_RATE_LIMIT_MINUTES * 60 * 1000;
+}
 interface BugReportRequestBody {
   message?: string;
   screenshot?: {
@@ -15,20 +35,6 @@ interface BugReportRequestBody {
     name?: string;
     size?: number;
   };
-}
-
-function getRateLimitWindowMs(): number {
-  const envValue = process.env.BUG_REPORT_RATE_LIMIT_HOURS;
-  if (!envValue) {
-    return DEFAULT_RATE_LIMIT_HOURS * 60 * 60 * 1000;
-  }
-
-  const parsed = Number(envValue);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_RATE_LIMIT_HOURS * 60 * 60 * 1000;
-  }
-
-  return parsed * 60 * 60 * 1000;
 }
 
 function sanitizeFilename(name?: string): string {
@@ -280,29 +286,36 @@ export default async function handler(
 
     const rateLimitWindowMs = getRateLimitWindowMs();
     const now = Date.now();
-    const lastReport = await collection.findOne(
-      { address },
-      { sort: { createdAt: -1 } }
-    );
+    const windowStart = new Date(now - rateLimitWindowMs);
+    const recentReports = await collection
+      .find({ address, createdAt: { $gte: windowStart } })
+      .sort({ createdAt: 1 })
+      .limit(RATE_LIMIT_MAX_REPORTS)
+      .toArray();
 
-    if (lastReport?.createdAt) {
-      const lastCreatedAt = new Date(lastReport.createdAt).getTime();
-      const delta = now - lastCreatedAt;
-      if (delta < rateLimitWindowMs) {
-        const retryAfter = Math.ceil((rateLimitWindowMs - delta) / 1000);
-        res.setHeader('Retry-After', retryAfter.toString());
-        res.status(429).json(
-          createApiError(
-            ErrorCodes.RATE_LIMIT_EXCEEDED,
-            'You recently submitted a bug report',
-            `Please wait ${Math.ceil((rateLimitWindowMs - delta) / (60 * 60 * 1000))} more hour(s) before submitting another report`,
-            {
-              retryAfterSeconds: retryAfter
-            }
-          )
-        );
-        return;
-      }
+    if (recentReports.length >= RATE_LIMIT_MAX_REPORTS) {
+      const oldest = recentReports[0]?.createdAt
+        ? new Date(recentReports[0].createdAt).getTime()
+        : now;
+      const retryAfterMs = Math.max(0, oldest + rateLimitWindowMs - now);
+      const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+      const windowMinutes = Math.round(rateLimitWindowMs / 60000);
+      const minutesRemaining = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+
+      res.setHeader('Retry-After', retryAfterSeconds.toString());
+      res.status(429).json(
+        createApiError(
+          ErrorCodes.RATE_LIMIT_EXCEEDED,
+          'Bug report limit reached',
+          `You can send up to ${RATE_LIMIT_MAX_REPORTS} bug reports every ${windowMinutes} minutes. Try again in about ${minutesRemaining} minute(s).`,
+          {
+            retryAfterSeconds,
+            rateLimitWindowMinutes: windowMinutes,
+            rateLimitMax: RATE_LIMIT_MAX_REPORTS
+          }
+        )
+      );
+      return;
     }
 
     await sendToDiscord({
@@ -337,7 +350,8 @@ export default async function handler(
       meta: {
         userAgent: req.headers['user-agent'] ?? null,
         email: session.user.email ?? null,
-        rateLimitWindowMs
+        rateLimitWindowMs,
+        rateLimitMax: RATE_LIMIT_MAX_REPORTS
       }
     });
 

@@ -14,7 +14,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId } from '../lib/utils';
-import { BellIcon } from '@heroicons/react/outline';
+import { BellIcon, HomeIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
@@ -337,6 +337,13 @@ export default function Navbar() {
               <Fragment>
                 <DownMenu address={address} disconnect={handleDisconnect} />
                 <div className="flex items-center gap-2">
+                  <Link
+                    href="/devices"
+                    className="flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
+                    aria-label="Go to devices"
+                  >
+                    <HomeIcon className="h-5 w-5" />
+                  </Link>
                   <button
                     type="button"
                     onClick={openBugModal}

@@ -202,6 +202,9 @@ export default function BugReportModal({
           Please do not include personal details. Use a tool like Snipping Tool to blur or hide names, email
           addresses, or private info before attaching screenshots.
         </div>
+        <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-200">
+          You can submit up to 2 bug reports every 120 minutes. If you hit the limit, try again after the cooldown.
+        </div>
 
         <div>
           <label htmlFor="bug-report-message" className="text-sm font-medium text-gray-200">
