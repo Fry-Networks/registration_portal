@@ -12,16 +12,22 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
 - MongoDB via a shared client (`lib/mongoclient.ts`)
 - Algorand (wallets via `@txnlab/use-wallet(-react)`, sdk operations, indexer)
 - Tinyman SDK for swaps used by Instant Claim Boost
+- Internal credential APIs (`/api/credentials/*`, `/api/devices/save-credentials`) replacing the legacy AirAPI service
 
 
 ## High-Level Architecture
 
 - Authentication is handled by a custom NextAuth provider that verifies a signed Algorand transaction and stores basic user profile in MongoDB.
   - Code: `lib/WalletAuthProvider.ts:6`, `lib/auth.ts:5`.
-- All application data lives in MongoDB `main` (plus a separate `creds` DB for hardware MAC credentials).
+- All application data lives in MongoDB `main` (plus a separate `creds` DB for portal credentials and hardware MAC credentials).
   - Shared client: `lib/mongoclient.ts:1`.
 - Devices (aka registrations) are stored per wallet, with per-device staking state, reward wallet, nickname, and position.
   - Type: `lib/types.ts:3`.
+- Device credentials are managed in-app:
+  - Fetch: `pages/api/credentials/get.ts:1`
+  - Validate/delegate: `pages/api/credentials/validate.ts:1`, validator registry `lib/validators/DeviceValidatorRegistry.ts:1`
+  - Persist: `pages/api/devices/save-credentials.ts:1`
+  - Unlink: `pages/api/credentials/unlink.ts:1`
 - Products drive token choices and required staking amounts for registration, node operation, and verification.
   - Type: `lib/types.ts:75`.
 - Rewards are the source of truth in the `device-rewards` collection (weekly + legacy daily), with API to page, total, claim, boost (instant claim), and confirm on-chain timestamps.
@@ -55,8 +61,11 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
   - `fry-conversions`: FRY 1.0 vesting conversion → FRY 2.0 or fNODE monthly claims
 
 - Database: `creds`
-  - `hardware`: device MAC credentials by miner key/type, with linked miner constraints
-    - API: `pages/api/hardware/register.ts:1`
+  - Portal credential collections (`air`, `camera`, `energy`, `weather`, `water`, `radiation`, `hardware`, `other`) keyed by `miner_key` + owner `address`
+    - Persist: `pages/api/devices/save-credentials.ts:1`
+    - Fetch: `pages/api/credentials/get.ts:1`
+    - Validate: `pages/api/credentials/validate.ts:1` (+ vendor endpoints under `/api/credentials/*`)
+    - Unlink/reset: `pages/api/credentials/unlink.ts:1`
 
 
 ## Wallets
@@ -80,6 +89,11 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
 - Save device info (email, names, nickname): `pages/api/devices/save-device-info.ts:1`
 - Save reward wallet (must be opted-in to reward token): `pages/api/devices/save-wallet-info.ts:1`
 - Save location (lat/lng): `pages/api/devices/save-map-info.ts:1`
+- Manage third-party credentials inside the dashboard (AirAPI fully retired):
+  - Fetch existing: `pages/api/credentials/get.ts:1`
+  - Validate via registry + vendor delegates: `pages/api/credentials/validate.ts:1`
+  - Persist to `creds` DB: `pages/api/devices/save-credentials.ts:1`
+  - Unlink/reset: `pages/api/credentials/unlink.ts:1`
 
 3) Staking
 - Registration Staking
@@ -115,7 +129,7 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
 
 6) Hardware Credentials (MAC)
 - CRUD under a separate DB/collection: `creds.hardware`
-- API: `pages/api/hardware/register.ts:1` (enforces linked miner key constraints, prevents conflicts)
+- API: `pages/api/hardware/register.ts:1` (enforces linked miner key constraints, prevents conflicts) plus validator endpoint `pages/api/credentials/hardware/mac.ts:1` used by `/api/credentials/validate`
 
 
 ## Token Model and Products

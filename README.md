@@ -10,6 +10,7 @@ This document explains how the Fry user dashboard works end‑to‑end: authenti
 - MongoDB for all state: users, devices, products, rewards, etc.
 - Algorand network for staking/claims. Wallets via `@txnlab/use-wallet(-react)`.
 - Rewards modeled weekly (with support for historical pre‑cutoff daily entries).
+- Device credential intake and validation handled in-app (`/api/credentials/*`, `/api/devices/save-credentials`), replacing the legacy AirAPI dependency.
 
 
 ## Authentication
@@ -62,7 +63,11 @@ Database: `main`
 - `fry-conversions`: FRY 1.0 vesting → monthly claims in FRY 2.0 or fNODE.
 
 Database: `creds`
-- `hardware`: MAC credentials by miner key/type (for portal linking).
+- Portal credential collections (`air`, `camera`, `energy`, `weather`, `water`, `radiation`, `hardware`, `other`) keyed by `miner_key` + owner `address`.
+  - Persist: `pages/api/devices/save-credentials.ts:1`
+  - Fetch: `pages/api/credentials/get.ts:1`
+  - Validate: `pages/api/credentials/validate.ts:1` (+ vendor endpoints under `/api/credentials/*`)
+  - Unlink/reset: `pages/api/credentials/unlink.ts:1`
 
 
 ## Wallets
@@ -82,6 +87,11 @@ Database: `creds`
 - Device info (email, names, nickname): `pages/api/devices/save-device-info.ts:1`
 - Reward wallet (must be opted-in to reward ASA): `pages/api/devices/save-wallet-info.ts:1`
 - Location (latitude/longitude): `pages/api/devices/save-map-info.ts:1`
+- Third-party portal credentials handled locally (AirAPI no longer required):
+  - Fetch existing: `pages/api/credentials/get.ts:1`
+  - Validate via registry/delegates: `pages/api/credentials/validate.ts:1`
+  - Persist to `creds`: `pages/api/devices/save-credentials.ts:1`
+  - Unlink/reset: `pages/api/credentials/unlink.ts:1`
 
 3) Staking (as required by product)
 - Registration staking
@@ -161,10 +171,11 @@ Feature flags
 
 Bug reporting
 - `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives submitted bug reports (required to enable the UI button)
-- `BUG_REPORT_RATE_LIMIT_HOURS` — optional override for the submission cooldown window (defaults to 12 hours if unset)
+- `BUG_REPORT_RATE_LIMIT_MINUTES` — optional override for the submission cooldown window in minutes (defaults to 120 minutes; users may submit up to two reports per window). Legacy `BUG_REPORT_RATE_LIMIT_HOURS` is still honored if the minutes variable is not set.
 
 Hardware DB (optional)
 - `MONGO_CREDS_DB`, `MONGO_CREDS_COLLECTION`
+- Validator endpoints live under `/api/credentials/hardware/*`; MAC-specific logic in `pages/api/credentials/hardware/mac.ts:1`
 
 
 ## Key UI Entry Points
