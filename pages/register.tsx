@@ -1242,21 +1242,25 @@ const savePersonalInformation = async (): Promise<boolean> => {
         });
 
         // Now that credentials were persisted, call the registration endpoint to flip is_registered
-        try {
-          const response = await fetch('/api/registrations/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
-          });
-          if (!response.ok) {
-            const j = await response.json().catch(() => ({}));
-            console.error('Registration endpoint failed after save:', j);
+        // Do NOT call the registration API when editing an existing device or when the device
+        // is already marked as registered. This prevents re-registration during edits.
+        if (!isEditingExisting && !device?.is_registered) {
+          try {
+            const response = await fetch('/api/registrations/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
+            });
+            if (!response.ok) {
+              const j = await response.json().catch(() => ({}));
+              console.error('Registration endpoint failed after save:', j);
+              toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
+            }
+          } catch (e) {
+            console.error('Failed to call registration endpoint after save', e);
             toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
           }
-        } catch (e) {
-          console.error('Failed to call registration endpoint after save', e);
-          toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
         }
       }
         // Ensure registered_portal_model is set immediately when registering
@@ -1380,23 +1384,26 @@ const savePersonalInformation = async (): Promise<boolean> => {
       }
 
       // After a successful save, attempt to mark device registered and then navigate back to devices
-      try {
-        if (resolvedMinerKey && session?.user?.address) {
-          const r = await fetch('/api/registrations/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
-          });
-          if (!r.ok) {
-            const j = await r.json().catch(() => ({}));
-            console.error('Registration endpoint failed after save:', j);
-            toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
+      // Skip registration if we're editing an existing device or the device is already registered.
+      if (!isEditingExisting && !device?.is_registered) {
+        try {
+          if (resolvedMinerKey && session?.user?.address) {
+            const r = await fetch('/api/registrations/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              console.error('Registration endpoint failed after save:', j);
+              toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
+            }
           }
+        } catch (e) {
+          console.error('Failed to call registration endpoint after save', e);
+          toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
         }
-      } catch (e) {
-        console.error('Failed to call registration endpoint after save', e);
-        toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
       }
 
       router.push(evaluatePostRegistrationRoute());
