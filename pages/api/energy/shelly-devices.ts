@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { spawn } from 'child_process';
-import path from 'path';
+import ShellyApi from './shellyapi';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
@@ -41,61 +40,9 @@ const getShellyActiveDevices = async (
   serverUrl: string,
   authKey: string
 ): Promise<string[]> => {
-  return new Promise((resolve, reject) => {
-    const pythonScriptPath = path.join(
-      process.cwd(),
-      'pages',
-      'api',
-      'energy',
-      'shellyapi',
-      'get_devices.py'
-    );
-
-    const pythonProcess = spawn('python', [
-      pythonScriptPath,
-      normalizeServerUrl(serverUrl),
-      authKey
-    ]);
-
-    let stdout = '';
-    let stderr = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      try {
-        // Try to parse stdout first, even if exit code is non-zero
-        const result = JSON.parse(stdout);
-        if (result.error) {
-          reject(new Error(result.error));
-          return;
-        }
-        if (result.success === false) {
-          reject(new Error(result.error || 'Python script returned success: false'));
-          return;
-        }
-        resolve(result.device_ids || []);
-      } catch (parseError) {
-        // If stdout parsing fails, then check exit code and stderr
-        if (code !== 0) {
-          const errorMsg = stderr.trim() || `Python script failed with exit code ${code}`;
-          reject(new Error(`Python script failed: ${errorMsg}`));
-          return;
-        }
-        reject(new Error(`Failed to parse Python script output: ${parseError}`));
-      }
-    });
-
-    pythonProcess.on('error', (error) => {
-      reject(new Error(`Failed to start Python script: ${error.message}`));
-    });
-  });
+  const api = new ShellyApi(normalizeServerUrl(serverUrl), authKey, 5000);
+  const ids = await api.get_active_device_ids();
+  return ids.map((id) => id.toString());
 };
 
 const extractDeviceSummary = (deviceId: string): DeviceSummary => {
