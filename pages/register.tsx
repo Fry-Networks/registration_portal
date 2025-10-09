@@ -635,6 +635,15 @@ export default function RegisterPage({ products }: { products: Product[] }) {
     setHexSynced(false);
   }
 }, [device, session, clickable, findProduct]);
+
+  // When editing an existing device that already has a location, ensure the
+  // map resolution / zoom isn't excessively high. Default to H3 resolution 6
+  // (coarser) so the initial view is comfortable. Only set if not already set.
+  useEffect(() => {
+    if (isEditingExisting && device?.position?.lat != null && device?.position?.lng != null && displayedHexRes == null) {
+      setDisplayedHexRes(6);
+    }
+  }, [isEditingExisting, device?.position?.lat, device?.position?.lng, displayedHexRes]);
   
   useEffect(() => {
     if (!isEditingExisting || !resolvedMinerKey || !session?.user?.address) {

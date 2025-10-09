@@ -116,6 +116,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const minerType = getMinerType(miner_key);
   const db = await getDb();
 
+  // If this is a aem/hardware/node check, delegate to the dedicated endpoint
+  const lowerApiCheck = String(apiType).toLowerCase();
+  if (lowerApiCheck === 'aem' || lowerApiCheck === 'hardware' || lowerApiCheck === 'node') {
+    return await delegateToEndpoint('hardware/mac', req, res);
+  }
+
   try {
     // ------------------
     // Uniqueness checks
