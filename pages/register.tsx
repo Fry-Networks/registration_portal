@@ -843,10 +843,10 @@ const sections = [
       if (!result.success) {
         setCredentialsValidated(false);
         // Handle device-specific error states
-        if (selectedSubtype.toLowerCase() === 'switchbot') {
+        if (selectedSubtype && selectedSubtype.toLowerCase() === 'switchbot') {
           setSwitchbotError(result.error || 'Validation failed');
         }
-        if (selectedSubtype.toLowerCase() === 'shelly') {
+        if (selectedSubtype && selectedSubtype.toLowerCase() === 'shelly') {
           setShellyError(result.error || 'Validation failed');
         }
         if (!options.suppressToast) {
@@ -855,40 +855,108 @@ const sections = [
         return false;
       }
 
-      // Validation successful
-      setCredentialsValidated(true);
-      
-      // Handle device-specific success states
-      if (selectedSubtype.toLowerCase() === 'switchbot') {
-        setSwitchbotError(null);
-        if (result.devices) {
-          setSwitchbotDevices(result.devices.map(d => ({
-            deviceId: d.deviceId,
-            deviceName: d.deviceName,
-            deviceType: d.deviceType
-          })));
+      // Validation successful (local validator)
+      // After local validator success, perform a server-side validation step
+      // for all validators so the DB-level uniqueness/ownership checks run.
+      // This keeps behavior consistent across device types.
+      try {
+        const subtypeLower = selectedSubtype.toLowerCase();
+
+        // Prepare payload depending on device type
+        const payload = buildCredentialPayload();
+
+        // If validator returned a normalized deviceId (common for MAC validator and others),
+        // prefer that value in the payload.
+        const devices = result.devices ?? [];
+        if (devices.length > 0) {
+          const dev = devices[0];
+          // For mac-like validators the deviceId is a normalized mac
+          if ((dev.deviceId || '').includes(':') && (payload['mac_address'] === undefined || payload['mac_address'] !== dev.deviceId)) {
+            payload['mac_address'] = dev.deviceId;
+            setCredentials((prev) => ({ ...prev, mac_address: dev.deviceId }));
+          }
+          // For switchbot/shelly the important key is deviceId
+          if (subtypeLower === 'switchbot' || subtypeLower === 'shelly') {
+            payload['deviceId'] = dev.deviceId;
+            setCredentials((prev) => ({ ...prev, deviceId: dev.deviceId }));
+          }
         }
+
+        const res = await fetch('/api/credentials/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials: payload }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setCredentialsValidated(false);
+          if (!options.suppressToast) {
+            toast.error({ heading: 'Error', message: data.message ?? 'Validation failed' });
+          }
+          return false;
+        }
+
+        // Server-side validation passed
+        setCredentialsValidated(true);
+        if (!options.suppressToast) {
+          // If local validator produced a normalization success message, show that first
+          const devices = result.devices ?? [];
+          if (devices.length > 0) {
+            const dev = devices[0];
+            if ((dev.deviceId || '').includes(':')) {
+              toast.success({ heading: 'Format OK', message: 'MAC address format looks good.' });
+            } else {
+              toast.success({ heading: 'Validation OK', message: 'Credentials validated successfully.' });
+            }
+          }
+          // Then server-side availability/ownership confirmation
+          toast.success({ heading: 'Available', message: data.message ?? 'Device ID available and successfully linked to FryNetworks.' });
+        }
+        return true;
+      } catch (err) {
+        console.error('Server validation failed', err);
+        setCredentialsValidated(false);
+        if (!options.suppressToast) {
+          toast.error({ heading: 'Error', message: (err as any)?.message ?? 'Failed to validate credentials on server' });
+        }
+        return false;
       }
-      if (selectedSubtype.toLowerCase() === 'shelly') {
-        setShellyError(null);
-        if (result.devices) {
-          setShellyDevices(result.devices.map(d => ({
-            deviceId: d.deviceId,
-            deviceName: d.deviceName,
-            deviceType: d.deviceType
-          })));
+
+      // If code reaches here it means we did not return from the server-side
+      // validation block above (which returns on success/failure). As a safety
+      // fallback, mark credentials validated and populate any device lists
+      // when present.
+      setCredentialsValidated(true);
+
+      const devices = result.devices ?? [];
+      if (selectedSubtype) {
+        const subtypeLower = String(selectedSubtype).toLowerCase();
+        if (devices.length > 0) {
+          if (subtypeLower === 'switchbot') {
+            setSwitchbotError(null);
+            setSwitchbotDevices(devices.map((d) => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType })));
+          }
+          if (subtypeLower === 'shelly') {
+            setShellyError(null);
+            setShellyDevices(devices.map((d) => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType })));
+          }
+
+          if (!options.suppressToast) {
+            toast.success({ heading: 'Success', message: `Found ${devices.length} device(s)` });
+          }
+        } else {
+          if (!options.suppressToast) {
+            toast.success({ heading: 'Success', message: 'Credentials validated successfully.' });
+          }
+        }
+      } else {
+        if (!options.suppressToast) {
+          toast.success({ heading: 'Success', message: 'Credentials validated successfully.' });
         }
       }
 
-      if (!options.suppressToast) {
-        toast.success({ 
-          heading: 'Success', 
-          message: result.devices?.length 
-            ? `Found ${result.devices.length} device(s)` 
-            : 'Credentials validated successfully.' 
-        });
-      }
-      
       return true;
     } catch (error: any) {
       setCredentialsValidated(false);
