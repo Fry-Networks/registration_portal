@@ -167,9 +167,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // continue to validation even if uniqueness checks fail
     }
 
+    // Per workflow: for SwitchBot and Shelly we only need to run uniqueness checks
+    // (done above) and do not perform extra calls to the provider API during
+    // validation. Return success here to avoid touching external services.
+    const lowerApiCheck = String(apiType).toLowerCase();
+    if (lowerApiCheck === 'switchbot' || lowerApiCheck === 'shelly') {
+      return res.status(200).json({
+        message: 'Credentials validated successfully',
+        success: true
+      });
+    }
+
     // Check if we have a modern validator for this device type
     const validator = deviceValidatorRegistry.getValidator(apiType);
-    
+
     if (validator) {
       // Use the new validator system
       const validationContext = {

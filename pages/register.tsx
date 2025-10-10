@@ -372,13 +372,32 @@ export default function RegisterPage({ products }: { products: Product[] }) {
 
   // Check if credentials are needed based on env variable
   const credentialsNotNeeded = useMemo(() => {
-    const credentialsNeeded = process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED;
-    if (!credentialsNeeded || !resolvedMinerKey) return true; // Default to not needing creds if env not set
-    
-    const deviceTypes = credentialsNeeded.split(',').map(type => type.trim().toUpperCase());
+    // Parse NEXT_PUBLIC_CREDENTIALS_NEEDED using the same semantics as pages/devices.tsx
+    // - empty/unset -> default to ALL
+    // - NONE/FALSE/0 -> no prefixes require creds
+    // - ALL/TRUE/1 -> all prefixes require creds
+    // - comma-separated list -> only those prefixes require creds
+    const raw = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
+    if (!resolvedMinerKey) return true; // can't determine miner type -> skip credential requirement
+
+    let neededSet: Set<string>;
+    if (!raw) {
+      neededSet = new Set(['ALL']);
+    } else {
+      const v = raw.toUpperCase();
+      if (v === 'NONE' || v === 'FALSE' || v === '0') neededSet = new Set();
+      else if (v === 'ALL' || v === 'TRUE' || v === '1') neededSet = new Set(['ALL']);
+      else neededSet = new Set(v.split(',').map(s => s.trim()).filter(Boolean));
+    }
+
+    // If empty set -> no credentials needed
+    if (neededSet.size === 0) return true;
+
+    // If ALL -> credentials required for all prefixes
+    if (neededSet.has('ALL')) return false;
+
     const minerType = resolvedMinerKey.split('-')[0]?.toUpperCase();
-    
-    return !deviceTypes.includes(minerType); // Invert: true if NOT in the list
+    return !neededSet.has(minerType); // true => credentials NOT needed
   }, [resolvedMinerKey]);
 
   // Auto-set credentialsValidated when credentials aren't needed
@@ -832,6 +851,44 @@ const sections = [
 
     // Use the new validator system
     try {
+      const subtypeLower = String(selectedSubtype ?? '').toLowerCase();
+
+      // For SwitchBot and Shelly we must NOT run the client-side validator
+      // (it imports the SwitchBot client which uses Node's crypto.randomUUID and
+      // will crash in the browser). Instead, perform server-side validation
+      // which only runs the DB uniqueness checks (see pages/api/credentials/validate.ts).
+      if (subtypeLower === 'switchbot' || subtypeLower === 'shelly') {
+        try {
+          const payload = buildCredentialPayload();
+          const res = await fetch('/api/credentials/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials: payload }),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            setCredentialsValidated(false);
+            if (!options.suppressToast) {
+              toast.error({ heading: 'Error', message: data.message ?? 'Validation failed' });
+            }
+            return false;
+          }
+
+          setCredentialsValidated(true);
+          if (!options.suppressToast) {
+            toast.success({ heading: 'Success', message: data.message ?? 'Credentials validated successfully.' });
+          }
+          return true;
+        } catch (err) {
+          setCredentialsValidated(false);
+          console.error('Validation submission failed', err);
+          toast.error({ heading: 'Error', message: 'Failed to validate credentials' });
+          return false;
+        }
+      }
+
       const validationContext = {
         session,
         minerKey: resolvedMinerKey,
@@ -839,7 +896,7 @@ const sections = [
       };
 
       const result = await validator.validateCredentials(credentials, validationContext);
-      
+
       if (!result.success) {
         setCredentialsValidated(false);
         // Handle device-specific error states
@@ -860,7 +917,7 @@ const sections = [
       // for all validators so the DB-level uniqueness/ownership checks run.
       // This keeps behavior consistent across device types.
       try {
-        const subtypeLower = String(selectedSubtype ?? '').toLowerCase();
+        const subtypeLower2 = String(selectedSubtype ?? '').toLowerCase();
 
         // Prepare payload depending on device type
         const payload = buildCredentialPayload();
@@ -876,7 +933,7 @@ const sections = [
             setCredentials((prev) => ({ ...prev, mac_address: dev.deviceId }));
           }
           // For switchbot/shelly the important key is deviceId
-          if (subtypeLower === 'switchbot' || subtypeLower === 'shelly') {
+          if (subtypeLower2 === 'switchbot' || subtypeLower2 === 'shelly') {
             payload['deviceId'] = dev.deviceId;
             setCredentials((prev) => ({ ...prev, deviceId: dev.deviceId }));
           }
@@ -1877,55 +1934,78 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   setSwitchbotLoading(true);
                                   try {
                                     const validator = deviceValidatorRegistry.getValidator('switchbot');
+
+                                    // Call both the validator (if available) and the original API endpoint.
+                                    let validatorDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let apiDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let validatorErr: string | null = null;
+                                    let apiErr: string | null = null;
+
                                     if (validator && validator.discoverDevices) {
-                                      const validationContext = {
-                                        session,
-                                        minerKey: resolvedMinerKey,
-                                        currentDeviceId: credentials['deviceId']
-                                      };
-                                      
-                                      const result = await validator.discoverDevices(credentials, validationContext);
-                                      
-                                      if (!result.success) {
-                                        setSwitchbotError(result.error ?? 'Failed to fetch SwitchBot devices');
-                                        return;
+                                      try {
+                                        const validationContext = { session, minerKey: resolvedMinerKey, currentDeviceId: credentials['deviceId'] };
+                                        const result = await validator.discoverDevices(credentials, validationContext);
+                                        if (!result.success) {
+                                          validatorErr = result.error ?? 'Validator discovery failed';
+                                        } else if (result.devices && Array.isArray(result.devices)) {
+                                          validatorDevices = result.devices.map(d => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType }));
+                                        }
+                                      } catch (e: any) {
+                                        validatorErr = e?.message ?? String(e);
                                       }
-                                      
-                                      if (result.devices && Array.isArray(result.devices)) {
-                                        setSwitchbotDevices(result.devices.map(d => ({
-                                          deviceId: d.deviceId,
-                                          deviceName: d.deviceName,
-                                          deviceType: d.deviceType
-                                        })));
-                                      } else {
-                                        setSwitchbotError('No devices returned');
-                                      }
-                                    } else {
-                                      // Fallback to validator-backed credentials/validate
-                                      const res = await fetch('/api/credentials/validate', {
+                                    }
+
+                                    // Always call the original API endpoint as well
+                                    try {
+                                      const res = await fetch('/api/energy/switchbot-devices', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
                                         credentials: 'include',
                                         body: JSON.stringify({
+                                          token: credentials['token'],
+                                          secret: credentials['secret'],
+                                          address: session?.user?.address,
                                           miner_key: resolvedMinerKey,
-                                          api_type: 'switchbot',
-                                          credentials: { token: credentials['token'], secret: credentials['secret'], deviceId: credentials['deviceId'] },
-                                          portal_type: 'energy'
+                                          currentDeviceId: credentials['deviceId']
                                         }),
                                       });
 
                                       if (!res.ok) {
                                         const j = await res.json().catch(() => ({}));
-                                        setSwitchbotError(j?.message ?? 'Failed to fetch SwitchBot devices');
-                                        return;
-                                      }
-
-                                      const j = await res.json();
-                                      if (Array.isArray(j.devices)) {
-                                        setSwitchbotDevices(j.devices);
+                                        apiErr = j?.message ?? 'Failed to fetch SwitchBot devices';
                                       } else {
-                                        setSwitchbotError('No devices returned');
+                                        const j = await res.json();
+                                        if (Array.isArray(j.devices)) apiDevices = j.devices;
+                                        else apiErr = 'No devices returned';
                                       }
+                                    } catch (e: any) {
+                                      apiErr = e?.message ?? String(e);
+                                    }
+
+                                    // Merge validatorDevices + apiDevices (dedupe by deviceId)
+                                    const merged: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    const seen = new Set<string>();
+                                    for (const d of validatorDevices) {
+                                      if (!d || !d.deviceId) continue;
+                                      const id = String(d.deviceId);
+                                      if (seen.has(id)) continue;
+                                      seen.add(id);
+                                      merged.push(d);
+                                    }
+                                    for (const d of apiDevices) {
+                                      if (!d || !d.deviceId) continue;
+                                      const id = String(d.deviceId);
+                                      if (seen.has(id)) continue;
+                                      seen.add(id);
+                                      merged.push(d);
+                                    }
+
+                                    if (merged.length > 0) {
+                                      setSwitchbotDevices(merged);
+                                    } else {
+                                      // Prefer validator error if present, otherwise API error, otherwise generic
+                                      const errMsg = validatorErr || apiErr || 'No devices returned';
+                                      setSwitchbotError(errMsg);
                                     }
                                   } catch (err: any) {
                                     setSwitchbotError(err?.message ?? String(err));
@@ -2009,31 +2089,27 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   setShellyLoading(true);
                                   try {
                                     const validator = deviceValidatorRegistry.getValidator('shelly');
+
+                                    let validatorDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let apiDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let validatorErr: string | null = null;
+                                    let apiErr: string | null = null;
+
                                     if (validator && validator.discoverDevices) {
-                                      const validationContext = {
-                                        session,
-                                        minerKey: resolvedMinerKey,
-                                        currentDeviceId: credentials['deviceId']
-                                      };
-                                      
-                                      const result = await validator.discoverDevices(credentials, validationContext);
-                                      
-                                      if (!result.success) {
-                                        setShellyError(result.error ?? 'Failed to fetch Shelly devices');
-                                        return;
+                                      try {
+                                        const validationContext = { session, minerKey: resolvedMinerKey, currentDeviceId: credentials['deviceId'] };
+                                        const result = await validator.discoverDevices(credentials, validationContext);
+                                        if (!result.success) {
+                                          validatorErr = result.error ?? 'Validator discovery failed';
+                                        } else if (result.devices && Array.isArray(result.devices)) {
+                                          validatorDevices = result.devices.map(d => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType }));
+                                        }
+                                      } catch (e: any) {
+                                        validatorErr = e?.message ?? String(e);
                                       }
-                                      
-                                      if (result.devices && Array.isArray(result.devices)) {
-                                        setShellyDevices(result.devices.map(d => ({
-                                          deviceId: d.deviceId,
-                                          deviceName: d.deviceName,
-                                          deviceType: d.deviceType
-                                        })));
-                                      } else {
-                                        setShellyError('No devices returned');
-                                      }
-                                    } else {
-                                      // Fallback to original API call
+                                    }
+
+                                    try {
                                       const res = await fetch('/api/energy/shelly-devices', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
@@ -2048,16 +2124,37 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                                       if (!res.ok) {
                                         const j = await res.json().catch(() => ({}));
-                                        setShellyError(j?.message ?? 'Failed to fetch Shelly devices');
-                                        return;
-                                      }
-
-                                      const j = await res.json();
-                                      if (Array.isArray(j.devices)) {
-                                        setShellyDevices(j.devices);
+                                        apiErr = j?.message ?? 'Failed to fetch Shelly devices';
                                       } else {
-                                        setShellyError('No devices returned');
+                                        const j = await res.json();
+                                        if (Array.isArray(j.devices)) apiDevices = j.devices;
+                                        else apiErr = 'No devices returned';
                                       }
+                                    } catch (e: any) {
+                                      apiErr = e?.message ?? String(e);
+                                    }
+
+                                    const merged: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    const seen = new Set<string>();
+                                    for (const d of validatorDevices) {
+                                      if (!d || !d.deviceId) continue;
+                                      const id = String(d.deviceId);
+                                      if (seen.has(id)) continue;
+                                      seen.add(id);
+                                      merged.push(d);
+                                    }
+                                    for (const d of apiDevices) {
+                                      if (!d || !d.deviceId) continue;
+                                      const id = String(d.deviceId);
+                                      if (seen.has(id)) continue;
+                                      seen.add(id);
+                                      merged.push(d);
+                                    }
+
+                                    if (merged.length > 0) setShellyDevices(merged);
+                                    else {
+                                      const errMsg = validatorErr || apiErr || 'No devices returned';
+                                      setShellyError(errMsg);
                                     }
                                   } catch (err: any) {
                                     setShellyError(err?.message ?? String(err));
