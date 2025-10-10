@@ -120,13 +120,13 @@ export default async function handler(
       .collection(CREDENTIAL_COLLECTION);
 
     const existing = await credentialCollection
-      .find({ api_type: 'shelly' }, { projection: { deviceId: 1 } })
+      .find({ api_type: 'shelly' }, { projection: { 'credentials.deviceId': 1 } })
       .toArray();
 
     const registeredIds = new Set(
       existing
         .map((doc) =>
-          typeof doc.deviceId === 'string' ? doc.deviceId.trim() : undefined
+          typeof doc.credntials?.deviceId === 'string' ? doc.credentials.deviceId.trim() : undefined
         )
         .filter((id): id is string => Boolean(id))
     );
