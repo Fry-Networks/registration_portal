@@ -48,7 +48,7 @@ interface DeviceDocument {
   _id: ObjectId;
   miner_key: string;
   user_id: ObjectId;
-  timestamp: Date;
+  timestamp?: Date | string | number | { $date: string };
   hd_type?: string;
   node_type?: string;
   device_id: string;
@@ -98,6 +98,22 @@ const determinePortalModel = (device: DeviceDocument): string => {
     default:
       return 'hardware';
   }
+};
+
+const resolveTimestamp = (value: DeviceDocument['timestamp']): Date | undefined => {
+  if (!value) return undefined;
+  if (value instanceof Date) {
+    if (!Number.isNaN(value.getTime())) return value;
+    return undefined;
+  }
+
+  if (typeof value === 'object' && '$date' in value) {
+    const date = new Date((value as { $date: string }).$date);
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  const parsed = new Date(value as string | number);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 };
 
 class MigrationTool {
@@ -217,7 +233,11 @@ class MigrationTool {
       'blue'
     );
     this.log(`User ID: ${device.user_id}`, 'gray');
-    this.log(`Timestamp: ${device.timestamp.toISOString()}`, 'gray');
+    const timestamp = resolveTimestamp(device.timestamp);
+    this.log(
+      `Timestamp: ${(timestamp ?? new Date(0)).toISOString()}`,
+      'gray'
+    );
 
     try {
       const credsDb = this.client.db('creds');
@@ -347,12 +367,13 @@ class MigrationTool {
       // Step 1: Transform + upsert into creds.hardware
 
       const minerType = deriveMinerType(device) || 'HARDWARE';
+      const credentialsSavedAt = resolveTimestamp(device.timestamp) ?? new Date();
       const hardwareDoc = {
-        miner_key,
         address: ownerAddress,
+        miner_key,
         miner_type: minerType,
         credentials: { mac_address: macAddress },
-        credentials_saved_at: device.timestamp ?? new Date(),
+        credentials_saved_at: credentialsSavedAt,
       };
 
       if (existingDoc) {
@@ -616,9 +637,9 @@ async function main() {
   const options = parseArgs();
 
   // Get MongoDB URI from environment
-  const mongoUri = process.env.VER_MONGO_URI;
+  const mongoUri = process.env.MONGO_URI;
   if (!mongoUri) {
-    console.error('Error: VER_MONGO_URI environment variable not set');
+    console.error('Error: MONGO_URI environment variable not set');
     process.exit(1);
   }
 

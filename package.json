@@ -8,7 +8,8 @@
     "lint": "next lint",
     "cancel:registration": "node scripts/cancel-registration.js",
     "check-rtsp": "node ./scripts/check-rtsp.js",
-    "migrate-hardware-creds": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/migrate-hardware-credentials.ts"
+    "migrate-hardware-creds": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/migrate-hardware-credentials.ts",
+    "restore-air-hardware": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/restore-air-hardware.ts"
   },
   "dependencies": {
     "@agoralabs-sh/avm-web-provider": "^1.7.0",

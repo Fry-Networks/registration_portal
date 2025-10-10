@@ -59,7 +59,10 @@ export default async function handler(
     const response: HardwareStatusResponse = {};
 
     for (const key of uniqueKeys) {
-      const doc = credentialDocs.find((item) => item.miner_key === key);
+      const doc =
+        credentialDocs.find(
+          (item) => item.miner_key === key && item.address === session.user.address
+        ) ?? credentialDocs.find((item) => item.miner_key === key);
 
       if (doc?.address && doc.address !== session.user.address) {
         response[key] = {
@@ -79,8 +82,8 @@ export default async function handler(
         continue;
       }
 
-      // Some historical records may store device_id instead of miner_mac
-      const rawMac: unknown = doc.miner_mac ?? doc.device_id ?? doc.deviceId;
+      const credentials = (doc as Record<string, any>)?.credentials ?? {};
+      const rawMac: unknown = credentials?.mac_address ?? credentials?.macAddress ?? credentials?.mac;
       const macValue = typeof rawMac === 'string' ? rawMac : undefined;
 
       if (!macValue) {
