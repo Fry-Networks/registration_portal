@@ -860,7 +860,7 @@ const sections = [
       // for all validators so the DB-level uniqueness/ownership checks run.
       // This keeps behavior consistent across device types.
       try {
-        const subtypeLower = selectedSubtype.toLowerCase();
+        const subtypeLower = String(selectedSubtype ?? '').toLowerCase();
 
         // Prepare payload depending on device type
         const payload = buildCredentialPayload();
@@ -900,19 +900,51 @@ const sections = [
 
         // Server-side validation passed
         setCredentialsValidated(true);
+        const deviceCount = devices.length;
+
+        if (deviceCount > 0) {
+          if (subtypeLower === 'switchbot') {
+            setSwitchbotError(null);
+            setSwitchbotDevices(devices.map((d) => ({
+              deviceId: d.deviceId,
+              deviceName: d.deviceName,
+              deviceType: d.deviceType
+            })));
+          }
+          if (subtypeLower === 'shelly') {
+            setShellyError(null);
+            setShellyDevices(devices.map((d) => ({
+              deviceId: d.deviceId,
+              deviceName: d.deviceName,
+              deviceType: d.deviceType
+            })));
+          }
+        }
+
         if (!options.suppressToast) {
-          // If local validator produced a normalization success message, show that first
-          const devices = result.devices ?? [];
-          if (devices.length > 0) {
-            const dev = devices[0];
-            if ((dev.deviceId || '').includes(':')) {
-              toast.success({ heading: 'Format OK', message: 'MAC address format looks good.' });
-            } else {
-              toast.success({ heading: 'Validation OK', message: 'Credentials validated successfully.' });
+          const isMacDevice = devices.some(
+            (dev) => typeof dev?.deviceId === 'string' && dev.deviceId.includes(':')
+          );
+
+          let heading: string;
+          let message: string | undefined = data?.message;
+
+          if (isMacDevice) {
+            heading = 'MAC Address verified';
+            if (!message || message.toLowerCase() === 'validation successful') {
+              message = 'Your MAC has been verified successfully. Remember to save to finish linking.';
+            }
+          } else if (deviceCount > 0) {
+            heading = 'Devices discovered';
+            message = `${deviceCount} device${deviceCount === 1 ? '' : 's'} found for your account. Select the one you want to link.`;
+          } else {
+            heading = 'Credentials verified';
+            if (!message || message.toLowerCase() === 'validation successful') {
+              message = 'Credentials look good and are ready to save.';
             }
           }
-          // Then server-side availability/ownership confirmation
-          toast.success({ heading: 'Available', message: data.message ?? 'Device ID available and successfully linked to FryNetworks.' });
+
+          toast.success({ heading, message });
         }
         return true;
       } catch (err) {
@@ -923,41 +955,6 @@ const sections = [
         }
         return false;
       }
-
-      // If code reaches here it means we did not return from the server-side
-      // validation block above (which returns on success/failure). As a safety
-      // fallback, mark credentials validated and populate any device lists
-      // when present.
-      setCredentialsValidated(true);
-
-      const devices = result.devices ?? [];
-      if (selectedSubtype) {
-        const subtypeLower = String(selectedSubtype).toLowerCase();
-        if (devices.length > 0) {
-          if (subtypeLower === 'switchbot') {
-            setSwitchbotError(null);
-            setSwitchbotDevices(devices.map((d) => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType })));
-          }
-          if (subtypeLower === 'shelly') {
-            setShellyError(null);
-            setShellyDevices(devices.map((d) => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType })));
-          }
-
-          if (!options.suppressToast) {
-            toast.success({ heading: 'Success', message: `Found ${devices.length} device(s)` });
-          }
-        } else {
-          if (!options.suppressToast) {
-            toast.success({ heading: 'Success', message: 'Credentials validated successfully.' });
-          }
-        }
-      } else {
-        if (!options.suppressToast) {
-          toast.success({ heading: 'Success', message: 'Credentials validated successfully.' });
-        }
-      }
-
-      return true;
     } catch (error: any) {
       setCredentialsValidated(false);
       console.error(error);
@@ -1772,7 +1769,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         <h4 className="font-semibold mb-3">
                           {(selectedSubtype === 'mac' || selectedSubtype === 'node-mac')
                             ? "What is the MAC address of the device on which the software is installed?"
-                            : `Credentials for ${selectedSubtype}`}
+                            : `Credentials Hub - ${selectedSubtype}`}
                         </h4>
 
                         {(availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? ['key']).map((field: string) => {

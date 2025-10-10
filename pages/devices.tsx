@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ElementType } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
 import {
   UserIcon,
   UserAddIcon,
@@ -43,7 +43,8 @@ import {
   algodClient,
   computeDeviceStatus,
   FRY_1,
-  fNODE
+  fNODE,
+  anchorIdForMinerKey
 } from '../lib/utils';
 import type { Notification as AppNotification } from '../components/NotificationCenter';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
@@ -91,6 +92,19 @@ const NOTIFICATION_PREFIXES = new Set([
   'RDN',
   'CN',
   'AEM',
+  'BM',
+  'ISM',
+  'OSM',
+  'IDM',
+  'ODM'
+]);
+
+const HARDWARE_MAC_PREFIXES = new Set([
+  'AEM',
+  'CN',
+  'RDN',
+  'SDN',
+  'SVN',
   'BM',
   'ISM',
   'OSM',
@@ -250,17 +264,80 @@ function buildPortalLink(device: Device) {
   } as const;
 }
 
-function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; minerDevices?: Device[]; nodeDevices?: Device[] }) {
-  const miners = minerDevices ?? devices.filter(d => !['RDN','SVN','SDN','CN'].includes(d.miner_key.split('-')[0]));
-  const nodes = nodeDevices ?? devices.filter(d => ['RDN','SVN','SDN','CN','AEM'].includes(d.miner_key.split('-')[0]));
-  const countNotLinked = (arr: Device[]) => arr.filter(d => !d.registered_portal_model || d.registered_portal_model === '').length;
+function StatsGrid({
+  devices,
+  minerDevices,
+  nodeDevices,
+  hardwareStatusMap
+}: {
+  devices: Device[];
+  minerDevices?: Device[];
+  nodeDevices?: Device[];
+  hardwareStatusMap?: Record<string, HardwareStatus>;
+}) {
+  const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+  const miners = minerDevices ?? devices.filter(d => !NODE_PREFIXES.has(d.miner_key.split('-')[0]));
+  const nodes = nodeDevices ?? devices.filter(d => NODE_PREFIXES.has(d.miner_key.split('-')[0]));
 
   // Count not linked but consider env-driven requirements
-  const countNotLinkedHonoringEnv = (arr: Device[]) => arr.filter(d => {
+  const getNotLinkedDevices = (arr: Device[]) => arr.filter(d => {
     const prefix = d.miner_key.split('-')[0];
     if (!isLinkRequiredForPrefix(prefix)) return false; // linking not required for this prefix
-    return !d.registered_portal_model || d.registered_portal_model === '';
-  }).length;
+    const portalMissing = !d.registered_portal_model || d.registered_portal_model === '';
+    const status = hardwareStatusMap?.[d.miner_key];
+    const hardwareIssue =
+      HARDWARE_MAC_PREFIXES.has(prefix) && status ? (!status.linked || !status.valid) : false;
+    return portalMissing || hardwareIssue;
+  });
+
+  const scrollToDevice = useCallback((minerKey: string) => {
+    if (typeof window === 'undefined') return;
+    const anchorId = anchorIdForMinerKey(minerKey);
+    const element = document.getElementById(anchorId);
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (element instanceof HTMLElement) {
+      window.requestAnimationFrame(() => {
+        element.focus({ preventScroll: true });
+      });
+    }
+  }, []);
+
+  const formatNotLinkedLabel = (minerKey: string) => {
+    const [prefix = '', remainder = ''] = minerKey.split('-');
+    const suffix = remainder.slice(0, 3).toUpperCase();
+    return suffix ? `${prefix}-${suffix}` : prefix;
+  };
+
+  const renderNotLinkedBadges = (devicesList: Device[], spanClass: string) => {
+    if (!devicesList.length) return null;
+    return (
+      <div className={`${spanClass} flex flex-wrap items-center gap-2 pt-1`}>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-red-200">
+          Devices Not Linked:
+        </span>
+        {devicesList.map((device) => {
+          const label = formatNotLinkedLabel(device.miner_key);
+          const status = hardwareStatusMap?.[device.miner_key];
+          const prefix = device.miner_key.split('-')[0];
+          const portalMissing = !device.registered_portal_model || device.registered_portal_model === '';
+          const hardwareIssue =
+            HARDWARE_MAC_PREFIXES.has(prefix) && status ? (!status.linked || !status.valid) : false;
+          return (
+            <button
+              key={device.miner_key}
+              type="button"
+              onClick={() => scrollToDevice(device.miner_key)}
+              className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-200 transition hover:bg-red-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+            >
+              {label}
+              {hardwareIssue && !portalMissing ? ' · MAC' : null}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
     const colorMap: Record<typeof color, string> = {
@@ -282,7 +359,8 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
     const total = items.length;
     const unverified = items.filter(d => !d.verified).length;
     const verified = items.filter(d => d.verified).length;
-  const notLinked = countNotLinkedHonoringEnv(items);
+    const notLinkedDevices = getNotLinkedDevices(items);
+    const notLinked = notLinkedDevices.length;
     return (
       <div className="border border-gray-800 rounded-xl p-4 w-full">
         <div className="text-white text-sm font-semibold mb-2">{title}</div>
@@ -291,6 +369,7 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
           <SummaryRow label="Unverified" value={unverified} color="yellow" />
           <SummaryRow label="Verified" value={verified} color="green" />
           <SummaryRow label="Not linked" value={notLinked} color="red" />
+          {renderNotLinkedBadges(notLinkedDevices, 'col-span-4')}
         </div>
       </div>
     );
@@ -304,7 +383,8 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
       const total = items.length;
       const unverified = items.filter(d => !d.verified).length;
       const verified = items.filter(d => d.verified).length;
-    const notLinked = countNotLinkedHonoringEnv(items);
+      const notLinkedDevices = getNotLinkedDevices(items);
+      const notLinked = notLinkedDevices.length;
       return (
         <div>
           <div className="text-white text-sm font-medium mb-2">{title}</div>
@@ -313,6 +393,7 @@ function StatsGrid({ devices, minerDevices, nodeDevices }: { devices: Device[]; 
             <SummaryRow label="Unverified" value={unverified} color="yellow" />
             <SummaryRow label="Verified" value={verified} color="green" />
             <SummaryRow label="Not linked" value={notLinked} color="red" />
+            {renderNotLinkedBadges(notLinkedDevices, 'col-span-2')}
           </div>
         </div>
       );
@@ -1027,7 +1108,7 @@ const DevicesPage = ({
 
   function isNodeDevice(d: Device): boolean {
     const prefix = d.miner_key.split('-')[0];
-    return ['RDN', 'SVN', 'SDN', 'CN', 'AEM'].includes(prefix);
+    return ['RDN', 'SVN', 'SDN', 'CN'].includes(prefix);
   }
 
   function isMinerDevice(d: Device): boolean {
@@ -1075,6 +1156,7 @@ const DevicesPage = ({
         devices={devices}
         minerDevices={minerDevices}
         nodeDevices={nodeDevices}
+        hardwareStatusMap={hardwareStatus}
       />
       <div className="w-full mt-10 px-2 sm:px-20">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

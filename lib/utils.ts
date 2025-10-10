@@ -125,6 +125,15 @@ export const isNodeStaked = (device: Device): boolean => {
   return false;
 };
 
+export const anchorIdForMinerKey = (minerKey: string): string => {
+  const normalized = String(minerKey ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `device-${normalized || 'unknown'}`;
+};
+
 export const getWalletAddress = (mnemonic: string) => {
   if (mnemonic?.length > 0) {
     const account = algosdk.mnemonicToSecretKey(mnemonic);

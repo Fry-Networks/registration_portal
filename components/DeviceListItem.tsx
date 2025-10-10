@@ -13,7 +13,8 @@ import {
   isNodeStaked,
   isRegistrationStaked,
   isRegistrationNeeded,
-  isNodeStakingNeeded
+  isNodeStakingNeeded,
+  anchorIdForMinerKey
 } from '../lib/utils';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
@@ -128,7 +129,10 @@ export default function DeviceListItem({
   };
 
   const minerPrefix = device.miner_key.split('-')[0];
-  const needsHardwareCheck = ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) && isHardwareCheckRequiredForPrefix(minerPrefix);
+  const linkRequiredForPrefix = isLinkRequiredForPrefix(minerPrefix);
+  const needsHardwareCheck =
+    ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) &&
+    isHardwareCheckRequiredForPrefix(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
 
   const issueMessages = useMemo(() => {
@@ -167,6 +171,15 @@ export default function DeviceListItem({
       }
     }
 
+    if (isHardwareCheckRequiredForPrefix(minerPrefix) && hardwareWarning) {
+      const label = hardwareStatus?.linked ? 'MAC invalid' : 'MAC link needed';
+      badges.push({
+        label,
+        className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+        severity: 'red'
+      });
+    }
+
     badges.push(
       device.verified
         ? { label: 'Verified', className: 'bg-green-500/20 text-green-200 border border-green-400/40', severity: 'green' }
@@ -201,7 +214,7 @@ export default function DeviceListItem({
   const hasRegistration = isRegistrationStaked(device);
   const hasNode = isNodeStaked(device);
   const verificationBlocked = (needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode);
-  const portalMissing = !device.registered_portal_model;
+  const portalMissing = linkRequiredForPrefix && !device.registered_portal_model;
   const stakingPrereqsMissing = verificationBlocked;
   const shouldShowRed = stakingPrereqsMissing || portalMissing || hardwareWarning;
   const shouldShowYellow = !shouldShowRed && !device.verified;
@@ -253,6 +266,7 @@ export default function DeviceListItem({
   const { data: rewardSummary } = useRewardSummary(device?.miner_key);
   const [countdown, setCountdown] = useState<string>("");
   const [verificationCountdown, setVerificationCountdown] = useState<string | null>(null);
+  const anchorId = useMemo(() => anchorIdForMinerKey(device.miner_key), [device.miner_key]);
 
   // Normalise product token configuration so downstream tooltip helpers may look up defaults safely.
   const productTokens = useMemo<TokenConfig>(() => product?.reward?.tokens ?? {}, [product]);
@@ -971,6 +985,7 @@ export default function DeviceListItem({
   return (
     <>
       <div
+        id={anchorId}
         role="button"
         tabIndex={0}
         onClick={openDetails}
