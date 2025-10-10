@@ -80,7 +80,13 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
     setWalletManager(manager);
 
     // Resume sessions
-    manager.resumeSessions();
+    (async () => {
+      try {
+        await manager.resumeSessions();
+      } catch (error) {
+        console.error('[WalletManager] Failed to resume sessions', error);
+      }
+    })();
 
     // Ensure react-modal knows the app root for accessibility
     Modal.setAppElement?.('#__next');

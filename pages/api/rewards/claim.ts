@@ -115,21 +115,34 @@ export default async function handler(
 
     type Result = {
       asset_id: number;
-      totalAmount: number;
+      totalMicro: bigint;
+      decimals: number;
       txId?: string; // Optional field
     };
 
-    const sumByAssetId = records.reduce((acc: Map<number, number>, reward: DeviceClaimTarget) => {
-      const idNum = Number(reward.asset_id);
-      const prev = acc.get(idNum) || 0;
-      acc.set(idNum, Math.round((prev + reward.amount) * 100) / 100);
-      return acc;
-    }, new Map<number, number>());
+    const decimalsCache = new Map<number, number>();
+    const sumByAssetId = new Map<number, bigint>();
+
+    for (const reward of records) {
+      const assetId = Number(reward.asset_id);
+
+      let decimals = decimalsCache.get(assetId);
+      if (decimals === undefined) {
+        const fetched = await getAssetDecimals(assetId);
+        decimals = typeof fetched === 'number' ? fetched : 0;
+        decimalsCache.set(assetId, decimals);
+      }
+
+      const microAmount = BigInt(Math.round(reward.amount * Math.pow(10, decimals)));
+      const prev = sumByAssetId.get(assetId) ?? BigInt(0);
+      sumByAssetId.set(assetId, prev + microAmount);
+    }
 
     const resultArray: Result[] = Array.from(sumByAssetId.entries()).map(
-      ([asset_id, totalAmount]) => ({
+      ([asset_id, totalMicro]) => ({
         asset_id,
-        totalAmount
+        totalMicro,
+        decimals: decimalsCache.get(asset_id) ?? 0
       })
     );
 
@@ -148,19 +161,28 @@ export default async function handler(
         miner_key:
           miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
         asset_id: resultArray[i].asset_id,
-        amount: resultArray[i].totalAmount,
+        amount:
+          Number(resultArray[i].totalMicro) /
+          Math.pow(10, resultArray[i].decimals),
         date: new Date(Date.now())
       };
 
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
-      
-      const decimals = await getAssetDecimals(resultArray[i].asset_id);
+
+      const decimals = resultArray[i].decimals;
+      const amountMicro = resultArray[i].totalMicro;
+      if (!testMode) {
+        const safeMax = BigInt(Number.MAX_SAFE_INTEGER);
+        if (amountMicro > safeMax) {
+          throw new Error('Aggregated reward amount exceeds Number.MAX_SAFE_INTEGER');
+        }
+      }
 
       const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         sender: from,
         receiver: device.reward_wallet,
-        amount: testMode ? 0 : resultArray[i].totalAmount * Math.pow(10, decimals || 0),
+        amount: testMode ? 0 : Number(amountMicro),
         assetIndex: Number(resultArray[i].asset_id),
         note,
         suggestedParams
@@ -208,7 +230,10 @@ export default async function handler(
       // Device-based: mark selected weekly and/or daily entries as claimed and set tx_id
       const weeklyNos = records.filter(r => r.source === 'weekly').map(r => r.reward_number);
       const dailyNos = records.filter(r => r.source === 'daily').map(r => r.reward_number);
-      const totalAmount = resultArray.reduce((acc, r) => acc + r.totalAmount, 0);
+      const totalAmount = resultArray.reduce(
+        (acc, r) => acc + Number(r.totalMicro) / Math.pow(10, r.decimals),
+        0
+      );
 
       let modifiedAny = false;
       if (weeklyNos.length > 0) {

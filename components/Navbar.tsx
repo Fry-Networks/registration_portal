@@ -169,18 +169,22 @@ export default function Navbar() {
     }
   };
 
-  const handleDisconnect = () => {
+  const handleDisconnect = async () => {
     if (devMode) {
       setDevConnect(false);
       if (session) {
-        signOut();
+        await signOut({ redirect: false });
       }
     } else {
       if (activeWallet) {
-        activeWallet.disconnect();
+        try {
+          await activeWallet.disconnect();
+        } catch (error) {
+          console.error('Failed to disconnect wallet', error);
+        }
       }
       if (session) {
-        signOut();
+        await signOut({ redirect: false });
       }
     }
   }
@@ -218,6 +222,39 @@ export default function Navbar() {
 
     fetchBalances();
   }, [activeAccount, algodClient, devMode]);
+
+  const walletStateSignature = useMemo(() => {
+    return wallets
+      .map((wallet) => {
+        const accounts =
+          wallet.accounts?.map((acct) => acct.address).join('|') ?? '';
+        return `${wallet.id}:${wallet.isConnected}:${wallet.isActive}:${accounts}`;
+      })
+      .join(';');
+  }, [wallets]);
+
+  useEffect(() => {
+    if (devMode) return;
+    if (activeAccount) return;
+
+    const connected = wallets.find(
+      (wallet) =>
+        wallet.isConnected &&
+        !wallet.isActive &&
+        (wallet.accounts?.length ?? 0) > 0
+    );
+    if (connected) {
+      const first = connected.accounts?.[0];
+      if (first?.address) {
+        connected.setActiveAccount(first.address);
+      }
+    }
+  }, [
+    devMode,
+    activeAccount,
+    walletStateSignature,
+    wallets
+  ]);
 
   useEffect(() => {
     if ((router.pathname !== '/' && !session) || !session?.user) {
@@ -450,7 +487,12 @@ export default function Navbar() {
                       setIsWalletModalOpen(false);
                       return;
                     }
-                    await wallet.connect();
+                    const accounts = await wallet.connect();
+                    const firstAccount =
+                      accounts?.[0] ?? wallet.accounts?.[0];
+                    if (firstAccount?.address) {
+                      wallet.setActiveAccount(firstAccount.address);
+                    }
                     setIsWalletModalOpen(false);
                   } catch (error) {
                     console.error('Failed to connect wallet:', error);

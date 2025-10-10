@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useToastContext } from '../hooks/ToastContext';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
 interface SignInProps {
@@ -30,6 +31,7 @@ export default function SignIn({ signed }: SignInProps) {
   const [last_name, setLastName] = useState('');
   // Removed PoC wallet requirement
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
+  const toast = useToastContext();
 
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
@@ -105,7 +107,13 @@ export default function SignIn({ signed }: SignInProps) {
         setIsAuthenticating(false);
       }
     } else {
-      if (!activeAccount) return;
+      if (!activeAccount) {
+        toast.error({
+          heading: 'Wallet Not Connected',
+          message: 'Connect your wallet before signing in.'
+        });
+        return;
+      }
 
       setIsAuthenticating(true);
       try {
@@ -124,43 +132,115 @@ export default function SignIn({ signed }: SignInProps) {
         });
 
         // Sign the transaction
-        const signedTxn = await signTransactions([
-          algosdk.encodeUnsignedTransaction(txn)
-        ]);
-        console.log('Signed transaction:', signedTxn);
+        const unsignedTxn = algosdk.encodeUnsignedTransaction(txn);
 
-        if (signedTxn && signedTxn.length > 0 && signedTxn[0]) {
-          const first = signedTxn[0] as Uint8Array; // guarded non-null
-          const signedTxnBase64 = Buffer.from(first).toString('base64');
-          console.log('Sending to server:', {
-            address: activeAccount.address,
-            signedTxn: signedTxnBase64,
-            nonce
-          });
-
-          const callbackUrl = (router.query.callbackUrl as string) || '/';
-          const res = await signIn('wallet', {
-            address: activeAccount.address,
-            email: isNew ? email : undefined,
-            first_name: isNew ? first_name : undefined,
-            last_name: isNew ? last_name : undefined,
-            signedTxn: signedTxnBase64,
-            nonce,
-            redirect: false,
-            callbackUrl
-          });
-          if (res?.error) {
-            console.error('NextAuth signIn error:', res.error);
-          } else if (res?.url) {
-            await router.push(res.url);
-          } else {
-            await router.push(callbackUrl);
+        const coerceToBytes = (value: unknown): Uint8Array | null => {
+          if (!value) return null;
+          if (value instanceof Uint8Array) return value;
+          if (typeof value === 'string') {
+            try {
+              const buf = Buffer.from(value, 'base64');
+              return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+            } catch (error) {
+              console.warn('Failed to decode base64 signature', error);
+              return null;
+            }
           }
+          return null;
+        };
+
+        const collectSignature = async (
+          includeMessage: boolean
+        ): Promise<Uint8Array | null> => {
+          try {
+            const payload = includeMessage
+              ? await signTransactions(
+                  [unsignedTxn],
+                  {
+                    message: 'Sign in to Fry Dashboard'
+                  } as any
+                )
+              : await signTransactions([unsignedTxn]);
+
+            if (!payload?.length) {
+              return null;
+            }
+            for (const entry of payload) {
+              const bytes = coerceToBytes(entry);
+              if (bytes) {
+                return bytes;
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error(
+              '[SignIn] signTransactions failed',
+              includeMessage ? 'with message' : 'default',
+              error
+            );
+            return null;
+          }
+        };
+
+        // First attempt: original call signature to preserve desktop behaviour.
+        let signedBytes = await collectSignature(false);
+
+        // If the wallet returns nothing (common on WalletConnect mobile), retry once with a metadata message.
+        if (!signedBytes) {
+          toast.info({
+            heading: 'Wallet Request Pending',
+            message:
+              'Approve the sign-in request in your wallet. Retrying once...'
+          });
+          signedBytes = await collectSignature(true);
+        }
+
+        if (!signedBytes) {
+          toast.error({
+            heading: 'Signature Required',
+            message:
+              'We did not receive a signature. Reopen Pera/WalletConnect and try again.'
+          });
+          setIsAuthenticating(false);
+          return;
+        }
+
+        const signedTxnBase64 = Buffer.from(signedBytes).toString('base64');
+        console.log('Sending to server:', {
+          address: activeAccount.address,
+          signedTxn: signedTxnBase64,
+          nonce
+        });
+
+        const callbackUrl = (router.query.callbackUrl as string) || '/';
+        const res = await signIn('wallet', {
+          address: activeAccount.address,
+          email: isNew ? email : undefined,
+          first_name: isNew ? first_name : undefined,
+          last_name: isNew ? last_name : undefined,
+          signedTxn: signedTxnBase64,
+          nonce,
+          redirect: false,
+          callbackUrl
+        });
+        if (res?.error) {
+          console.error('NextAuth signIn error:', res.error);
+          toast.error({
+            heading: 'Sign In Failed',
+            message: res.error
+          });
+        } else if (res?.url) {
+          await router.push(res.url);
         } else {
-          throw new Error('Failed to sign the transaction');
+          await router.push(callbackUrl);
         }
       } catch (error) {
         console.error('Error signing message:', error);
+        toast.error({
+          heading: 'Sign In Failed',
+          message:
+            error instanceof Error ? error.message : 'Unexpected error occurred.'
+        });
       } finally {
         setIsAuthenticating(false);
       }
