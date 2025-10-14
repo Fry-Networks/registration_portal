@@ -3,6 +3,8 @@ import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
+import { latLngToCell } from 'h3-js';
+import { collectionFor } from '../credentials/utils';
 import clientPromise from '../../../lib/mongoclient';
 
 export default async function handler(
@@ -37,31 +39,36 @@ export default async function handler(
 
   try {
     const client = await clientPromise;
-    const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    const exists = await collection.findOne({ miner_key });
+    const CREDS_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 
-    if (!exists) {
-      res.status(400).json({ message: 'Not found' });
-      return;
-    }
+    const db = client.db(CREDS_DB_NAME);
+    const collectionName = collectionFor({ miner_key });
+    const collection = db.collection(collectionName);
 
-    if (exists.address && exists.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized 2' });
-      return;
-    }
+    // compute H3 resolution 7 cell for this position and store it with position
+    const latNum = Number(position.lat);
+    const lngNum = Number(position.lng);
+    const res7 = latLngToCell(latNum, lngNum, 7);
 
-    await collection.updateOne(
-      { miner_key },
-      {
-        $set: {
-          position: {
-            lat: Number(position.lat),
-            lng: Number(position.lng)
-          }
-        }
-      }
-    );
+    // Upsert a credential doc keyed by miner_key + address so map info lives
+    // in the same collection as credentials. This mirrors save-credentials which
+    // upserts by miner_key + address.
+    const filter = { miner_key, address: session.user.address };
+    const update = {
+      $set: {
+        miner_key,
+        address: session.user.address,
+        position: {
+          lat: latNum,
+          lng: lngNum,
+          hexId: res7,
+        },
+        // record a timestamp of when position saved to aid debugging
+        position_saved_at: new Date(),
+      },
+    };
+
+    await collection.updateOne(filter, update, { upsert: true });
 
     res.status(200).json({ message: 'ok' });
   } catch (error) {

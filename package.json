@@ -43,7 +43,6 @@
     "axios": "^1.7.2",
     "css-loader": "^7.1.2",
     "daisyui": "^4.6.1",
-    "dotenv": "^16.3.1",
     "engine.io-client": "^6.5.1",
     "framer-motion": "^11.18.2",
     "geojson": "^0.5.0",
@@ -121,9 +120,10 @@
     "@types/react-dom": "^18.3.7",
     "@types/react-modal": "^3.16.0",
     "@types/react-transition-group": "^4.4.6",
+    "dotenv": "^17.2.3",
     "eslint": "8.57.0",
     "eslint-config-next": "13.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   }
 }
