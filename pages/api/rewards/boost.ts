@@ -14,6 +14,7 @@ import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
+import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 
 // Algod client configuration (align with other API routes)
 const token = '';
@@ -99,6 +100,17 @@ export default async function handler(
   } = req.body;
 
   const { miner_key, no } = data;
+
+  // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
+  // Admins can use scripts; non-admins must use same browser/device
+  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (!fingerprintVerified) {
+    return res.status(403).json({
+      success: false,
+      code: 'DEVICE_MISMATCH',
+      message: 'Request originated from different device or script'
+    });
+  }
 
   try {
     const client = await clientPromise;

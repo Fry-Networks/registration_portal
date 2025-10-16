@@ -5,6 +5,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
+import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 
 interface GetRewardAmountData {
   miner_key: string;
@@ -64,6 +65,17 @@ export default async function handler(
   }
 
   const { miner_key, status, date, mode } = req.body as GetRewardAmountData;
+
+  // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
+  // Admins can use scripts; non-admins must use same browser/device
+  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (!fingerprintVerified) {
+    return res.status(403).json({
+      success: false,
+      code: 'DEVICE_MISMATCH',
+      message: 'Request originated from different device or script'
+    });
+  }
   const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
   const CUTOFF_DATE = new Date(CUTOFF_ISO);
 

@@ -6,6 +6,7 @@ import { FRY_1, fNODE } from '../../../lib/utils';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
+import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -81,6 +82,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session || !session.user) {
     res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
     return;
+  }
+
+  // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
+  // Admins can use scripts; non-admins must use same browser/device
+  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: 'get-totals' });
+  if (!fingerprintVerified) {
+    return res.status(403).json({
+      success: false,
+      code: 'DEVICE_MISMATCH',
+      message: 'Request originated from different device or script'
+    });
   }
 
   const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';

@@ -9,6 +9,7 @@ import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
+import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import crypto from 'crypto';
 
 const testMode =
@@ -88,6 +89,18 @@ export default async function handler(
   } = req.body;
 
   const { miner_key, no } = data;
+
+  // Layer 4: Device fingerprint verification (bypassed for admins)
+  // Admins can use scripts; non-admins must use same browser/device
+  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (!fingerprintVerified) {
+    res.status(403).json({
+      success: false,
+      code: 'DEVICE_MISMATCH',
+      message: 'Request from unauthorized device. This operation requires the original browser.'
+    });
+    return;
+  }
   if (lockSet.has(miner_key)) {
     res.status(429).json({ success: false, code: 'NETWORK_ERROR', message: 'Another claim is in progress. Please try again shortly.' });
     return;

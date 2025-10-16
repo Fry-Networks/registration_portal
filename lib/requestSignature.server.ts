@@ -15,9 +15,65 @@
 
 import { NextApiRequest } from 'next';
 import { isAdminWallet } from './adminCheck';
+import { logSecurityEventAggregated } from './securityEventAggregation';
 
 const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
 const MAX_AGE_SECONDS = 300; // 5 minutes
+
+/**
+ * Helper: Format and log security event
+ */
+function formatSecurityLog(
+  layerName: string,
+  walletAddress: string,
+  minerKey: string,
+  details?: string
+): string {
+  const timestamp = new Date().toISOString();
+  const detail = details ? ` - ${details}` : '';
+  return `[${layerName}] ${timestamp}${detail} | Wallet: ${walletAddress} | Miner: ${minerKey}`;
+}
+
+/**
+ * Helper: Log Layer 2 security event to console and aggregated MongoDB
+ */
+async function logLayer2Event(
+  req: NextApiRequest,
+  eventType: 'MISSING_SIGNATURE' | 'INVALID_SIGNATURE' | 'EXPIRED_TIMESTAMP' | 'TAMPERED_REQUEST',
+  walletAddress: string,
+  minerKey: string,
+  details?: string
+): Promise<void> {
+  const layerName = 'L2 - RequestSignature';
+  
+  let eventDetails = '';
+  let severity: 'low' | 'medium' | 'high' | 'critical' = 'high';
+  
+  if (eventType === 'MISSING_SIGNATURE') {
+    eventDetails = 'Signature or timestamp missing';
+  } else if (eventType === 'INVALID_SIGNATURE') {
+    eventDetails = 'Signature verification failed';
+  } else if (eventType === 'EXPIRED_TIMESTAMP') {
+    eventDetails = 'Request timestamp expired';
+  } else if (eventType === 'TAMPERED_REQUEST') {
+    eventDetails = 'Request body tampering detected';
+    severity = 'critical';
+  }
+
+  // Log to console
+  const consoleLog = formatSecurityLog(layerName, walletAddress, minerKey, eventDetails);
+  console.warn(consoleLog);
+
+  // Log to aggregated MongoDB (updates wallet's summary document)
+  await logSecurityEventAggregated(
+    req,
+    eventType,
+    walletAddress,
+    minerKey,
+    severity,
+    details || eventDetails
+  );
+}
 
 /**
  * Verify a request signature with admin bypass (ASYNC).
@@ -42,15 +98,18 @@ export async function verifyRequestSignatureAsync(
   // Admin bypass: check if wallet is admin
   if (req) {
     try {
-      const walletAddress = req.body?.address || req.body?.wallet;
+      const walletAddress = req.body?.address || req.body?.wallet || 'unknown';
+      const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
       const isAdmin = await isAdminWallet(walletAddress);
       if (isAdmin) {
         // Admin users bypass signature verification
-        console.log('[RequestSignature] Admin user bypassed signature verification:', walletAddress);
+        const timeStr = new Date().toISOString();
+        const consoleLog = `[L2 - RequestSignature] ${timeStr} - Admin bypass allowed | Wallet: ${walletAddress} | Miner: ${minerKey}`;
+        console.log(consoleLog);
         return true;
       }
     } catch (err) {
-      console.error('[RequestSignature] Error checking admin status:', err);
+      console.error('[L2 - RequestSignature] Error checking admin status:', err);
       // Fall through to normal verification
     }
   }
@@ -81,39 +140,24 @@ export function verifyRequestSignature(
   }
 
   const crypto = require('crypto');
+  const walletAddress = (req?.body?.address || req?.body?.wallet || 'unknown') as string;
+  const minerKey = (req?.body?.miner_key || req?.query?.miner_key || 'unknown') as string;
 
   // Check timestamp is within acceptable range
   const now = Math.floor(Date.now() / 1000);
   const age = now - timestamp;
 
   if (age > MAX_AGE_SECONDS) {
-    console.warn('[RequestSignature] Request too old:', {
-      timestamp,
-      now,
-      age,
-      maxAge: MAX_AGE_SECONDS
-    });
     if (req) {
-      // Dynamic import to avoid bundling MongoDB into client
-      import('./securityMonitoring').then(({ logSecurityEvent }) => {
-        logSecurityEvent(req, 'EXPIRED_TIMESTAMP', 'high', `Request expired: ${age}s old`).catch(() => {});
-      }).catch(() => {});
+      logLayer2Event(req, 'EXPIRED_TIMESTAMP', walletAddress, minerKey, `Request expired: ${age}s old`).catch(() => {});
     }
     return false;
   }
 
   if (age < -10) {
     // Clock skew tolerance: allow up to 10 seconds in the future
-    console.warn('[RequestSignature] Request timestamp in future:', {
-      timestamp,
-      now,
-      skew: age
-    });
     if (req) {
-      // Dynamic import to avoid bundling MongoDB into client
-      import('./securityMonitoring').then(({ logSecurityEvent }) => {
-        logSecurityEvent(req, 'INVALID_SIGNATURE', 'medium', 'Request timestamp in future').catch(() => {});
-      }).catch(() => {});
+      logLayer2Event(req, 'INVALID_SIGNATURE', walletAddress, minerKey, `Request timestamp in future by ${Math.abs(age)}s`).catch(() => {});
     }
     return false;
   }
@@ -133,20 +177,14 @@ export function verifyRequestSignature(
     );
     
     if (!valid && req) {
-      // Dynamic import to avoid bundling MongoDB into client
-      import('./securityMonitoring').then(({ logSecurityEvent }) => {
-        logSecurityEvent(req, 'INVALID_SIGNATURE', 'high', 'Signature verification failed').catch(() => {});
-      }).catch(() => {});
+      logLayer2Event(req, 'INVALID_SIGNATURE', walletAddress, minerKey).catch(() => {});
     }
     
     return valid;
   } catch (err) {
     // Buffers are not equal length (signature is invalid format)
     if (req) {
-      // Dynamic import to avoid bundling MongoDB into client
-      import('./securityMonitoring').then(({ logSecurityEvent }) => {
-        logSecurityEvent(req, 'TAMPERED_REQUEST', 'critical', 'Request body tampering detected').catch(() => {});
-      }).catch(() => {});
+      logLayer2Event(req, 'TAMPERED_REQUEST', walletAddress, minerKey).catch(() => {});
     }
     return false;
   }

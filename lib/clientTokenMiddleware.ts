@@ -11,8 +11,57 @@
 import { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import crypto from 'crypto';
 import { isAdminRequest, extractWalletFromRequest } from './adminCheck';
+import { logSecurityEventAggregated } from './securityEventAggregation';
 
 const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
+
+/**
+ * Helper: Format and log security event
+ */
+function formatSecurityLog(
+  layerName: string,
+  walletAddress: string,
+  minerKey: string,
+  details?: string
+): string {
+  const timestamp = new Date().toISOString();
+  const detail = details ? ` - ${details}` : '';
+  return `[${layerName}] ${timestamp}${detail} | Wallet: ${walletAddress} | Miner: ${minerKey}`;
+}
+
+/**
+ * Helper: Log security event to console and MongoDB
+ */
+async function logLayer1Event(
+  req: NextApiRequest,
+  eventType: 'MISSING_CLIENT_TOKEN' | 'INVALID_CLIENT_TOKEN',
+  walletAddress: string,
+  minerKey: string,
+  details?: string
+): Promise<void> {
+  const layerName = 'L1 - ClientToken';
+  
+  let eventDetails = '';
+  if (eventType === 'MISSING_CLIENT_TOKEN') {
+    eventDetails = 'No client token provided';
+  } else if (eventType === 'INVALID_CLIENT_TOKEN') {
+    eventDetails = 'Client token does not match User-Agent';
+  }
+
+  // Log to console
+  const consoleLog = formatSecurityLog(layerName, walletAddress, minerKey, eventDetails);
+  console.warn(consoleLog);
+
+  // Log to aggregated MongoDB (updates wallet's summary document)
+  await logSecurityEventAggregated(
+    req,
+    eventType,
+    walletAddress,
+    minerKey,
+    'medium',
+    details || eventDetails
+  );
+}
 
 /**
  * Verify the client token from the request header.
@@ -28,17 +77,21 @@ export async function verifyClientToken(req: NextApiRequest, res: NextApiRespons
   const isAdmin = await isAdminRequest(req);
   if (isAdmin) {
     // Admin users bypass this check
+    const walletAddress = extractWalletFromRequest(req) || 'unknown';
+    const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
+    const timestamp = new Date().toISOString();
+    const consoleLog = `[L1 - ClientToken] ${timestamp} - Admin bypass allowed | Wallet: ${walletAddress} | Miner: ${minerKey}`;
+    console.log(consoleLog);
     return true;
   }
 
   const token = req.headers['x-client-token'] as string | undefined;
   const userAgent = req.headers['user-agent'] || '';
+  const walletAddress = extractWalletFromRequest(req) || 'unknown';
+  const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
 
   if (!token) {
-    // Dynamic import to avoid bundling MongoDB into client
-    import('./securityMonitoring').then(({ logSecurityEvent }) => {
-      logSecurityEvent(req, 'MISSING_CLIENT_TOKEN', 'medium', 'No client token provided').catch(() => {});
-    }).catch(() => {});
+    await logLayer1Event(req, 'MISSING_CLIENT_TOKEN', walletAddress, minerKey);
     res.status(403).json({
       success: false,
       code: 'MISSING_CLIENT_TOKEN',
@@ -54,10 +107,7 @@ export async function verifyClientToken(req: NextApiRequest, res: NextApiRespons
     .digest('hex');
 
   if (token !== expectedToken) {
-    // Dynamic import to avoid bundling MongoDB into client
-    import('./securityMonitoring').then(({ logSecurityEvent }) => {
-      logSecurityEvent(req, 'INVALID_CLIENT_TOKEN', 'medium', 'Client token does not match User-Agent').catch(() => {});
-    }).catch(() => {});
+    await logLayer1Event(req, 'INVALID_CLIENT_TOKEN', walletAddress, minerKey);
     res.status(403).json({
       success: false,
       code: 'INVALID_CLIENT_TOKEN',
