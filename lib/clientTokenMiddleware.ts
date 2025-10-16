@@ -10,6 +10,7 @@
 
 import { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import crypto from 'crypto';
+import { isAdminRequest, extractWalletFromRequest } from './adminCheck';
 
 const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
 
@@ -18,8 +19,18 @@ const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
  * 
  * The token should be sent as the 'x-client-token' header.
  * We verify it by computing the expected hash based on the User-Agent header.
+ * 
+ * ADMIN BYPASS: If the wallet address has admin=true in registration-users,
+ * this verification is skipped entirely.
  */
-export function verifyClientToken(req: NextApiRequest, res: NextApiResponse): boolean {
+export async function verifyClientToken(req: NextApiRequest, res: NextApiResponse): Promise<boolean> {
+  // Admin bypass: check if wallet is admin
+  const isAdmin = await isAdminRequest(req);
+  if (isAdmin) {
+    // Admin users bypass this check
+    return true;
+  }
+
   const token = req.headers['x-client-token'] as string | undefined;
   const userAgent = req.headers['user-agent'] || '';
 
@@ -61,6 +72,8 @@ export function verifyClientToken(req: NextApiRequest, res: NextApiResponse): bo
 /**
  * Middleware wrapper: protect an API handler with client token verification.
  * 
+ * Admin users bypass this check.
+ * 
  * Usage:
  *   export default withClientTokenVerification(async (req, res) => {
  *     // protected logic here
@@ -68,8 +81,11 @@ export function verifyClientToken(req: NextApiRequest, res: NextApiResponse): bo
  */
 export function withClientTokenVerification(handler: NextApiHandler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
-    if (req.method !== 'GET' && !verifyClientToken(req, res)) {
-      return;
+    if (req.method !== 'GET') {
+      const verified = await verifyClientToken(req, res);
+      if (!verified) {
+        return;
+      }
     }
     return handler(req, res);
   };

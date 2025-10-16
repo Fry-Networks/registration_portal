@@ -8,12 +8,56 @@
  * - Request tampering (body modification)
  * - Request replay attacks (time-bound signatures)
  * - Unauthorized signature generation (only frontend knows the secret)
+ * 
+ * ADMIN BYPASS: If the wallet address has admin=true in registration-users,
+ * signature verification is skipped.
  */
 
 import { NextApiRequest } from 'next';
+import { isAdminWallet } from './adminCheck';
 
 const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
 const MAX_AGE_SECONDS = 300; // 5 minutes
+
+/**
+ * Verify a request signature with admin bypass (ASYNC).
+ * 
+ * This async wrapper checks if the wallet is admin FIRST.
+ * If admin, returns true without verification.
+ * If not admin, calls verifyRequestSignature for full verification.
+ * 
+ * Backend usage:
+ *   if (!await verifyRequestSignatureAsync('POST', '/api/rewards/claim', body, timestamp, signature, req)) {
+ *     return res.status(403).json({ error: 'Invalid signature' });
+ *   }
+ */
+export async function verifyRequestSignatureAsync(
+  method: string,
+  path: string,
+  body: any,
+  timestamp: number,
+  signature: string,
+  req?: NextApiRequest
+): Promise<boolean> {
+  // Admin bypass: check if wallet is admin
+  if (req) {
+    try {
+      const walletAddress = req.body?.address || req.body?.wallet;
+      const isAdmin = await isAdminWallet(walletAddress);
+      if (isAdmin) {
+        // Admin users bypass signature verification
+        console.log('[RequestSignature] Admin user bypassed signature verification:', walletAddress);
+        return true;
+      }
+    } catch (err) {
+      console.error('[RequestSignature] Error checking admin status:', err);
+      // Fall through to normal verification
+    }
+  }
+
+  // Non-admin: perform full verification (sync version)
+  return verifyRequestSignature(method, path, body, timestamp, signature, req);
+}
 
 /**
  * Verify a request signature server-side (Node.js implementation).
