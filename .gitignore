@@ -42,6 +42,7 @@ package-lock.json
 
 /data
 *.log
+/logs
 .vscode
 docker-compose.yml
 Dockerfile
