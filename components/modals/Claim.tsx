@@ -10,6 +10,8 @@ import { useToastContext } from '../../hooks/ToastContext';
 import { algodClient, REWALD_WALLET } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { useWallet } from '@txnlab/use-wallet-react';
+import { getClientToken } from '../../lib/clientToken';
+import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -105,14 +107,22 @@ export default function ClaimModal({
 
       setStage('submitting');
       setStatusText('Submitting claim transaction...');
+      const clientToken = await getClientToken();
+      
+      // Generate request signature for extra security
+      const body = no ? { miner_key, no } : { miner_key };
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', body, timestamp);
+      
       const response = await fetch('api/rewards/claim', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-client-token': clientToken,
+          'x-request-signature': signature,
+          'x-request-timestamp': timestamp.toString()
         },
-        body: JSON.stringify(
-          no ? { miner_key: miner_key, no: no } : { miner_key: miner_key }
-        )
+        body: JSON.stringify(body)
       });
 
       const result = await response.json();

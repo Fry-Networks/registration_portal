@@ -2,6 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
+import { verifyRequestSignature } from '../../../lib/requestSignature.server';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -47,6 +49,34 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // Layer 1: Verify client token
+  if (!verifyClientToken(req, res)) {
+    return;
+  }
+
+  // Layer 2: Verify request signature
+  const signature = req.headers['x-request-signature'] as string;
+  const timestamp = req.headers['x-request-timestamp'] as string;
+
+  if (!signature || !timestamp) {
+    res.status(403).json({
+      success: false,
+      code: 'MISSING_SIGNATURE',
+      message: 'Request signature or timestamp missing'
+    });
+    return;
+  }
+
+  if (!verifyRequestSignature('POST', '/api/rewards/get-reward-summary', req.body, Number(timestamp), signature)) {
+    res.status(403).json({
+      success: false,
+      code: 'INVALID_SIGNATURE',
+      message: 'Invalid or expired request signature'
+    });
+    return;
+  }
+
+  // Layer 3: Session check
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';

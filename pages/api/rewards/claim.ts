@@ -6,6 +6,9 @@ import { Device } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { getAssetDecimals } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
+import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
+import { verifyRequestSignature } from '../../../lib/requestSignature.server';
+import crypto from 'crypto';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -35,6 +38,36 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // Layer 1: Verify client token to prevent automated scripts from calling this endpoint
+  // This check happens FIRST (before session check) for early bot detection
+  if (!verifyClientToken(req, res)) {
+    return;
+  }
+
+  // Layer 2: Verify request signature to prevent tampering and replay attacks
+  // This check also happens early for efficient bot detection
+  const signature = req.headers['x-request-signature'] as string;
+  const timestamp = req.headers['x-request-timestamp'] as string;
+
+  if (!signature || !timestamp) {
+    res.status(403).json({
+      success: false,
+      code: 'MISSING_SIGNATURE',
+      message: 'Request signature or timestamp missing'
+    });
+    return;
+  }
+
+  if (!verifyRequestSignature('POST', '/api/rewards/claim', req.body, Number(timestamp), signature)) {
+    res.status(403).json({
+      success: false,
+      code: 'INVALID_SIGNATURE',
+      message: 'Invalid or expired request signature'
+    });
+    return;
+  }
+
+  // Session check happens AFTER security verification
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {

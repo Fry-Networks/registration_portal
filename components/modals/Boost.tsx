@@ -6,6 +6,8 @@ import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
+import { getClientToken } from '../../lib/clientToken';
+import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
 
 export default function BoostModal({
   modalName,
@@ -33,14 +35,22 @@ export default function BoostModal({
     setStage('submitting');
     setStatusText('Submitting instant claim...');
     try {
+      const clientToken = await getClientToken();
+      
+      // Generate request signature for extra security
+      const body = no ? { miner_key: miner_key, no: no } : { miner_key: miner_key };
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = await generateRequestSignatureAsync('POST', '/api/rewards/boost', body, timestamp);
+      
       const response = await fetch('api/rewards/boost', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-client-token': clientToken,
+          'x-request-signature': signature,
+          'x-request-timestamp': timestamp.toString()
         },
-        body: JSON.stringify(
-          no ? { miner_key: miner_key, no: no } : { miner_key: miner_key }
-        )
+        body: JSON.stringify(body)
       });
 
       const result = await response.json();

@@ -6,6 +6,8 @@ import { getTransactionTime } from '../../../lib/utils';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { VERIFY_RESULT } from '../../../lib/txn';
+import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
+import { verifyRequestSignature } from '../../../lib/requestSignature.server';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -21,6 +23,36 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  // Layer 1: Verify client token to prevent automated scripts from calling this endpoint
+  // This check happens FIRST (before session check) for early bot detection
+  if (!verifyClientToken(req, res)) {
+    return;
+  }
+
+  // Layer 2: Verify request signature to prevent body tampering and replay attacks
+  // This check also happens early for efficient bot detection
+  const signature = req.headers['x-request-signature'] as string;
+  const timestamp = parseInt(req.headers['x-request-timestamp'] as string, 10);
+
+  if (!signature || !timestamp) {
+    res.status(403).json({
+      success: false,
+      code: 'MISSING_SIGNATURE',
+      message: 'Request signature or timestamp missing'
+    });
+    return;
+  }
+
+  if (!verifyRequestSignature(req.method || 'POST', req.url || '/api/rewards/confirm', req.body, timestamp, signature)) {
+    res.status(403).json({
+      success: false,
+      code: 'INVALID_SIGNATURE',
+      message: 'Invalid request signature'
+    });
+    return;
+  }
+
+  // Session check happens AFTER security verification
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
     res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });

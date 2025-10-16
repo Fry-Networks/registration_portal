@@ -14,6 +14,7 @@ import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
+import { generateClientToken } from '../lib/clientToken';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -85,6 +86,15 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
         await manager.resumeSessions();
       } catch (error) {
         console.error('[WalletManager] Failed to resume sessions', error);
+      }
+    })();
+
+    // Initialize client token for API security
+    (async () => {
+      try {
+        await generateClientToken();
+      } catch (error) {
+        console.error('[ClientToken] Failed to generate token', error);
       }
     })();
 
