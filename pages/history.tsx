@@ -13,6 +13,9 @@ import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
 import ClaimModal from '../components/modals/Claim';
 import BoostModal from '../components/modals/Boost';
+import { getClientToken } from '../lib/clientToken';
+import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
+import { useFingerprintReady } from '../app/fingerprintcontext';
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -173,6 +176,7 @@ export default function History({
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
   const [now, setNow] = useState(() => Date.now());
+  const { ready: fingerprintReady } = useFingerprintReady();
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 60_000);
@@ -248,23 +252,29 @@ export default function History({
     };
   }, [resolvedNextUnlock, now]);
 
-  const fetchData = async (nextPage: number) => {
-    if (!minerKey) return;
-    if (nextPage <= lastLoadedPage.current) return;
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    setIsLoading(true);
-    try {
-      const response = await fetch('api/rewards/get-rewards-page', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          miner_key: minerKey,
-          page: nextPage
-        })
-      });
+    const fetchData = async (nextPage: number) => {
+      if (!fingerprintReady) return;
+      if (!minerKey) return;
+      if (nextPage <= lastLoadedPage.current) return;
+      if (loadingRef.current) return;
+      loadingRef.current = true;
+      setIsLoading(true);
+      try {
+        const clientToken = await getClientToken();
+        const body = { miner_key: minerKey, page: nextPage };
+        const timestamp = Math.floor(Date.now() / 1000);
+        const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
+        
+        const response = await fetch('api/rewards/get-rewards-page', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-token': clientToken,
+            'x-request-signature': signature,
+            'x-request-timestamp': timestamp.toString()
+          },
+          body: JSON.stringify(body)
+        });
 
       if (response.ok) {
         const result = await response.json();
@@ -335,8 +345,8 @@ export default function History({
     setRewards([]);
     lastLoadedPage.current = 0;
     setTotalPages(initialTotalPages || 0);
-    if (minerKey) fetchData(1);
-  }, [minerKey, initialRewards, initialTotalPages]);
+    if (minerKey && fingerprintReady) fetchData(1);
+  }, [fingerprintReady, initialRewards, initialTotalPages, minerKey]);
 
   // Fetch live prices for header context
   useEffect(() => {
@@ -460,6 +470,7 @@ export default function History({
 
   // Infinite scroll observer (after weeklyList/dailyList are declared)
   useEffect(() => {
+    if (!fingerprintReady) return;
     if (!sentinelRef.current) return;
     const el = sentinelRef.current;
     const io = new IntersectionObserver((entries) => {
@@ -477,7 +488,7 @@ export default function History({
     }, { rootMargin: '200px 0px' });
     io.observe(el);
     return () => io.disconnect();
-  }, [rewards.length, totalPages, tab, weeklyList.length, dailyList.length, minerKey]);
+  }, [dailyList.length, fingerprintReady, minerKey, rewards.length, tab, totalPages, weeklyList.length]);
 
   return (
     <div className="w-full">

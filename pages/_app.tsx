@@ -1,8 +1,8 @@
 import { NextPage } from 'next';
 import { AppProps } from 'next/app';
 import '../app/globals.css';
-import { useSession, SessionProvider } from 'next-auth/react';
-import React, { useEffect, useState } from 'react';
+import { useSession, SessionProvider, getSession } from 'next-auth/react';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from 'react-modal';
 import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
 import { WalletProvider } from '@txnlab/use-wallet-react';
@@ -15,6 +15,8 @@ import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
 import { generateClientToken } from '../lib/clientToken';
+import { FingerprintProvider, useFingerprintReady } from '../app/fingerprintcontext';
+import type { MySession } from './api/auth/[...nextauth]';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -118,25 +120,27 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
         <QueryClientProvider client={queryClient}> */}
           <WalletProvider manager={walletManager}>
             <SessionProvider session={pageProps.session}>
-              <DevWalletProvider>
-                <ToastProvider>
-                  <NotificationProvider isEnabled={notificationsEnabled}>
-                    <Navbar />
-                    <div className="relative flex flex-col">
-                      {showAnnouncementBanner && <AnnouncementBanner />}
-                      <div
-                        id="main"
-                        className="w-full min-h-screen bg-background text-foreground dark"
-                      >
-                        <ProtectedComponent
-                          Component={Component}
-                          pageProps={pageProps}
-                        />
+              <FingerprintProvider>
+                <DevWalletProvider>
+                  <ToastProvider>
+                    <NotificationProvider isEnabled={notificationsEnabled}>
+                      <Navbar />
+                      <div className="relative flex flex-col">
+                        {showAnnouncementBanner && <AnnouncementBanner />}
+                        <div
+                          id="main"
+                          className="w-full min-h-screen bg-background text-foreground dark"
+                        >
+                          <ProtectedComponent
+                            Component={Component}
+                            pageProps={pageProps}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  </NotificationProvider>
-                </ToastProvider>
-              </DevWalletProvider>
+                    </NotificationProvider>
+                  </ToastProvider>
+                </DevWalletProvider>
+              </FingerprintProvider>
             </SessionProvider>
           </WalletProvider>
         {/* </QueryClientProvider>
@@ -149,8 +153,74 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   Component,
   pageProps
 }) => {
-  const { data: session, status } = useSession();
+  const { data: sessionData, status, update } = useSession();
+  const session = sessionData as MySession | null;
   const isLoading = status === 'loading';
+  const { ready: fingerprintReady, setReady: setFingerprintReady } = useFingerprintReady();
+  const captureAttempted = useRef(false);
+
+  useEffect(() => {
+    if (status !== 'authenticated') {
+      setFingerprintReady(true);
+      captureAttempted.current = false;
+      return;
+    }
+
+    if (session?.deviceFingerprint) {
+      setFingerprintReady(true);
+      return;
+    }
+
+    setFingerprintReady(false);
+
+    let cancelled = false;
+
+    const attemptCapture = async () => {
+      if (captureAttempted.current || cancelled) {
+        return;
+      }
+      captureAttempted.current = true;
+      try {
+        const res = await fetch('/api/auth/capture-fingerprint', {
+          method: 'POST'
+        });
+        if (!res.ok) {
+          throw new Error(`capture-fingerprint failed: ${res.status}`);
+        }
+        const data = await res.json();
+        const fingerprint = data?.fingerprint || null;
+        const ua = data?.userAgent || null;
+
+        if (fingerprint) {
+          await update?.({
+            ...(session || {}),
+            deviceFingerprint: fingerprint,
+            userAgent: ua ?? session?.userAgent ?? null
+          });
+        } else {
+          await getSession();
+        }
+        if (!cancelled) {
+          setFingerprintReady(true);
+        }
+      } catch (error) {
+        console.error('[Fingerprint] Failed to capture fingerprint', error);
+        if (!cancelled) {
+          setFingerprintReady(false);
+          captureAttempted.current = false;
+          setTimeout(() => {
+            attemptCapture();
+          }, 3000);
+        }
+      }
+    };
+
+    attemptCapture();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, session?.deviceFingerprint, session?.user?.address, setFingerprintReady, status, update]);
 
   const showInfo = (text: string) => {
     return (
@@ -165,6 +235,9 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   };
 
   if (isLoading) return showInfo('Loading...');
+  if (status === 'authenticated' && !fingerprintReady) {
+    return showInfo('Binding this session to your browser for security...');
+  }
 
   return <Component {...pageProps} />;
 };

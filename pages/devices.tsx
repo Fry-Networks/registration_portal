@@ -15,6 +15,8 @@ import { SWRConfig } from 'swr';
 import type { Summary } from '../lib/hooks/useRewardSummary';
 import clientPromise from '../lib/mongoclient';
 import { Device, FryConversion, Product } from '../lib/types';
+import { getClientToken } from '../lib/clientToken';
+import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
 import Image from 'next/image';
@@ -49,6 +51,7 @@ import {
 import type { Notification as AppNotification } from '../components/NotificationCenter';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
+import { useFingerprintReady } from '../app/fingerprintcontext';
 
 const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -557,6 +560,7 @@ const DevicesPage = ({
   const toast = useToastContext();
   const { openModal } = useModal();
   const { data: session, status: sessionStatus } = useSession();
+  const { ready: fingerprintReady } = useFingerprintReady();
 
 
   // Enhanced sort: supports sortField and sortDirection
@@ -873,6 +877,13 @@ const DevicesPage = ({
     let active = true;
     let intervalId: ReturnType<typeof setInterval> | undefined;
 
+    if (!fingerprintReady) {
+      return () => {
+        active = false;
+        if (intervalId) clearInterval(intervalId);
+      };
+    }
+
     if (sessionStatus !== 'authenticated' || !session?.user?.address) {
       if (sessionStatus === 'unauthenticated') {
         setTotals(null);
@@ -885,7 +896,19 @@ const DevicesPage = ({
     
     const fetchTotals = async () => {
       try {
-        const res = await fetch('/api/rewards/get-asset-totals', { method: 'POST' });
+        const clientToken = await getClientToken();
+        const timestamp = Math.floor(Date.now() / 1000);
+        const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-asset-totals', {}, timestamp);
+        
+        const res = await fetch('/api/rewards/get-asset-totals', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-token': clientToken,
+            'x-request-signature': signature,
+            'x-request-timestamp': timestamp.toString()
+          }
+        });
         if (!res.ok) {
           if (active && res.status === 401) {
             setTotals(null);
@@ -905,7 +928,7 @@ const DevicesPage = ({
       active = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [sessionStatus, session?.user?.address]);
+  }, [fingerprintReady, sessionStatus, session?.user?.address]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
   const { estimatedFry1, estimatedFnode, estimatedTfry } = useMemo(() => {
