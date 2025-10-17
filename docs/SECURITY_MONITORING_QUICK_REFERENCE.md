@@ -145,6 +145,16 @@ Business Logic
 
 **Benefits**: Bots fail at layers 1-2 with minimal CPU overhead. Database only queried for legitimate requests.
 
+## Device Fingerprint Layer (Layer 4)
+
+- After a wallet signs in, the browser must call `POST /api/auth/capture-fingerprint` once to bind the session to its headers (User-Agent, Accept-Language, etc.).
+- Protected reward APIs enforce fingerprint matches via `verifyDeviceFingerprintMiddleware`. Failures log one of:
+  - `DEVICE_FINGERPRINT_MISSING` (session never captured)
+  - `DEVICE_FINGERPRINT_MISMATCH` (headers differ from captured fingerprint)
+  - `DEVICE_FINGERPRINT_BYPASS` (admin or global bypass)
+- Successful captures log `DEVICE_FINGERPRINT_CAPTURED` into `security-events` for observability.
+- Emergency bypass: set `DISABLE_DEVICE_FINGERPRINT=true|1|yes` (server env) to skip Layer 4 checks; all requests will be logged as `DEVICE_FINGERPRINT_BYPASS` with a “global bypass” detail.
+
 ## Attack Detection Logic
 
 A wallet/miner is considered **under attack** if:
