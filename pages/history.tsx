@@ -53,7 +53,7 @@ const PAGE_SIZE = 10;
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -62,7 +62,7 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024'] })
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
@@ -70,7 +70,8 @@ const TokenPricesBar = () => {
         setPrices({
           fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0,
+          tfry: json?.prices?.['2681521901'] ?? 0
         });
       } catch (error) {
         console.error('Failed to fetch prices', error);
@@ -126,6 +127,8 @@ const TokenPricesBar = () => {
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
       <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="tFry" price={prices.tfry || 0} />
+      <span className="text-white text-gray-400">•</span>
       <a
         href="https://vote.frynetworks.com/allvotes"
         target="_blank"
@@ -157,7 +160,7 @@ export default function History({
   const lastLoadedPage = useRef<number>(0);
   const [showFilters, setShowFilters] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
   const { data: session } = useSession();
   const fmtUSD = (v?: number) => {
     const n = Number(v || 0);
@@ -353,11 +356,20 @@ export default function History({
     let active = true;
     const run = async () => {
       try {
-        const res = await fetch('/api/price/get', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asset_ids: ['924268058','2485314946', '2485202024'] }) });
+        const res = await fetch('/api/price/get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+        });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
-        setPrices({ fry1: json?.prices?.['924268058'] ?? 0, fry2: json?.prices?.['2485314946'] ?? 0, fnode: json?.prices?.['2485202024'] ?? 0 });
+        setPrices({
+          fry1: json?.prices?.['924268058'] ?? 0,
+          fry2: json?.prices?.['2485314946'] ?? 0,
+          fnode: json?.prices?.['2485202024'] ?? 0,
+          tfry: json?.prices?.['2681521901'] ?? 0
+        });
       } catch {}
     };
     run();

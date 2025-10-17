@@ -4,7 +4,7 @@ import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { Device } from '../../../lib/types';
 import algosdk, { mnemonicToSecretKey } from 'algosdk';
-import { getAssetDecimals } from '../../../lib/utils';
+import { FRY_1, getAssetDecimals } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
@@ -24,6 +24,8 @@ const port = 443;
 const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 const lockSet: Set<string> = new Set();
+const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+const AEM_PREFIX = 'AEM';
 
 type DeviceClaimTarget = {
   source: 'weekly' | 'daily';
@@ -198,6 +200,23 @@ export default async function handler(
       })
     );
 
+    const minerPrefix = typeof device.miner_key === 'string' ? device.miner_key.split('-')[0] : '';
+    const isNodeDevice = NODE_PREFIXES.has(minerPrefix);
+    const isAemDevice = minerPrefix === AEM_PREFIX;
+    const isMinerDevice = !isNodeDevice && !isAemDevice;
+    const includesFry1 = resultArray.some((entry) => String(entry.asset_id) === FRY_1.id);
+
+    if (!testMode && isMinerDevice && includesFry1) {
+      lockSet.delete(miner_key);
+      res.status(400).json({
+        success: false,
+        code: 'FRY1_RETIRED',
+        message:
+          'FRY 1.0 miner rewards can no longer be claimed. Miner payouts are transitioning to tFry claiming.'
+      });
+      return;
+    }
+
     step.value = 'Preparing network parameters';
     const suggestedParams = await algodClient.getTransactionParams().do();
     const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
@@ -267,11 +286,15 @@ export default async function handler(
     //   return;
     // }
 
-    step.value = 'Broadcasting transactions to the network';
+    step.value = 'Submitting reward transfer to the Algorand network';
     const tx = await algodClient.sendRawTransaction(signedTxns).do();
     if (!tx) {
       lockSet.delete(miner_key);
-      res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Failed to broadcast reward transaction' });
+      res.status(500).json({
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: 'Reward transfer could not be submitted to Algorand. No funds were moved; please retry shortly.'
+      });
       return;
     }
 

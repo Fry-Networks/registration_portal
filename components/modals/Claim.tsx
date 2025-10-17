@@ -89,7 +89,7 @@ export default function ClaimModal({
   const claimRewards = async () => {
     setIsProcessing(true);
     setStage('submitting');
-    setStatusText('Submitting claim to server...');
+    setStatusText('Submitting claim details to the network coordinator...');
     try {
 
       if (!devMode) {
@@ -106,7 +106,7 @@ export default function ClaimModal({
       }
 
       setStage('submitting');
-      setStatusText('Submitting claim transaction...');
+      setStatusText('Finalizing reward transfer with Algorand...');
       const clientToken = await getClientToken();
       
       // Generate request signature for extra security
@@ -128,6 +128,17 @@ export default function ClaimModal({
       const result = await response.json();
       if (!response.ok) {
         const code = result?.code as string | undefined;
+        if (code === 'FRY1_RETIRED') {
+          toast.info({
+            heading: 'FRY 1.0 Claims Retired',
+            message:
+              'FRY 1.0 miner rewards are no longer claimable. Miner payouts are transitioning to tFry claiming (rolling out from Oct 9, 2025). No action is required—watch for updates.'
+          });
+          setStage('error');
+          setStatusText('FRY 1.0 miner rewards cannot be claimed while we move to tFry.');
+          setIsProcessing(false);
+          return;
+        }
         const friendly =
           code === 'NO_REWARDS'
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
@@ -146,7 +157,7 @@ export default function ClaimModal({
 
       if (result.success) {
         setStage('submitted');
-        setStatusText('Transaction broadcasted. Waiting for confirmation...');
+        setStatusText('Reward transfer submitted. Waiting for on-chain confirmation...');
         setTxIdState(txId);
         // Keep modal open to show countdown; optimistically refresh device totals
         setIsProcessing(true);

@@ -46,6 +46,7 @@ import {
   computeDeviceStatus,
   FRY_1,
   fNODE,
+  tFRY,
   anchorIdForMinerKey
 } from '../lib/utils';
 import type { Notification as AppNotification } from '../components/NotificationCenter';
@@ -147,7 +148,7 @@ function isLinkRequiredForPrefix(prefix: string) {
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -156,7 +157,7 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024'] })
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
@@ -164,7 +165,8 @@ const TokenPricesBar = () => {
         setPrices({
           fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0,
+          tfry: json?.prices?.['2681521901'] ?? 0
         });
       } catch (error) {
         console.error('Failed to fetch prices', error);
@@ -219,6 +221,8 @@ const TokenPricesBar = () => {
       <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
+      <span className="text-white text-gray-400">•</span>
+      <PriceWithTooltip label="tFry" price={prices.tfry || 0} />
       <span className="text-white text-gray-400">•</span>
       <a
         href="https://docs.frynetworks.com/dashboard/registration"
@@ -1337,6 +1341,7 @@ export async function getServerSideProps(context: any) {
   try {
     const client = await clientPromise;
     const db = client.db('main');
+    const { hydrateDeviceWithPosition } = await import('../lib/devicePosition');
 
     // Initialize variables at function scope
     let rewardFallback: Record<string, Summary> = {};
@@ -1399,10 +1404,14 @@ export async function getServerSideProps(context: any) {
     //   }
     // }
 
-    const devices = await db
+    const devicesRaw = await db
       .collection(testMode ? 'test-devices' : 'devices')
       .find({ address: session.user.address, is_registered: true }, { projection: { address: 1, byod: 1, is_registered: 1, miner_key: 1, name: 1, nickname: 1, position: 1, reward_wallet: 1, staked: 1, stake_type: 1, verified: 1, hexId: 1, created_at: 1, email: 1, registered_portal_model: 1 } })
       .toArray();
+
+    const devices = await Promise.all(
+      devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device))
+    );
 
     const products = await db.collection('products').find({}).toArray();
 
@@ -1483,7 +1492,7 @@ export async function getServerSideProps(context: any) {
       bannerTotals = {
         FRY1: assetTotals[FRY_1.id] || { pending: 0, claimable: 0 },
         fNODE: assetTotals[fNODE.id] || { pending: 0, claimable: 0 },
-        tFRY: { pending: 0, claimable: 0 } // Placeholder until tFry is live
+        tFRY: assetTotals[tFRY.id] || { pending: 0, claimable: 0 }
       };
 
       // Return early with computed fallbacks

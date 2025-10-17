@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { FRY_1, fNODE } from '../../../lib/utils';
+import { FRY_1, fNODE, tFRY } from '../../../lib/utils';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
@@ -110,7 +110,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const minerKeys = devices.map((d: any) => d.miner_key);
     if (minerKeys.length === 0) {
-      res.status(200).json({ success: true, totals: { fry1: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }, fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0 } }, nextUnlockAt: null });
+      res.status(200).json({
+        success: true,
+        totals: {
+          fry1: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
+          fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
+          tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }
+        },
+        nextUnlockAt: null
+      });
       return;
     }
 
@@ -122,6 +130,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sum = () => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
     const fry1 = sum();
     const fnode = sum();
+    const tfry = sum();
+
+    const resolveBucket = (assetId: any) => {
+      const id = String(assetId);
+      if (id === FRY_1.id) return fry1;
+      if (id === fNODE.id) return fnode;
+      if (id === tFRY.id) return tfry;
+      return null;
+    };
 
     const { dateStrings, nextUnlockAt } = getCurrentWeekDates();
 
@@ -131,7 +148,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         for (const wr of doc.weekly_rewards) {
           const unlock = wr.unlock_at ? new Date(wr.unlock_at) : null;
           if (unlock && unlock >= CUTOFF_DATE) {
-            const bucket = wr.asset_id === FRY_1.id ? fry1 : wr.asset_id === fNODE.id ? fnode : null;
+            const bucket = resolveBucket(wr.asset_id);
             if (!bucket) continue;
             if (wr.status === 'pending') bucket.pending = Math.round((bucket.pending + (wr.amount || 0)) * 100) / 100;
             if (wr.status === 'claimable') bucket.claimable = Math.round((bucket.claimable + (wr.amount || 0)) * 100) / 100;
@@ -146,7 +163,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const created = dr.created_at ? new Date(dr.created_at) : null;
           // Pre-cutoff daily totals
           if (created && created < CUTOFF_DATE) {
-            const bucket = dr.asset_id === FRY_1.id ? fry1 : dr.asset_id === fNODE.id ? fnode : null;
+            const bucket = resolveBucket(dr.asset_id);
             if (!bucket) continue;
             if (dr.status === 'pending') bucket.pending = Math.round((bucket.pending + (dr.amount || 0)) * 100) / 100;
             if (dr.status === 'claimable') bucket.claimable = Math.round((bucket.claimable + (dr.amount || 0)) * 100) / 100;
@@ -154,7 +171,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
           // Accrual preview for current week
           if (dr.status && (dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
-            const bucket = dr.asset_id === FRY_1.id ? fry1 : dr.asset_id === fNODE.id ? fnode : null;
+            const bucket = resolveBucket(dr.asset_id);
             if (!bucket) continue;
             bucket.accruing = Math.round((bucket.accruing + (dr.amount || 0)) * 100) / 100;
           }
@@ -166,7 +183,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       success: true,
       totals: {
         fry1,
-        fnode
+        fnode,
+        tfry
       },
       nextUnlockAt: nextUnlockAt.toISOString()
     });

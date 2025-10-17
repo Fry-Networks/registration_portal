@@ -66,6 +66,7 @@ export const FC_STARTED = 2;
 export const FRY_1 = { id: '924268058', decimals: 6 } as Asset;
 export const FRY_2 = { id: '2485314946', decimals: 6 } as Asset;
 export const fNODE = { id: '2485202024', decimals: 6 } as Asset;
+export const tFRY = { id: '2681521901', decimals: 6 } as Asset;
 export const fVPN = { id: '2485198745', decimals: 6 } as Asset;
 export const ALGO = { id: '0', decimals: 6 } as Asset;
 
@@ -316,6 +317,8 @@ export const getAssetName = (assetId: string) => {
     return 'fry2.0';
   } else if (assetId === fNODE.id) {
     return 'fnode';
+  } else if (assetId === tFRY.id) {
+    return 'tFry';
   } else if (assetId === fVPN.id) {
     return 'fvpn';
   }

@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import clientPromise from '../../../lib/mongoclient';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
+import { hydrateDeviceWithPosition } from '../../../lib/devicePosition';
 
 export default async function handler(
   req: NextApiRequest,
@@ -38,6 +39,8 @@ export default async function handler(
       return res.status(404).json({ error: 'Device not found' });
     }
 
+    const hydratedDevice = await hydrateDeviceWithPosition(client, device as any);
+
     if (address) {
       if (session.user.address !== address) {
         res.status(401).json({ message: 'Unauthorized 1' });
@@ -48,10 +51,16 @@ export default async function handler(
         res.status(401).json({ message: 'Unauthorized 2' });
         return;
       }
-      return res.status(200).json({ device: device });
+      return res.status(200).json({ device: hydratedDevice });
     }
 
-    return res.status(200).json({ device: {is_registered: device.is_registered, registered_portal_model: device?.registered_portal_model} });
+    return res.status(200).json({
+      device: {
+        is_registered: hydratedDevice.is_registered,
+        registered_portal_model: hydratedDevice?.registered_portal_model,
+        position: hydratedDevice?.position
+      }
+    });
   } catch (error) {
     console.error(`Error fetching device : ${miner_key}`, error);
     return res.status(500).json({ error: 'Internal Server Error' });

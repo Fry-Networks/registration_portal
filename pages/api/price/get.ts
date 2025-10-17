@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const body = (req.method === 'POST' ? req.body : {}) as { asset_ids?: string[] };
     const assetIds = Array.isArray(body.asset_ids) && body.asset_ids.length > 0
       ? Array.from(new Set(body.asset_ids.map(String)))
-      : ['2485314946', '2485202024']; // FRY 2.0, fNODE
+      : ['2485314946', '2485202024', '2681521901']; // FRY 2.0, fNODE, tFRY
 
     const prices: Record<string, number> = {};
     for (const id of assetIds) {
@@ -30,4 +30,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
   }
 }
-

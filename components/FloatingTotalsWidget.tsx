@@ -26,7 +26,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number }>({});
+  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
   const [isRibbonExpanded, setIsRibbonExpanded] = useState(false);
 
   // Token amount formatting (2 decimals)
@@ -154,11 +154,20 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     let active = true;
     const run = async () => {
       try {
-        const res = await fetch('/api/price/get', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asset_ids: ['924268058','2485314946', '2485202024'] }) });
+        const res = await fetch('/api/price/get', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+        });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
-        setPrices({ fry1: json?.prices?.['924268058'] ?? 0, fry2: json?.prices?.['2485314946'] ?? 0, fnode: json?.prices?.['2485202024'] ?? 0 });
+        setPrices({
+          fry1: json?.prices?.['924268058'] ?? 0,
+          fry2: json?.prices?.['2485314946'] ?? 0,
+          fnode: json?.prices?.['2485202024'] ?? 0,
+          tfry: json?.prices?.['2681521901'] ?? 0
+        });
       } catch {}
     };
     run();
@@ -254,9 +263,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                         </div>
                       </div>
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
-                        <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals
-                          <span className="ml-2 rounded-full bg-gray-700/50 px-2 py-0.5 text-[0.6rem] uppercase tracking-wide text-gray-300">Coming soon</span>
-                        </div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
                           <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
                           <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
@@ -409,7 +416,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                 </div>
                 {/* Prices */}
                 <div className="text-xs text-gray-300 mb-3 text-center">
-                  FRY 1.0 (924268058): {fmtUSD(prices.fry1)} • FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
+                  FRY 1.0 (924268058): {fmtUSD(prices.fry1)} • FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)} • tFry (2681521901): {fmtUSD(prices.tfry)}
                 </div>
 
                 {/* Expanded Totals */}
