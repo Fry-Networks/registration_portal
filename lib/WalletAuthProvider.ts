@@ -40,6 +40,8 @@ export default function WalletAuthProvider(): Provider {
         });
         if (exists) {
           const admin = Boolean(exists.admin);
+          const lastDeviceFingerprint = exists.last_device_fingerprint;
+          const lastUserAgent = exists.last_user_agent;
           // If existing user lacks profile fields and credentials provide them, update the record
           const needsUpdate =
             !exists.email || !exists.first_name || !exists.last_name;
@@ -65,7 +67,9 @@ export default function WalletAuthProvider(): Provider {
               email: credentials.email,
               first_name: credentials.first_name,
               last_name: credentials.last_name,
-              admin
+              admin,
+              last_device_fingerprint: lastDeviceFingerprint,
+              last_user_agent: lastUserAgent
             };
           }
           return {
@@ -74,7 +78,9 @@ export default function WalletAuthProvider(): Provider {
             email: exists.email,
             first_name: exists.first_name,
             last_name: exists.last_name,
-            admin
+            admin,
+            last_device_fingerprint: lastDeviceFingerprint,
+            last_user_agent: lastUserAgent
           };
         } else {
           const insertResult = await collection.insertOne({
@@ -90,7 +96,9 @@ export default function WalletAuthProvider(): Provider {
             email: credentials.email,
             first_name: credentials.first_name,
             last_name: credentials.last_name,
-            admin: false
+            admin: false,
+            last_device_fingerprint: null,
+            last_user_agent: null
           };
         }
       }

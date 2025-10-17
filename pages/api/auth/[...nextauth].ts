@@ -7,7 +7,6 @@ import { MongoDBAdapter } from '@auth/mongodb-adapter';
 import clientPromise from '../../../lib/mongoclient';
 import { Adapter } from 'next-auth/adapters';
 import { Session } from 'next-auth';
-import { generateDeviceFingerprint } from '../../../lib/deviceFingerprint';
 export const authOptions: NextAuthOptions = {
   jwt: {
     secret: process.env.NEXTAUTH_SECRET as string
@@ -17,7 +16,7 @@ export const authOptions: NextAuthOptions = {
     strategy: 'jwt'
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.userId = (user as any).id ?? token.sub ?? token.userId;
         token.address = user.address;
@@ -25,6 +24,17 @@ export const authOptions: NextAuthOptions = {
         token.first_name = user.first_name;
         token.last_name = user.last_name;
         token.admin = Boolean((user as any)?.admin);
+        token.deviceFingerprint =
+          (user as any)?.last_device_fingerprint ?? token.deviceFingerprint ?? null;
+        token.userAgent =
+          (user as any)?.last_user_agent ?? token.userAgent ?? null;
+      } else if (trigger === 'update' && session) {
+        if (typeof session.deviceFingerprint !== 'undefined') {
+          token.deviceFingerprint = session.deviceFingerprint;
+        }
+        if (typeof session.userAgent !== 'undefined') {
+          token.userAgent = session.userAgent;
+        }
       } else {
         if (!token.userId && token.sub) {
           token.userId = token.sub;
@@ -32,6 +42,13 @@ export const authOptions: NextAuthOptions = {
         if (typeof token.admin === 'undefined') {
           token.admin = false;
         }
+      }
+
+      if (typeof token.deviceFingerprint === 'undefined') {
+        token.deviceFingerprint = null;
+      }
+      if (typeof token.userAgent === 'undefined') {
+        token.userAgent = null;
       }
       return token;
     },
@@ -46,6 +63,14 @@ export const authOptions: NextAuthOptions = {
           last_name: token.last_name as string,
           admin: Boolean(token.admin)
         } as typeof session.user & { id: string };
+        (session as any).deviceFingerprint =
+          typeof token.deviceFingerprint === 'string'
+            ? token.deviceFingerprint
+            : token.deviceFingerprint ?? null;
+        (session as any).userAgent =
+          typeof token.userAgent === 'string'
+            ? token.userAgent
+            : token.userAgent ?? null;
       }
       return session;
     }
@@ -69,4 +94,6 @@ export interface MySession extends Session {
     admin: boolean;
     owner: boolean;
   };
+  deviceFingerprint?: string | null;
+  userAgent?: string | null;
 }

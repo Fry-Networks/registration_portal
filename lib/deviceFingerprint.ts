@@ -169,6 +169,23 @@ export async function verifyDeviceFingerprintMiddleware(
   const walletAddress = context?.walletAddress || session?.user?.address || 'unknown';
   const minerKey = context?.minerKey || 'unknown';
 
+  const fingerprintBypass = (process.env.DISABLE_DEVICE_FINGERPRINT || '')
+    .toString()
+    .toLowerCase();
+  const fingerprintBypassEnabled =
+    fingerprintBypass === 'true' || fingerprintBypass === '1' || fingerprintBypass === 'yes';
+
+  if (fingerprintBypassEnabled) {
+    await logFingerprintEvent(
+      req,
+      'DEVICE_FINGERPRINT_BYPASS',
+      walletAddress,
+      minerKey,
+      'Global fingerprint bypass enabled via DISABLE_DEVICE_FINGERPRINT'
+    );
+    return true;
+  }
+
   // Admins bypass fingerprint check (can use scripts)
   if (isAdmin) {
     await logFingerprintEvent(
