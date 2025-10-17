@@ -1,3 +1,6 @@
+import { getClientToken } from './clientToken';
+import { generateRequestSignatureAsync } from './requestSignature.client';
+
 export type ConfirmWatcherOptions = {
   maxAttempts?: number;
   onAttempt?: (attempt: number, nextDelayMs: number) => void;
@@ -24,10 +27,25 @@ export function startConfirmationWatcher(
   const tick = async () => {
     if (cancelled) return;
     try {
+      const clientToken = await getClientToken();
+      const payload = { txId };
+      const timestamp = Math.floor(Date.now() / 1000);
+      const signature = await generateRequestSignatureAsync(
+        'POST',
+        '/api/rewards/confirm',
+        payload,
+        timestamp
+      );
+
       const res = await fetch('api/rewards/confirm', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txId })
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-token': clientToken,
+          'x-request-signature': signature,
+          'x-request-timestamp': timestamp.toString()
+        },
+        body: JSON.stringify(payload)
       });
       const json = await res.json();
       if (res.ok && json.success) {
@@ -55,4 +73,3 @@ export function startConfirmationWatcher(
     cancelled = true;
   };
 }
-

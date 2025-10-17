@@ -130,6 +130,27 @@ async function getSessionInfo() {
   }
 }
 
+async function captureFingerprint() {
+  console.log('\n[Step 2] Capturing device fingerprint...');
+
+  const response = runCurl('POST', '/api/auth/capture-fingerprint', null, {}, sessionCookie);
+
+  if (response.status === 200) {
+    const preview =
+      typeof response.data === 'object' && response.data !== null
+        ? response.data.fingerprint || 'captured'
+        : 'captured';
+    console.log(`  ✓ Fingerprint bound (${String(preview).toString()})`);
+    return true;
+  }
+
+  console.error(`  ✗ Failed to capture fingerprint: status ${response.status}`);
+  if (response.data) {
+    console.error(`    Response: ${JSON.stringify(response.data)}`);
+  }
+  return false;
+}
+
 async function testGetRewardsPage() {
   console.log('\n[Test 1] Get rewards page (authenticated)');
   
@@ -287,6 +308,12 @@ async function runAllTests() {
   const gotSession = await getSessionInfo();
   if (!gotSession) {
     console.error('\n❌ Could not retrieve session information. Make sure your session cookie is valid.');
+    process.exit(1);
+  }
+
+  const fingerprintCaptured = await captureFingerprint();
+  if (!fingerprintCaptured) {
+    console.error('\n❌ Device fingerprint could not be captured. Tests cannot continue.');
     process.exit(1);
   }
 
