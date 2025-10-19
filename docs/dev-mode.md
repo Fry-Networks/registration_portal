@@ -71,3 +71,60 @@ Alternative options:
    `docker compose build fry-dashboard-users`
    `docker compose up -d fry-dashboard-users`
 4. Run the existing `scripts/check-vault.js` or other diagnostics as needed.
+
+-----------------------------------------------------------------------------------
+
+# Stop production
+docker compose down fry-dashboard-users
+
+# Start dev mode (hot reload on live site)
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up fry-dashboard-users
+
+# When done, switch back to production
+docker compose -f docker-compose.yml -f docker-compose-dev.yml down fry-dashboard-users
+docker compose up -d fry-dashboard-users
+
+## When is Build Required:
+
+__First time running dev mode:__
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build fry-dashboard-users
+```
+
+__Or when you change:__
+
+- `package.json` dependencies (added/removed npm packages)
+- `Dockerfile` itself
+- Build arguments
+- Base image
+
+## When is No Build Needed:
+
+__For regular code changes__ (components, pages, lib files, etc.):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-dev.yml up fry-dashboard-users
+```
+
+The volume mount (`- .:/app:cached`) ensures your code changes are immediately visible inside the container, and Next.js dev server (`npm run dev`) automatically hot reloads when it detects file changes.
+
+## Recommended Workflow:
+
+1. __First time or after dependency changes:__
+
+   ```bash
+   docker compose down fry-dashboard-users
+   docker compose -f docker-compose.yml -f docker-compose-dev.yml up --build fry-dashboard-users
+   ```
+
+2. __Subsequent code-only changes:__
+
+   - Just edit your files - hot reload handles it automatically
+   - If you restart the container for any reason, omit `--build`:
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose-dev.yml up fry-dashboard-users
+   ```
+
+__Build once initially, then just run it__ - the volume mounts + hot reload detect all your code changes automatically!

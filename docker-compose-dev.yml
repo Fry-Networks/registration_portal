@@ -1,0 +1,44 @@
+services:
+  fry-dashboard-users:
+    container_name: fry-user-dashboard
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
+        NEXT_PUBLIC_TEST_MODE: 'false'
+        NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
+    command: >
+      bash start-dev-with-1password.sh
+    user: node
+    environment:
+      NODE_ENV: development
+      NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN?missing_OP_SERVICE_ACCOUNT_TOKEN}
+      NEXTAUTH_URL: 'op://TestersDashboard/Dash Secrets/NEXTAUTH_URL'
+      NEXTAUTH_SECRET: 'op://TestersDashboard/Dash Secrets/NEXT_AUTH_SECRET'
+      STAKE_MNEMONIC: 'op://TestersDashboard/Dash Secrets/STAKE_MNEMONIC'
+      STAKE_REKEY: 'op://TestersDashboard/Dash Secrets/STAKE_REKEY'
+      REWARD_MNEMONIC: 'op://TestersDashboard/Dash Secrets/REWARD_MNEMONIC'
+      REWARD_REKEY: 'op://TestersDashboard/Dash Secrets/REWARD_REKEY'
+      MONGO_URI: 'op://TestersDashboard/Dash Secrets/MONGO_URI'
+      VER_MONGO_URI: 'op://TestersDashboard/Dash Secrets/VER_MONGO_URI'
+      DISCORD_BUG_WEBHOOK_URL: 'op://TestersDashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
+      NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
+      NEXT_PUBLIC_TEST_MODE: 'false'
+      WEEKLY_CUTOFF_UTC: '2025-09-12T00:00:00.000Z'
+      BUG_REPORT_RATE_LIMIT_HOURS: 1
+      NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
+    volumes:
+      - .:/app:cached
+      - /app/node_modules
+      - /home/fryadmin/dude-dashboard/logs:/app/logs # Persist logs outside container
+    restart: unless-stopped
+    networks:
+      - frynet
+
+networks:
+  frynet:
+    name: frynet
+    driver: bridge
+    external: true
