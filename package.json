@@ -9,7 +9,11 @@
     "cancel:registration": "node scripts/cancel-registration.js",
     "check-rtsp": "node ./scripts/check-rtsp.js",
     "migrate-hardware-creds": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/migrate-hardware-credentials.ts",
-    "restore-air-hardware": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/restore-air-hardware.ts"
+    "migrate-pop-hexids": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/migrate-populate-hexid.ts",
+    "restore-air-hardware": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/restore-air-hardware.ts",
+    "update-user-info": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/update-user-info.ts",
+    "sync-portal-models": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/sync-portal-models.ts",
+    "cleanup-legacy-creds": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/cleanup-legacy-credentials.ts"
   },
   "dependencies": {
     "@agoralabs-sh/avm-web-provider": "^1.7.0",
