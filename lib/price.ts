@@ -1,5 +1,6 @@
 
 import axios from 'axios';
+import { tFRY } from './utils';
 
 // Basic in-process caching to avoid rate limits and noisy logs
 const PRICE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -44,6 +45,11 @@ export const getFRYPrice = async (asset_id: string): Promise<number> => {
   const cached = fryUsdPriceCache[asset_id];
   if (cached && now - cached.lastFetched < PRICE_TTL_MS && cached.price > 0) {
     return cached.price;
+  }
+  // tFry is not yet tradeable, so skip Vestige lookups and report $0.00.
+  if (asset_id === tFRY.id) {
+    fryUsdPriceCache[asset_id] = { lastFetched: now, price: 0 };
+    return 0;
   }
   try {
     const fryURL = `https://api.vestigelabs.org/assets/price?asset_ids=${asset_id}`;

@@ -1,10 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-
 import clientPromise from '../../../lib/mongoclient';
 import { authOptions } from '../auth/[...nextauth]';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const COLLECTION_USERS = 'registration-users';
+const ENDPOINT = '/api/announcements/dismiss';
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,19 +18,31 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    res.status(405).json({ message: 'Method Not Allowed' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Unsupported request method',
+        'Use POST to dismiss an announcement.'
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.address) {
-    res.status(401).json({ message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
   const { announcementId } = req.body ?? {};
   if (!announcementId || typeof announcementId !== 'string') {
-    res.status(400).json({ message: 'announcementId must be provided' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'announcementId must be provided',
+        'Please include the announcement identifier to dismiss.'
+      )
+    );
     return;
   }
 
@@ -65,7 +83,18 @@ export default async function handler(
 
     res.status(200).json({ ok: true });
   } catch (error) {
-    console.error('[announcements/dismiss] error', error);
-    res.status(500).json({ message: 'Failed to update announcement dismissal' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to update announcement dismissal',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: session.user.address,
+      issueType: 'ANNOUNCEMENT_DISMISS_ERROR',
+      part: 'announcements.dismiss.handler',
+      metadata: {
+        announcementId,
+      },
+    });
   }
 }

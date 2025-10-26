@@ -8,7 +8,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './[...nextauth]';
-import { generateDeviceFingerprint } from '../../../lib/deviceFingerprint';
+import { generateDeviceFingerprint, clearFingerprintState } from '../../../lib/deviceFingerprint';
 import clientPromise from '../../../lib/mongoclient';
 import { logSecurityEventAggregated } from '../../../lib/securityEventAggregation';
 
@@ -58,6 +58,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (logErr) {
       console.error('[captureFingerprint] Failed to log security event', logErr);
     }
+
+    clearFingerprintState(session.user.address);
 
     return res.status(200).json({
       success: true,

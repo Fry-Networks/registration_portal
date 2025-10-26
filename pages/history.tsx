@@ -1,4 +1,5 @@
 import { Button, Flex, Title } from '@tremor/react';
+import { CalendarIcon, ClockIcon } from '@heroicons/react/outline';
 import Image from 'next/image';
 import bgImg from '../assets/background.png';
 import { getSession, useSession } from 'next-auth/react';
@@ -8,7 +9,7 @@ import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 import WeeklyCard, { WeeklyRewardView } from '../components/WeeklyCard';
 import DailyRow, { DailyRewardView } from '../components/DailyRow';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ElementType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
 import ClaimModal from '../components/modals/Claim';
@@ -53,7 +54,7 @@ const PAGE_SIZE = 10;
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -62,13 +63,12 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
-          fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
           fnode: json?.prices?.['2485202024'] ?? 0,
           tfry: json?.prices?.['2681521901'] ?? 0
@@ -121,8 +121,6 @@ const TokenPricesBar = () => {
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
-      <PriceWithTooltip label="FRY 1.0" price={prices.fry1 || 0} />
-      <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
@@ -143,44 +141,61 @@ const TokenPricesBar = () => {
 
 export default function History({
   initialRewards,
-  initialTotalPages = 0
+  initialTotalPages = 0,
+  initialCounts
 }: {
   initialRewards: Reward[];
   initialTotalPages?: number;
+  initialCounts?: { weekly: number; daily: number };
 }) {
   type RewardView = WeeklyRewardView | DailyRewardView;
-  const [rewards, setRewards] = useState<RewardView[]>(initialRewards as unknown as RewardView[]);
-  const [page, setPage] = useState(1); // Current page
-  const [totalPages, setTotalPages] = useState(initialTotalPages); // Total pages
+  // Cache initial SSR payload once so CSR can build on top of it without round-tripping.
+  const prefetchedRewards = initialRewards as unknown as RewardView[];
+  const hasPrefetched = Array.isArray(prefetchedRewards) && prefetchedRewards.length > 0;
+  const initialPage = hasPrefetched ? 1 : 0;
+  const initialTotal = hasPrefetched
+    ? initialTotalPages || Math.max(1, Math.ceil(prefetchedRewards.length / PAGE_SIZE))
+    : initialTotalPages || 0;
+  const initialWeeklyLoaded = prefetchedRewards.filter((r) => (r as any).isWeekly === true).length;
+  const initialDailyLoaded = prefetchedRewards.length - initialWeeklyLoaded;
+
+  // Stateful paging data the UI renders, seeded from the SSR results above.
+  const [rewards, setRewards] = useState<RewardView[]>(prefetchedRewards);
+  const [totalPages, setTotalPages] = useState(initialTotal);
+  const [currentPage, setCurrentPage] = useState(initialPage);
   const [selReward, setSelReward] = useState<Reward | undefined>(undefined);
   const { openModal } = useModal();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const loadingRef = useRef(false);
-  const lastLoadedPage = useRef<number>(0);
+  const [isFetchingNextPage, setIsFetchingNextPage] = useState(false); // Guards the "Load more" button against double clicks.
+  const currentPageRef = useRef(initialPage); // Keeps loadPage stable without re-defining the callback.
+  const totalPagesRef = useRef(initialTotal);
+  const [totalCounts, setTotalCounts] = useState<{ weekly: number; daily: number }>(() => ({
+    weekly: initialCounts?.weekly ?? initialWeeklyLoaded,
+    daily: initialCounts?.daily ?? initialDailyLoaded
+  }));
   const [showFilters, setShowFilters] = useState(false);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
   const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
   const { data: session } = useSession();
-  const fmtUSD = (v?: number) => {
-    const n = Number(v || 0);
-    if (!isFinite(n)) return '$0.00';
-    if (n >= 1) return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    let s = n.toFixed(8);
-    s = s.replace(/0+$/,'');
-    if (s.endsWith('.')) s = s.slice(0, -1);
-    if (!s.includes('.')) s = `${s}.00`;
-    const [int, dec] = s.split('.');
-    const dec2 = dec.length < 2 ? dec + '0'.repeat(2 - dec.length) : dec;
-    return `$${int}.${dec2}`;
-  };
+
 
   const { miner_key } = router.query;
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
   const [now, setNow] = useState(() => Date.now());
   const { ready: fingerprintReady } = useFingerprintReady();
+  const isLoadingAllRef = useRef(false);
+  const [isLoadingAll, setIsLoadingAll] = useState(false);
 
+  // Mirror reactive state into refs so loadPage can stay memoised without re-running parent effects.
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
+  useEffect(() => {
+    totalPagesRef.current = totalPages;
+  }, [totalPages]);
+  
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(interval);
@@ -255,16 +270,21 @@ export default function History({
     };
   }, [resolvedNextUnlock, now]);
 
-    const fetchData = async (nextPage: number) => {
-      if (!fingerprintReady) return;
-      if (!minerKey) return;
-      if (nextPage <= lastLoadedPage.current) return;
-      if (loadingRef.current) return;
-      loadingRef.current = true;
-      setIsLoading(true);
+  type RewardsPageResult = {
+    items: RewardView[];
+    totalPages?: number;
+    weeklyCount?: number;
+    dailyCount?: number;
+    totalCount?: number;
+  } | null;
+
+  const fetchRewardsPage = useCallback(
+    async (targetPage: number): Promise<RewardsPageResult> => {
+      if (!fingerprintReady) return null;
+      if (!minerKey) return null;
       try {
         const clientToken = await getClientToken();
-        const body = { miner_key: minerKey, page: nextPage };
+        const body = { miner_key: minerKey, page: targetPage };
         const timestamp = Math.floor(Date.now() / 1000);
         const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
         
@@ -279,26 +299,101 @@ export default function History({
           body: JSON.stringify(body)
         });
 
-      if (response.ok) {
+        if (!response.ok) {
+          console.error('Failed to fetch rewards page', response.status);
+          return null;
+        }
+
         const result = await response.json();
-        setRewards((prev) => {
-          if (nextPage === 1) return result.items;
-          const existing = new Set(prev.map((p: any) => p._id));
-          const deduped = (result.items || []).filter((it: any) => !existing.has(it._id));
-          return [...prev, ...deduped];
-        });
-        setTotalPages(result.totalPages);
-        lastLoadedPage.current = nextPage;
-        setPage(nextPage);
-        return;
+        const items: RewardView[] = Array.isArray(result.items) ? result.items : [];
+        return {
+          items,
+          totalPages: typeof result.totalPages === 'number' ? result.totalPages : undefined,
+          weeklyCount: typeof result.weeklyCount === 'number' ? result.weeklyCount : undefined,
+          dailyCount: typeof result.dailyCount === 'number' ? result.dailyCount : undefined,
+          totalCount: typeof result.totalCount === 'number' ? result.totalCount : undefined
+        };
+      } catch (error) {
+        console.error('Failed to fetch rewards page', error);
+        return null;
       }
-    } catch (error) {
-      console.error('Failed to fetch rewards page', error);
-    } finally {
-      setIsLoading(false);
-      loadingRef.current = false;
-    }
-  };
+    },
+    [fingerprintReady, minerKey]
+  );
+
+  const applyPageData = useCallback(
+    (result: Exclude<RewardsPageResult, null>, targetPage: number, replace: boolean): boolean => {
+      const { items, weeklyCount, dailyCount, totalCount, totalPages: totalPagesHint } = result;
+
+      setTotalCounts((prev) => ({
+        weekly: typeof weeklyCount === 'number' ? weeklyCount : prev.weekly,
+        daily: typeof dailyCount === 'number' ? dailyCount : prev.daily
+      }));
+
+      setRewards((prev) => {
+        if (replace || targetPage === 1) {
+          return items;
+        }
+        const existing = new Set(prev.map((p: any) => p._id));
+        const deduped = items.filter((it: any) => !existing.has(it._id));
+        return deduped.length > 0 ? [...prev, ...deduped] : prev;
+      });
+
+      const hasItems = items.length > 0;
+      const totalFromCount = typeof totalCount === 'number' ? Math.max(Math.ceil(totalCount / PAGE_SIZE), 1) : undefined;
+      const totalFromHint = typeof totalPagesHint === 'number' ? Math.max(totalPagesHint, 1) : undefined;
+      const resolvedTotal = totalFromCount ?? totalFromHint;
+      if (resolvedTotal) {
+        totalPagesRef.current = resolvedTotal;
+        setTotalPages(resolvedTotal);
+      }
+
+      if (replace) {
+        const nextPage = hasItems ? targetPage : 0;
+        currentPageRef.current = nextPage;
+        setCurrentPage(nextPage);
+      } else if (hasItems) {
+        currentPageRef.current = targetPage;
+        setCurrentPage(targetPage);
+      }
+
+      if (!hasItems && !replace && targetPage > 1) {
+        const fallback = Math.max(targetPage - 1, 1);
+        currentPageRef.current = fallback;
+        setCurrentPage((prev) => (prev > fallback ? fallback : prev));
+      }
+
+      return hasItems;
+    },
+    []
+  );
+
+  // Unified loader powering initial fetches and manual page advances.
+  const loadPage = useCallback(
+    async (targetPage: number, options: { replace?: boolean } = {}) => {
+      if (!minerKey) return;
+      const { replace = false } = options;
+      const current = currentPageRef.current;
+      const total = totalPagesRef.current;
+      if (!replace && targetPage <= current) return;
+      if (!replace && total && targetPage > total) return;
+
+      setIsLoading(true);
+      if (!replace) setIsFetchingNextPage(true);
+      try {
+        const result = await fetchRewardsPage(targetPage);
+        if (result) {
+          applyPageData(result, targetPage, replace);
+        }
+      } catch (error) {
+        console.error('Failed to fetch rewards page', error);
+      } finally {
+        setIsFetchingNextPage(false);
+        setIsLoading(false);
+      }
+    },
+    [minerKey, fetchRewardsPage, applyPageData]
+  );
 
   const handleClaimButton = (reward: Reward) => {
     console.log('Claim Button');
@@ -309,12 +404,13 @@ export default function History({
   const handleClaim = async (ret: boolean, message: string): Promise<void> => {
     console.log('Claim Action');
     if (!minerKey) return;
-    lastLoadedPage.current = 0;
-    loadingRef.current = false;
-    setPage(1);
+    setCurrentPage(0);
     setTotalPages(0);
     setRewards([]);
-    await fetchData(1);
+    currentPageRef.current = 0;
+    totalPagesRef.current = 0;
+    setTotalCounts({ weekly: 0, daily: 0 });
+    await loadPage(1, { replace: true });
     if (mutateSummary) await mutateSummary();
   };
 
@@ -327,29 +423,41 @@ export default function History({
   const handleBoost = async (ret: boolean, message: string): Promise<void> => {
     console.log('Boost Action');
     if (!minerKey) return;
-    lastLoadedPage.current = 0;
-    loadingRef.current = false;
-    setPage(1);
+    setCurrentPage(0);
     setTotalPages(0);
     setRewards([]);
-    await fetchData(1);
+    currentPageRef.current = 0;
+    totalPagesRef.current = 0;
+    setTotalCounts({ weekly: 0, daily: 0 });
+    await loadPage(1, { replace: true });
     if (mutateSummary) await mutateSummary();
   };
 
   // Reset and fetch on miner_key change (use SSR payload if present)
   useEffect(() => {
-    setPage(1);
-    if (Array.isArray(initialRewards) && initialRewards.length > 0) {
-      setRewards(initialRewards as unknown as RewardView[]);
-      lastLoadedPage.current = 1;
-      setTotalPages(initialTotalPages || Math.max(1, Math.ceil(initialRewards.length / PAGE_SIZE)));
-      return;
+    const rewardViews = initialRewards as unknown as RewardView[];
+    const prefetched = Array.isArray(rewardViews) && rewardViews.length > 0;
+    const pageValue = prefetched ? 1 : 0;
+    const totalValue = prefetched
+      ? initialTotalPages || Math.max(1, Math.ceil(rewardViews.length / PAGE_SIZE))
+      : initialTotalPages || 0;
+    const weeklyLoaded = prefetched ? rewardViews.filter((r) => (r as any).isWeekly === true).length : 0;
+    const dailyLoaded = prefetched ? rewardViews.length - weeklyLoaded : 0;
+
+    setRewards(prefetched ? rewardViews : []);
+    setCurrentPage(pageValue);
+    currentPageRef.current = pageValue;
+    setTotalPages(totalValue);
+    totalPagesRef.current = totalValue;
+    setTotalCounts({
+      weekly: initialCounts?.weekly ?? weeklyLoaded,
+      daily: initialCounts?.daily ?? dailyLoaded
+    });
+
+    if (!prefetched && minerKey && fingerprintReady) {
+      loadPage(1, { replace: true });
     }
-    setRewards([]);
-    lastLoadedPage.current = 0;
-    setTotalPages(initialTotalPages || 0);
-    if (minerKey && fingerprintReady) fetchData(1);
-  }, [fingerprintReady, initialRewards, initialTotalPages, minerKey]);
+  }, [fingerprintReady, minerKey, initialRewards, initialTotalPages, initialCounts, loadPage]);
 
   // Fetch live prices for header context
   useEffect(() => {
@@ -359,13 +467,12 @@ export default function History({
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
-          fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
           fnode: json?.prices?.['2485202024'] ?? 0,
           tfry: json?.prices?.['2681521901'] ?? 0
@@ -415,22 +522,25 @@ export default function History({
 
   // (moved) Infinite scroll observer defined after derived lists for type safety
 
-  const handleNext = () => {
-    if (page < totalPages && !isLoading) {
-      const next = page + 1;
-      setPage(next);
-      fetchData(next);
-    }
-  };
-
-  const handlePrev = () => {
-    // For Prev, we just change page indicator; items already appended remain
-    if (page > 1) setPage((prev) => prev - 1);
-  };
-
   // Derived tabs and filters
   const [tab, setTab] = useState<'weekly' | 'daily'>('weekly');
   const [status, setStatus] = useState<'all' | 'pending' | 'claimable' | 'claimed'>('all');
+  // Declarative tab metadata keeps the button rendering tidy and ensures icon + label stay in sync.
+  const tabOptions: Array<{ key: 'weekly' | 'daily'; label: string; icon: ElementType }> = [
+    { key: 'weekly', label: 'Weekly', icon: CalendarIcon },
+    { key: 'daily', label: 'Legacy Daily', icon: ClockIcon }
+  ];
+  // Status filters share the same rendering path; define them here with their color cues.
+  const statusOptions: Array<{
+    key: 'all' | 'pending' | 'claimable' | 'claimed';
+    label: string;
+    dotClass: string;
+  }> = [
+    { key: 'all', label: 'All', dotClass: 'bg-gray-400' },
+    { key: 'pending', label: 'Pending', dotClass: 'bg-amber-400' },
+    { key: 'claimable', label: 'Claimable', dotClass: 'bg-emerald-400' },
+    { key: 'claimed', label: 'Claimed', dotClass: 'bg-sky-400' }
+  ];
   // Removed asset filter; using miner dropdown instead
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
@@ -480,27 +590,49 @@ export default function History({
     return itemsWeekly.filter((w) => w.status === 'pending' && (new Date(w.etaDate).getTime() - now) <= threeDaysMs).length;
   }, [itemsWeekly]);
 
-  // Infinite scroll observer (after weeklyList/dailyList are declared)
-  useEffect(() => {
-    if (!fingerprintReady) return;
-    if (!sentinelRef.current) return;
-    const el = sentinelRef.current;
-    const io = new IntersectionObserver((entries) => {
-      const entry = entries[0];
-      if (!entry.isIntersecting) return;
-      // Avoid churning through pages when current tab has no results
-      const currentTabCount = tab === 'weekly' ? weeklyList.length : dailyList.length;
-      if (currentTabCount === 0) return;
-      if (totalPages && lastLoadedPage.current >= totalPages) return;
-      const next = (lastLoadedPage.current || (rewards.length > 0 ? 1 : 0)) + 1;
-      if (totalPages && next > totalPages) return;
-      if (!loadingRef.current) {
-        fetchData(next);
+  const loadedWeekly = useMemo(
+    () => rewards.filter((r) => (r as any).isWeekly === true).length,
+    [rewards]
+  );
+  const loadedDaily = rewards.length - loadedWeekly;
+  const weeklyRemaining = Math.max(totalCounts.weekly - loadedWeekly, 0);
+  const dailyRemaining = Math.max(totalCounts.daily - loadedDaily, 0);
+  const isAllDataLoaded = weeklyRemaining === 0 && dailyRemaining === 0;
+  // Manual advancement keeps paging predictable on complex mobile layouts (avoids intersection-observer jitter).
+  const handleLoadAll = useCallback(async () => {
+    if (!minerKey || isAllDataLoaded || isLoadingAllRef.current) return;
+    isLoadingAllRef.current = true;
+    setIsLoadingAll(true);
+    setIsFetchingNextPage(true);
+    setIsLoading(true);
+    try {
+      if (currentPageRef.current === 0) {
+        const first = await fetchRewardsPage(1);
+        if (first) applyPageData(first, 1, true);
       }
-    }, { rootMargin: '200px 0px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [dailyList.length, fingerprintReady, minerKey, rewards.length, tab, totalPages, weeklyList.length]);
+      while (true) {
+        const nextPage = currentPageRef.current + 1;
+        const total = totalPagesRef.current;
+        if (total && nextPage > total) break;
+        const result = await fetchRewardsPage(nextPage);
+        if (!result) break;
+        const hasItems = applyPageData(result, nextPage, false);
+        if (!hasItems) break;
+        if (totalPagesRef.current && nextPage >= totalPagesRef.current) break;
+      }
+    } finally {
+      isLoadingAllRef.current = false;
+      setIsLoadingAll(false);
+      setIsFetchingNextPage(false);
+      setIsLoading(false);
+    }
+  }, [applyPageData, fetchRewardsPage, isAllDataLoaded, minerKey]);
+
+  useEffect(() => {
+    if ((dateFrom || dateTo) && !isAllDataLoaded && !isLoadingAll) {
+      handleLoadAll();
+    }
+  }, [dateFrom, dateTo, isAllDataLoaded, isLoadingAll, handleLoadAll]);
 
   return (
     <div className="w-full">
@@ -583,14 +715,58 @@ export default function History({
       </div>
       <div className="px-2 sm:px-20 mt-6">
         {/* Tabs + Status on left; compact date filters on right */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justjfyfy-between">
-          <div className="flex flex-wrap gap-2 items-center">
-            <button onClick={() => setTab('weekly')} className={`px-3 py-1 rounded-full border whitespace-nowrap ${tab==='weekly'?'border-red-600 bg-red-600/20 text-white':'border-gray-700 text-gray-400'}`}>Weekly</button>
-            <button onClick={() => setTab('daily')} className={`px-3 py-1 rounded-full border whitespace-nowrap ${tab==='daily'?'border-red-600 bg-red-600/20 text-white':'border-gray-700 text-gray-400'}`}>Legacy Daily</button>
-            {(['all','pending','claimable','claimed'] as const).map(s => (
-              <button key={s} onClick={()=>setStatus(s)} className={`px-3 py-1 text-xs rounded-full whitespace-nowrap ${status===s?'bg-red-600/20 border border-red-600 text-white':'border border-gray-700 text-gray-400'}`}>{s}</button>
-            ))}
-            <button className="sm:hidden ml-2 px-3 py-1 border border-gray-700 rounded" onClick={()=>setShowFilters(!showFilters)}>{showFilters ? 'Hide Filters' : 'Filters'}</button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1 rounded-full bg-gray-900/40 p-1 shadow-sm shadow-black/30 ring-1 ring-gray-800/60">
+              {tabOptions.map(({ key, label, icon: Icon }) => {
+                const active = tab === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setTab(key)}
+                    className={`group relative flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold tracking-wide transition-all ${
+                      active
+                        ? 'bg-red-500/90 text-white shadow-lg shadow-red-500/30'
+                        : 'text-gray-400 hover:text-white hover:bg-red-500/10'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 opacity-80" />
+                    <span className="whitespace-nowrap">{label}</span>
+                    {active && <span className="absolute inset-0 rounded-full ring-2 ring-red-400/60 ring-offset-2 ring-offset-gray-950/80" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-nowrap items-center gap-1 overflow-x-auto pr-1 sm:overflow-visible">
+              {statusOptions.map(({ key, label, dotClass }) => {
+                const active = status === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setStatus(key)}
+                    className={`group relative flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-wide transition-all ${
+                      active
+                        ? 'border-red-500/80 bg-red-500/20 text-white shadow-md shadow-red-500/30'
+                        : 'border-gray-700/80 text-gray-400 hover:border-red-400/50 hover:text-white hover:bg-red-500/10'
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+                    <span className="whitespace-nowrap">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="sm:hidden ml-2 rounded-full border border-gray-700 px-3 py-1 text-xs text-gray-300 transition hover:border-red-400 hover:text-white"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              {showFilters ? 'Hide Filters' : 'Filters'}
+            </button>
           </div>
           <div className={`${showFilters ? 'flex' : 'hidden'} sm:flex flex-col text-xs gap-1 min-w-0 items-end w-full sm:w-auto`}>
             <label className="text-gray-500">From</label>
@@ -623,7 +799,16 @@ export default function History({
           {list.length === 0 && !isLoading && (
             <div className="text-gray-500 text-sm">No records match the current filters.</div>
           )}
-          <div ref={sentinelRef} />
+          {!isAllDataLoaded && (
+            // Users opt-in to fetching the full history, sidestepping the previous auto-scroll thrash.
+            <Button
+              className="self-center bg-transparent border border-gray-700 hover:bg-red-600 hover:border-red-600 hover:text-white"
+              onClick={handleLoadAll}
+              disabled={isFetchingNextPage || isLoadingAll}
+            >
+              {isLoadingAll ? 'Loading All...' : 'Load All History'}
+            </Button>
+          )}
         </div>
       </div>
       {/* Infinite scroll replaces manual pager */}
@@ -739,14 +924,14 @@ export async function getServerSideProps(context: any) {
 
   if (!session || !session.user) {
     return {
-      props: { initialRewards: [], initialTotalPages: 0 }
+      props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
     };
   }
 
   const query = context.query;
   if (!query) {
     return {
-      props: { initialRewards: [], initialTotalPages: 0 }
+      props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
     };
   }
 
@@ -760,7 +945,7 @@ export async function getServerSideProps(context: any) {
 
     const doc = await db.collection('device-rewards').findOne({ miner_key });
     if (!doc) {
-      return { props: { initialRewards: [], initialTotalPages: 0 } };
+      return { props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } } };
     }
 
     const dayMs = 24 * 60 * 60 * 1000;
@@ -829,12 +1014,13 @@ export async function getServerSideProps(context: any) {
     return {
       props: {
         initialRewards: JSON.parse(JSON.stringify(rewards)),
-        initialTotalPages: totalPages
+        initialTotalPages: totalPages,
+        initialCounts: { weekly: weekly.length, daily: daily.length }
       }
     };
   } catch (error) {}
 
   return {
-    props: { initialRewards: [], initialTotalPages: 0 }
+    props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
   };
 }

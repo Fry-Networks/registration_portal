@@ -2,8 +2,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import clientPromise from '../../lib/mongoclient';
 import { authOptions } from './auth/[...nextauth]';
-import { CommonErrors, ErrorCodes, createApiError } from '../../lib/api-errors';
-import logger from '../../lib/logger';
+import { CommonErrors, ErrorCodes, createApiError, handleApiError } from '../../lib/api-errors';
+import { loggers } from '../../lib/logger';
 
 const RATE_LIMIT_MAX_REPORTS = 2;
 const DEFAULT_RATE_LIMIT_MINUTES = 120;
@@ -63,8 +63,9 @@ function parseDataUrl(dataUrl?: string) {
     const buffer = Buffer.from(base64, 'base64');
     return { buffer, mimeType };
   } catch (error) {
-    logger.warn('Failed to parse screenshot data URL', {
-      error: error instanceof Error ? error.message : String(error)
+    loggers.apiError('/api/bug-report#parseScreenshot', error, {
+      issueType: 'BUG_REPORT_SCREENSHOT_PARSE_ERROR',
+      part: 'bug-report.parseDataUrl',
     });
     return null;
   }
@@ -265,7 +266,11 @@ export default async function handler(
 
   const webhookUrl = process.env.DISCORD_BUG_WEBHOOK_URL;
   if (!webhookUrl) {
-    logger.error('DISCORD_BUG_WEBHOOK_URL not configured');
+    loggers.apiError('/api/bug-report', new Error('DISCORD_BUG_WEBHOOK_URL not configured'), {
+      issueType: 'BUG_REPORT_WEBHOOK_MISSING',
+      part: 'bug-report.config',
+      address,
+    });
     res.status(500).json(
       createApiError(
         ErrorCodes.INTERNAL_ERROR,
@@ -357,18 +362,20 @@ export default async function handler(
 
     res.status(200).json({ success: true });
   } catch (error) {
-    logger.error('Failed to process bug report', {
-      address,
-      error: error instanceof Error ? error.message : String(error)
-    });
-
-    res.status(502).json(
-      createApiError(
+    handleApiError(res, '/api/bug-report', error, {
+      response: createApiError(
         ErrorCodes.NETWORK_ERROR,
         'We could not forward your bug report',
         'Please try again in a few minutes'
-      )
-    );
+      ),
+      walletAddress: address,
+      issueType: 'BUG_REPORT_SUBMISSION_ERROR',
+      part: 'bug-report.handler',
+      metadata: {
+        address,
+        hasScreenshot: Boolean(parsedScreenshot),
+      },
+    });
   }
 }
 

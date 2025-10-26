@@ -148,7 +148,7 @@ function isLinkRequiredForPrefix(prefix: string) {
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -157,13 +157,12 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
-          fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
           fnode: json?.prices?.['2485202024'] ?? 0,
           tfry: json?.prices?.['2681521901'] ?? 0
@@ -216,8 +215,6 @@ const TokenPricesBar = () => {
 
   return (
     <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
-      <PriceWithTooltip label="FRY 1.0" price={prices.fry1 || 0} />
-      <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
@@ -537,6 +534,13 @@ const QuickActionCard = ({
       {content}
     </button>
   );
+};
+
+// Preserve the mongoose document prototype while layering UI-only patches on top.
+const cloneDeviceWithPatch = (device: Device, patch: Partial<Device>): Device => {
+  const proto = Object.getPrototypeOf(device) ?? Object.prototype;
+  const clone = Object.assign(Object.create(proto), device);
+  return Object.assign(clone, patch) as Device;
 };
 
 const DevicesPage = ({
@@ -991,23 +995,24 @@ const DevicesPage = ({
   };
 
   const handleWithdrawAll = async (device: Device): Promise<void> => {
-    const updatedMiners = devices.map((value) => {
-      if (value.miner_key !== device.miner_key) {
-        return value;
-      } else {
-        let returnDevice = { ...value };
-        if (returnDevice.registration) {
-          returnDevice.registration = undefined;
+    const updated = await refreshDevice(device.miner_key);
+    if (!updated) {
+      // If the API has not yet persisted the change, softly mutate local state so the card still responds.
+      const updatedMiners = devices.map((value) => {
+        if (value.miner_key !== device.miner_key) {
+          return value;
         }
-
-        if (returnDevice.node) {
-          returnDevice.node = undefined;
-        }
-
-        return returnDevice;
-      }
-    }) as Device[];
-    setDevices(updatedMiners);
+        const patch: Partial<Device> = {};
+        if (value.registration) patch.registration = undefined;
+        if (value.node) patch.node = undefined;
+        return cloneDeviceWithPatch(value, patch);
+      }) as Device[];
+      setDevices(updatedMiners);
+      setSelectedDevice((prev) => {
+        if (!prev || prev.miner_key !== device.miner_key) return prev;
+        return cloneDeviceWithPatch(prev, { registration: undefined, node: undefined });
+      });
+    }
   };
 
   const handleChange = async (miner_key: string): Promise<void> => {
@@ -1052,6 +1057,41 @@ const DevicesPage = ({
     openModal('boost');
   };
 
+  // After a stake/withdraw completes we pull the authoritative document back from the API.
+  const refreshDevice = useCallback(
+    async (minerKey: string): Promise<Device | null> => {
+      if (!session?.user?.address) return null;
+      try {
+        const response = await fetch(`/api/devices/${encodeURIComponent(minerKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: session.user.address })
+        });
+        if (!response.ok) return null;
+        const json = await response.json();
+        const updatedDevice = json?.device as Device | undefined;
+        if (!updatedDevice) return null;
+
+        setDevices((prev) =>
+          prev.map((element) =>
+            element.miner_key === minerKey
+              ? cloneDeviceWithPatch(element, updatedDevice as Partial<Device>)
+              : element
+          )
+        );
+        setSelectedDevice((prev) => {
+          if (!prev || prev.miner_key !== minerKey) return prev;
+          return cloneDeviceWithPatch(prev, updatedDevice as Partial<Device>);
+        });
+        return updatedDevice;
+      } catch (error) {
+        console.error(`Failed to refresh device ${minerKey}:`, error);
+        return null;
+      }
+    },
+    [session?.user?.address]
+  );
+  
   const handleBoost = async (ret: boolean, message: string): Promise<void> => {
     console.log('Boost function');
 
@@ -1089,7 +1129,14 @@ const DevicesPage = ({
       // Optimistic drop of claimable to 0, then revalidate
       swrMutate(
         key,
-        (current: any) => ({ pending: current?.pending ?? 0, claimable: 0 }),
+        (current: any) => ({
+          pending: current?.pending ?? 0,
+          claimable: 0,
+          claimed: current?.claimed,
+          accruing: current?.accruing,
+          nextUnlockAt: current?.nextUnlockAt ?? null,
+          firstRewardAt: current?.firstRewardAt ?? null
+        }),
         { revalidate: true }
       );
     }
@@ -1097,34 +1144,42 @@ const DevicesPage = ({
 
   const handleStakingUpdate = (device: Device): void => {
     console.log('Staked device update');
-    const updateDevices = devices.map((element) => {
-      if (element.miner_key !== device.miner_key) {
-        return element;
-      } else {
-        return {
-          ...element,
-          verified: true
-        };
+    refreshDevice(device.miner_key).then((updated) => {
+      if (!updated) {
+        // Optimistic update: keep UI responsive until the fresh document arrives.
+        setDevices((prev) =>
+          prev.map((element) =>
+            element.miner_key === device.miner_key
+              ? cloneDeviceWithPatch(element, { verified: true })
+              : element
+          )
+        );
+        setSelectedDevice((prev) => {
+          if (!prev || prev.miner_key !== device.miner_key) return prev;
+          return cloneDeviceWithPatch(prev, { verified: true });
+        });
       }
-    }) as Device[];
-
-    setDevices(updateDevices);
+    });
   };
 
   const handleWithdrawUpdate = (device: Device): void => {
     console.log('Withdraw device update');
-    const updateDevices = devices.map((element) => {
-      if (element.miner_key !== device.miner_key) {
-        return element;
-      } else {
-        return {
-          ...element,
-          verified: false
-        };
+    refreshDevice(device.miner_key).then((updated) => {
+      if (!updated) {
+        // Mirror the optimistic branch for withdrawals so cards instantly reflect loss of staking.
+        setDevices((prev) =>
+          prev.map((element) =>
+            element.miner_key === device.miner_key
+              ? cloneDeviceWithPatch(element, { verified: false })
+              : element
+          )
+        );
+        setSelectedDevice((prev) => {
+          if (!prev || prev.miner_key !== device.miner_key) return prev;
+          return cloneDeviceWithPatch(prev, { verified: false });
+        });
       }
-    }) as Device[];
-
-    setDevices(updateDevices);
+    });
   };
 
   // const handleAlgoWithdrawButton = (device: Device): void => {
@@ -1437,7 +1492,7 @@ export async function getServerSideProps(context: any) {
 
       // initialize
       rewardFallback = minerKeys.reduce((acc, key) => {
-        acc[`reward-summary:${key}`] = { pending: 0, claimable: 0 };
+        acc[`reward-summary:${key}`] = { pending: 0, claimable: 0, firstRewardAt: null };
         return acc;
       }, {} as Record<string, Summary>);
 
@@ -1446,7 +1501,7 @@ export async function getServerSideProps(context: any) {
         const status = row._id.status as 'pending' | 'claimable';
         const total = Math.round((row.total || 0) * 100) / 100;
         const k = `reward-summary:${mk}`;
-        if (!rewardFallback[k]) rewardFallback[k] = { pending: 0, claimable: 0 };
+        if (!rewardFallback[k]) rewardFallback[k] = { pending: 0, claimable: 0, firstRewardAt: null };
         rewardFallback[k][status] = total;
       }
 

@@ -1,9 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { ObjectId } from 'mongodb';
-
 import clientPromise from '../../../lib/mongoclient';
 import { authOptions } from '../auth/[...nextauth]';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 type AnnouncementResponseItem = {
   id: string;
@@ -26,6 +31,7 @@ type ActiveAnnouncementsResponse = {
 
 const COLLECTION_ANNOUNCEMENTS = 'announcements';
 const COLLECTION_USERS = 'registration-users';
+const ENDPOINT = '/api/announcements/active';
 
 function normalizeVariant(input: unknown): AnnouncementResponseItem['variant'] {
   if (typeof input !== 'string') {
@@ -55,13 +61,19 @@ export default async function handler(
 ) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
-    res.status(405).json({ message: 'Method Not Allowed' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Unsupported request method',
+        'Use GET to retrieve announcements.'
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
   if (!session?.user?.address) {
-    res.status(401).json({ message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
@@ -147,7 +159,15 @@ export default async function handler(
 
     res.status(200).json({ announcements, dismissedAnnouncementIds });
   } catch (error) {
-    console.error('[announcements/active] error', error);
-    res.status(500).json({ message: 'Failed to load announcements' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to load announcements',
+        'Please refresh the page. If the problem persists, contact support.'
+      ),
+      walletAddress: session.user.address,
+      issueType: 'ANNOUNCEMENTS_FETCH_ERROR',
+      part: 'announcements.active.handler',
+    });
   }
 }
