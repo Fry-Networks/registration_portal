@@ -97,7 +97,9 @@ export default function DeviceListItem({
   const [pendingAmount, setPendingAmount] = useState(0);
   const [claimableAmount, setClaimableAmount] = useState(0);
   const [claimedAmount, setClaimedAmount] = useState(0);
-  const [alertShow, setAlertShow] = useState(!!initialStatus);
+  const [alertShow, setAlertShow] = useState(
+    Boolean(initialStatus && Object.keys(initialStatus).length > 0)
+  );
   const [deviceStatus, setDeviceStatus] = useState<{ [key: string]: string }>(
     (initialStatus as any) || {}
   );
@@ -134,6 +136,8 @@ export default function DeviceListItem({
     ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) &&
     isHardwareCheckRequiredForPrefix(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
+  // Track whether computeDeviceStatus flagged any blocking profile/setup issues.
+  const hasDeviceStatusIssues = alertShow && Object.keys(deviceStatus).length > 0;
 
   const issueMessages = useMemo(() => {
     if (!alertShow) return [];
@@ -148,6 +152,12 @@ export default function DeviceListItem({
             return trimmed && trimmed.toLowerCase() !== 'not set'
               ? `Reward wallet ${trimmed}`
               : 'Reward wallet not set';
+          case 'email':
+            return trimmed || 'Email not set';
+          case 'first_name':
+            return trimmed || 'First name not set';
+          case 'last_name':
+            return trimmed || 'Last name not set';
           case 'registration':
             return trimmed || 'Registration staking required';
           case 'node':
@@ -216,7 +226,7 @@ export default function DeviceListItem({
   const verificationBlocked = (needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode);
   const portalMissing = linkRequiredForPrefix && !device.registered_portal_model;
   const stakingPrereqsMissing = verificationBlocked;
-  const shouldShowRed = stakingPrereqsMissing || portalMissing || hardwareWarning;
+  const shouldShowRed = stakingPrereqsMissing || portalMissing || hardwareWarning || hasDeviceStatusIssues;
   const shouldShowYellow = !shouldShowRed && !device.verified;
   const verificationReason = verificationBlocked
     ? `Complete ${
@@ -271,7 +281,7 @@ export default function DeviceListItem({
   // Normalise product token configuration so downstream tooltip helpers may look up defaults safely.
   const productTokens = useMemo<TokenConfig>(() => product?.reward?.tokens ?? {}, [product]);
 
-  const formatDateTime = (value?: string | Date) => {
+  const formatDateTime = (value?: string | Date | null) => {
     if (!value) return '—';
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return '—';
@@ -383,6 +393,10 @@ export default function DeviceListItem({
   );
 
   useEffect(() => {
+    setDevice(initialDevice);
+  }, [initialDevice]);
+
+  useEffect(() => {
     fetchDeviceInfo(initialDevice.miner_key);
   }, [fetchDeviceInfo, initialDevice.miner_key]);
 
@@ -474,11 +488,12 @@ export default function DeviceListItem({
 
   const timelineEntries = useMemo(() => {
     const entries: Array<{ key: string; label: string; date: string; tooltip?: ReactNode; color: string }> = [];
+    const firstRewardAt = rewardSummary?.firstRewardAt ?? null;
 
     entries.push({
       key: 'registered',
       label: 'Registered on',
-      date: formatDateTime(device?.created_at),
+      date: formatDateTime(firstRewardAt),
       color: 'border-blue-500/60 bg-blue-500/10',
       tooltip: (
         <div className="min-w-[250px] space-y-2">
@@ -597,7 +612,7 @@ export default function DeviceListItem({
     }
 
     return entries;
-  }, [device, product, verificationCountdown, formatAssetId]);
+  }, [device, product, verificationCountdown, formatAssetId, rewardSummary?.firstRewardAt]);
 
   const viewHistory = async (): Promise<void> => {
     router.push({

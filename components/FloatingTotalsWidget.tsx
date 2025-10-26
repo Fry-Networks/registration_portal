@@ -26,7 +26,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
   const [isRibbonExpanded, setIsRibbonExpanded] = useState(false);
 
   // Token amount formatting (2 decimals)
@@ -149,7 +149,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     }
   };
 
-  // Fetch current prices (FRY 1.0, FRY 2.0 and fNode)
+  // Fetch current prices (FRY 2.0, fNode and tFry)
   useEffect(() => {
     let active = true;
     const run = async () => {
@@ -157,13 +157,12 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['924268058', '2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
-          fry1: json?.prices?.['924268058'] ?? 0,
           fry2: json?.prices?.['2485314946'] ?? 0,
           fnode: json?.prices?.['2485202024'] ?? 0,
           tfry: json?.prices?.['2681521901'] ?? 0
@@ -416,7 +415,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                 </div>
                 {/* Prices */}
                 <div className="text-xs text-gray-300 mb-3 text-center">
-                  FRY 1.0 (924268058): {fmtUSD(prices.fry1)} • FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)} • tFry (2681521901): {fmtUSD(prices.tfry)}
+                  FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)} • tFry (2681521901): {fmtUSD(prices.tfry)}
                 </div>
 
                 {/* Expanded Totals */}

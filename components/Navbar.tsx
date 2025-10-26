@@ -51,7 +51,7 @@ export default function Navbar() {
   const [bugSubmitError, setBugSubmitError] = useState<string | null>(null);
   const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
   const toast = useToastContext();
-  const { success: showToastSuccess, error: showToastError } = toast;
+  const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -495,7 +495,48 @@ export default function Navbar() {
                     }
                     setIsWalletModalOpen(false);
                   } catch (error) {
+                    const typedError = error as {
+                      name?: string;
+                      data?: { type?: string };
+                      cancelled?: boolean;
+                    } | undefined;
+
+                    const isPeraSessionConflict =
+                      typedError?.name === 'PeraWalletConnectError' &&
+                      typedError?.data?.type === 'SESSION_CONNECT';
+
+                    if (isPeraSessionConflict) {
+                      console.warn('Detected existing Pera session. Resetting before retry.');
+                      try {
+                        await wallet.disconnect();
+                      } catch (disconnectError) {
+                        console.error('Failed to clear stale wallet session', disconnectError);
+                      }
+                      showToastInfo({
+                        heading: 'Wallet session reset',
+                        message: 'We cleared an existing wallet session. Please reconnect.',
+                        duration: 5000
+                      });
+                      return;
+                    }
+
+                    if (typedError?.cancelled) {
+                      showToastInfo({
+                        heading: 'Wallet request cancelled',
+                        message: 'No changes were made to your connection.',
+                        duration: 4000
+                      });
+                      return;
+                    }
+
                     console.error('Failed to connect wallet:', error);
+                    showToastError({
+                      heading: 'Wallet connection failed',
+                      message: 'We could not connect to your wallet. Please try again.',
+                      duration: 6000,
+                      issueType: 'WALLET_CONNECTION_ERROR',
+                      part: 'navbar.wallet.connect'
+                    });
                   }
                 }}
               >

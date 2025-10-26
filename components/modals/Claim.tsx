@@ -2,7 +2,7 @@ import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import algosdk from 'algosdk';
 import { useModal } from '../../app/modalcontext';
 import { useRef, useState } from 'react';
-import { useSession } from 'next-auth/react';
+import { getSession, useSession } from 'next-auth/react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
@@ -91,13 +91,84 @@ export default function ClaimModal({
     setStage('submitting');
     setStatusText('Submitting claim details to the network coordinator...');
     try {
+      const latestSession = await getSession();
+      const sessionAddress = latestSession?.user?.address;
+      if (!sessionAddress) {
+        toast.error({
+          heading: 'Session required',
+          message: 'Your session expired. Please sign in again before claiming.'
+        });
+        setStage('error');
+        setStatusText('Session expired. Please sign in again.');
+        setIsProcessing(false);
+        return;
+      }
+
+      const walletAddress = activeAddress ?? null;
+      if (!walletAddress) {
+        toast.error({
+          heading: 'Wallet not connected',
+          message: 'Connect your wallet before submitting a claim.'
+        });
+        setStage('error');
+        setStatusText('Wallet connection required.');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (walletAddress !== sessionAddress) {
+        toast.error({
+          heading: 'Wallet mismatch',
+          message:
+            'The connected wallet differs from your signed-in session. Disconnect and sign back in with the device wallet before claiming.'
+        });
+        setStage('error');
+        setStatusText('Wallet mismatch detected. Please reconnect with the device wallet.');
+        setIsProcessing(false);
+        return;
+      }
+
+      const baseBody = no ? { miner_key, no } : { miner_key };
+      const clientToken = await getClientToken();
+
+      const previewTimestamp = Math.floor(Date.now() / 1000);
+      const previewSignature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', { ...baseBody, preview: true }, previewTimestamp);
+
+      const previewResponse = await fetch('api/rewards/claim', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-client-token': clientToken,
+          'x-request-signature': previewSignature,
+          'x-request-timestamp': previewTimestamp.toString()
+        },
+        body: JSON.stringify({ ...baseBody, preview: true })
+      });
+
+      const previewResult = await previewResponse.json().catch(() => ({}));
+      if (!previewResponse.ok || previewResult?.success === false) {
+        const code = previewResult?.code as string | undefined;
+        const friendly =
+          code === 'NO_REWARDS'
+            ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
+            : code === 'UNAUTHORIZED'
+            ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : code === 'DEVICE_MISMATCH'
+            ? 'This request came from a different device. Disconnect and sign back in on the original browser.'
+            : previewResult?.message || 'Server error';
+        toast.error({ heading: 'Claim Error', message: friendly });
+        setStage('error');
+        setStatusText('Claim failed: ' + friendly);
+        setIsProcessing(false);
+        return;
+      }
 
       if (!devMode) {
         setStage('paying-fee');
         setStatusText('Paying network fee...');
-        const isFeePaid = await requestGasFee(activeAddress || undefined);
+        const isFeePaid = await requestGasFee(walletAddress);
         if (!isFeePaid) {
-          toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${activeAddress}` });
+          toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${walletAddress}` });
           setStage('error');
           setStatusText('Fee payment failed. Please try again.');
           setIsProcessing(false);
@@ -107,12 +178,9 @@ export default function ClaimModal({
 
       setStage('submitting');
       setStatusText('Finalizing reward transfer with Algorand...');
-      const clientToken = await getClientToken();
-      
       // Generate request signature for extra security
-      const body = no ? { miner_key, no } : { miner_key };
       const timestamp = Math.floor(Date.now() / 1000);
-      const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', body, timestamp);
+      const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', baseBody, timestamp);
       
       const response = await fetch('api/rewards/claim', {
         method: 'POST',
@@ -122,7 +190,7 @@ export default function ClaimModal({
           'x-request-signature': signature,
           'x-request-timestamp': timestamp.toString()
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(baseBody)
       });
 
       const result = await response.json();
@@ -144,6 +212,8 @@ export default function ClaimModal({
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
             : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : code === 'DEVICE_MISMATCH'
+            ? 'This request came from a different device. Disconnect and sign back in on the original browser.'
             : result?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
