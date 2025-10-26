@@ -3,6 +3,11 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { notifyDiscordError } from './discord-webhook';
+import {
+  ErrorLogMetadata,
+  NormalizedErrorLogDetails,
+} from './logger.types';
 
 // Log levels
 const levels = {
@@ -100,46 +105,162 @@ const logger = winston.createLogger({
   defaultMeta: { service: 'user-dashboard' },
 });
 
+function normalizeString(value?: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeErrorMetadata(
+  metadata: ErrorLogMetadata = {}
+): NormalizedErrorLogDetails & { detailMessage?: string } {
+  const arrayToValue = (input?: unknown): string | undefined => {
+    if (Array.isArray(input) && input.length > 0) {
+      return normalizeString(input[0]);
+    }
+    return undefined;
+  };
+
+  const minerKey =
+    normalizeString(metadata.minerKey) ||
+    normalizeString(metadata.miner_key) ||
+    arrayToValue(metadata.miner_keys) ||
+    'UNKNOWN_MINER_KEY';
+
+  const walletAddress =
+    normalizeString(metadata.walletAddress) ||
+    normalizeString(metadata.address) ||
+    arrayToValue(metadata.walletAddresses) ||
+    arrayToValue(metadata.wallet_addresses) ||
+    'UNKNOWN_WALLET_ADDRESS';
+
+  const issueType =
+    normalizeString(metadata.issueType) ||
+    normalizeString(metadata.errorType) ||
+    'API_ERROR';
+
+  const part =
+    normalizeString(metadata.part) ||
+    normalizeString(metadata.step) ||
+    normalizeString(metadata.section) ||
+    'general';
+
+  const detailMessage =
+    normalizeString(metadata.detail) ||
+    normalizeString(metadata.message);
+
+  const { minerKey: _1, miner_key: _2, walletAddress: _3, address: _4, issueType: _5, errorType: _6, part: _7, step: _8, detail: _9, message: _10, ...raw } =
+    metadata;
+  const cleanedRaw = Object.fromEntries(
+    Object.entries(raw ?? {}).filter(([, value]) => value !== undefined)
+  );
+
+  return {
+    minerKey,
+    walletAddress,
+    issueType,
+    part,
+    detailMessage,
+    rawMetadata: cleanedRaw,
+  };
+}
+
+function logApiRequest(endpoint: string, method: string, metadata?: object) {
+  logger.info('API Request', { endpoint, method, ...metadata });
+}
+
+function logApiError(
+  endpoint: string,
+  error: Error | unknown,
+  metadata?: ErrorLogMetadata
+) {
+  const normalized = normalizeErrorMetadata(metadata);
+  const timestamp = new Date().toISOString();
+  const errorMessage =
+    error instanceof Error ? error.message : String(error);
+  const stack = error instanceof Error ? error.stack : undefined;
+
+  const payload: Record<string, unknown> = {
+    endpoint,
+    error: errorMessage,
+    stack,
+    timestamp,
+    minerKey: normalized.minerKey,
+    walletAddress: normalized.walletAddress,
+    issueType: normalized.issueType,
+    part: normalized.part,
+    ...normalized.rawMetadata,
+  };
+
+  if (normalized.detailMessage && !payload['detail']) {
+    payload['detail'] = normalized.detailMessage;
+  }
+
+  logger.error('API Error', payload);
+
+  const discordMessage =
+    normalized.detailMessage && normalized.detailMessage !== errorMessage
+      ? `${normalized.detailMessage}\n\nError: ${errorMessage}`
+      : errorMessage;
+
+  // Fire-and-forget to avoid blocking request lifecycle; errors are handled inside helper
+  void notifyDiscordError({
+    minerKey: normalized.minerKey,
+    walletAddress: normalized.walletAddress,
+    issueType: normalized.issueType,
+    part: normalized.part,
+    errorMessage: discordMessage,
+    endpoint,
+    metadata: { ...normalized.rawMetadata, timestamp },
+    timestamp,
+  });
+}
+
+function logScriptError(
+  scriptName: string,
+  error: Error | unknown,
+  metadata?: ErrorLogMetadata
+) {
+  const enrichedMetadata: ErrorLogMetadata = {
+    ...metadata,
+    issueType: metadata?.issueType ?? 'SCRIPT_RUNTIME_ERROR',
+    part: metadata?.part ?? scriptName,
+  };
+
+  logApiError(`/scripts/${scriptName}`, error, enrichedMetadata);
+}
+
+function logDbOperation(operation: string, collection: string, metadata?: object) {
+  logger.info('Database Operation', { operation, collection, ...metadata });
+}
+
+function logTxn(operation: string, txId?: string, metadata?: object) {
+  logger.info('Blockchain Transaction', { operation, txId, ...metadata });
+}
+
+function logStakeOperation(
+  operation: string,
+  miner_key: string,
+  metadata?: object
+) {
+  logger.info('Stake Operation', { operation, miner_key, ...metadata });
+}
+
+function logUserAction(action: string, address: string, metadata?: object) {
+  logger.info('User Action', { action, address, ...metadata });
+}
+
 // Helper methods for common logging patterns
 export const loggers = {
-  // API request logging
-  apiRequest: (endpoint: string, method: string, metadata?: object) => {
-    logger.info('API Request', { endpoint, method, ...metadata });
-  },
-
-  // API error logging
-  apiError: (endpoint: string, error: Error | unknown, metadata?: object) => {
-    logger.error('API Error', {
-      endpoint,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      ...metadata,
-    });
-  },
-
-  // Database operation logging
-  dbOperation: (operation: string, collection: string, metadata?: object) => {
-    logger.info('Database Operation', { operation, collection, ...metadata });
-  },
-
-  // Blockchain transaction logging
-  txnLog: (operation: string, txId?: string, metadata?: object) => {
-    logger.info('Blockchain Transaction', { operation, txId, ...metadata });
-  },
-
-  // Stake operation logging
-  stakeOperation: (
-    operation: string,
-    miner_key: string,
-    metadata?: object
-  ) => {
-    logger.info('Stake Operation', { operation, miner_key, ...metadata });
-  },
-
-  // User action logging
-  userAction: (action: string, address: string, metadata?: object) => {
-    logger.info('User Action', { action, address, ...metadata });
-  },
+  apiRequest: logApiRequest,
+  apiError: logApiError,
+  scriptError: logScriptError,
+  dbOperation: logDbOperation,
+  txnLog: logTxn,
+  stakeOperation: logStakeOperation,
+  userAction: logUserAction,
 };
 
 export default logger;

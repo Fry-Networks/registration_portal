@@ -1,7 +1,7 @@
 import { NextPage } from 'next';
 import { AppProps } from 'next/app';
 import '../app/globals.css';
-import { useSession, SessionProvider, getSession } from 'next-auth/react';
+import { useSession, SessionProvider, getSession, signOut } from 'next-auth/react';
 import React, { useEffect, useRef, useState } from 'react';
 import Modal from 'react-modal';
 import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
@@ -17,6 +17,9 @@ import { useRouter } from 'next/router';
 import { generateClientToken } from '../lib/clientToken';
 import { FingerprintProvider, useFingerprintReady } from '../app/fingerprintcontext';
 import type { MySession } from './api/auth/[...nextauth]';
+import { useClientErrorLogger } from '../lib/hooks/useClientErrorLogger';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { useToastContext } from '../hooks/ToastContext';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -27,6 +30,10 @@ interface ProtectedComponentProps {
   pageProps: any; // If you have a specific type for your pageProps, you can replace `any` with that.
 }
 
+const devMode =
+  process.env.NEXT_PUBLIC_DEV_MODE &&
+  process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+
 
 export default function MyApp({ Component, pageProps }: MyAppProps) {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
@@ -36,7 +43,8 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   const showAnnouncementBanner = notificationsEnabled;
 
   useEffect(() => {
-    // Initialize WalletManager
+    let mounted = true;
+
     const manager = new WalletManager({
       wallets: [
         {
@@ -80,14 +88,29 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       defaultNetwork: NetworkId.MAINNET
     });
 
+    const disconnectAll = () => {
+      const maybeManager = manager as unknown as {
+        disconnectAll?: () => void | Promise<void>;
+      };
+      if (typeof maybeManager.disconnectAll === 'function') {
+        try {
+          void maybeManager.disconnectAll();
+        } catch (error) {
+          console.error('[WalletManager] Failed to disconnect wallets', error);
+        }
+      }
+    };
+
     setWalletManager(manager);
 
-    // Resume sessions
     (async () => {
       try {
         await manager.resumeSessions();
       } catch (error) {
         console.error('[WalletManager] Failed to resume sessions', error);
+      }
+      if (!mounted) {
+        disconnectAll();
       }
     })();
 
@@ -102,6 +125,10 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
     // Ensure react-modal knows the app root for accessibility
     Modal.setAppElement?.('#__next');
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -155,14 +182,16 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
 }) => {
   const { data: sessionData, status, update } = useSession();
   const session = sessionData as MySession | null;
+  useClientErrorLogger(session);
   const isLoading = status === 'loading';
   const { ready: fingerprintReady, setReady: setFingerprintReady } = useFingerprintReady();
-  const captureAttempted = useRef(false);
+  const { activeAccount, wallets } = useWallet();
+  const toast = useToastContext();
+  const walletMismatchNotified = useRef(false);
 
   useEffect(() => {
     if (status !== 'authenticated') {
       setFingerprintReady(true);
-      captureAttempted.current = false;
       return;
     }
 
@@ -172,55 +201,114 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
     }
 
     setFingerprintReady(false);
-
     let cancelled = false;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 1500;
 
-    const attemptCapture = async () => {
-      if (captureAttempted.current || cancelled) {
-        return;
+    const capture = async () => {
+      for (let attempt = 0; attempt < MAX_RETRIES && !cancelled; attempt++) {
+        try {
+          const res = await fetch('/api/auth/capture-fingerprint', { method: 'POST' });
+          if (!res.ok) {
+            throw new Error(`capture-fingerprint failed: ${res.status}`);
+          }
+          const data = await res.json();
+          const fingerprint = data?.fingerprint || null;
+          const ua = data?.userAgent || null;
+
+          if (fingerprint) {
+            await update?.({
+              ...(session || {}),
+              deviceFingerprint: fingerprint,
+              userAgent: ua ?? session?.userAgent ?? null
+            });
+          } else {
+            await getSession();
+          }
+
+          if (!cancelled) {
+            setFingerprintReady(true);
+          }
+          return;
+        } catch (error) {
+          console.error('[Fingerprint] Failed to capture fingerprint', error);
+          if (cancelled) return;
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        }
       }
-      captureAttempted.current = true;
-      try {
-        const res = await fetch('/api/auth/capture-fingerprint', {
-          method: 'POST'
-        });
-        if (!res.ok) {
-          throw new Error(`capture-fingerprint failed: ${res.status}`);
-        }
-        const data = await res.json();
-        const fingerprint = data?.fingerprint || null;
-        const ua = data?.userAgent || null;
 
-        if (fingerprint) {
-          await update?.({
-            ...(session || {}),
-            deviceFingerprint: fingerprint,
-            userAgent: ua ?? session?.userAgent ?? null
-          });
-        } else {
-          await getSession();
-        }
-        if (!cancelled) {
-          setFingerprintReady(true);
-        }
-      } catch (error) {
-        console.error('[Fingerprint] Failed to capture fingerprint', error);
-        if (!cancelled) {
-          setFingerprintReady(false);
-          captureAttempted.current = false;
-          setTimeout(() => {
-            attemptCapture();
-          }, 3000);
-        }
+      if (!cancelled) {
+        // Fail open after retries but log for investigation
+        console.warn('[Fingerprint] Continuing without refreshed fingerprint after retries');
+        setFingerprintReady(true);
       }
     };
 
-    attemptCapture();
+    void capture();
 
     return () => {
       cancelled = true;
     };
-  }, [session, session?.deviceFingerprint, session?.user?.address, setFingerprintReady, status, update]);
+  }, [session, status, update, setFingerprintReady]);
+
+  useEffect(() => {
+    if (devMode) {
+      walletMismatchNotified.current = false;
+      return;
+    }
+
+    if (status !== 'authenticated') {
+      walletMismatchNotified.current = false;
+      return;
+    }
+
+    const sessionAddress = session?.user?.address;
+    const walletAddress = activeAccount?.address;
+
+    if (!sessionAddress || !walletAddress) {
+      walletMismatchNotified.current = false;
+      return;
+    }
+
+    if (sessionAddress !== walletAddress) {
+      if (!walletMismatchNotified.current) {
+        walletMismatchNotified.current = true;
+        toast.error({
+          heading: 'Security check triggered',
+          message: 'Our system detected a security issue and signed you out to protect your account. Please reconnect with your device wallet to continue.'
+        });
+      }
+      void (async () => {
+        try {
+          await Promise.all(
+            wallets.map(async (wallet) => {
+              if (typeof wallet.disconnect === 'function') {
+                try {
+                  await wallet.disconnect();
+                } catch (err) {
+                  console.error('[Wallet] Failed to disconnect during security sign-out', err);
+                }
+              }
+            })
+          );
+        } finally {
+          await signOut({ redirect: true, callbackUrl: '/signin' });
+        }
+      })();
+    } else {
+      walletMismatchNotified.current = false;
+    }
+  }, [activeAccount?.address, session?.user?.address, status, toast, wallets]);
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      wallets.forEach((wallet) => {
+        if (typeof wallet.disconnect === 'function') {
+          void wallet.disconnect().catch(() => undefined);
+        }
+      });
+    }
+  }, [status, wallets]);
 
   const showInfo = (text: string) => {
     return (

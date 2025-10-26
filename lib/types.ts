@@ -8,6 +8,7 @@ export interface Device extends mongoose.Document {
   name: string;
   byod?: string;
   created_at: Date;
+  first_reward_at?: Date | string | null;
   position?: {
     lat: number;
     lng: number;

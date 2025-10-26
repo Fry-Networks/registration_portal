@@ -12,6 +12,43 @@ import { NextApiRequest } from 'next';
 import crypto from 'crypto';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
+type FingerprintState = {
+  lastMismatch: number;
+  graceActive: boolean;
+};
+
+type FingerprintLogState = {
+  lastLogged: number;
+};
+
+const globalAny = globalThis as typeof globalThis & {
+  __fingerprintState?: Map<string, FingerprintState>;
+  __fingerprintLogState?: Map<string, FingerprintLogState>;
+};
+
+const fingerprintState =
+  globalAny.__fingerprintState ?? new Map<string, FingerprintState>();
+if (!globalAny.__fingerprintState) {
+  globalAny.__fingerprintState = fingerprintState;
+}
+
+const fingerprintLogState =
+  globalAny.__fingerprintLogState ?? new Map<string, FingerprintLogState>();
+if (!globalAny.__fingerprintLogState) {
+  globalAny.__fingerprintLogState = fingerprintLogState;
+}
+
+const GRACE_WINDOW_MS = 30_000;
+const LOG_WINDOW_MS = 5_000;
+
+export type FingerprintVerificationResult = 'ok' | 'retry' | 'blocked';
+
+export function clearFingerprintState(walletAddress: string) {
+  if (!walletAddress) return;
+  fingerprintState.delete(walletAddress);
+  fingerprintLogState.delete(walletAddress);
+}
+
 /**
  * Helper: Format and log security event to console
  */
@@ -136,10 +173,6 @@ export function verifyDeviceFingerprint(
   // Simple string comparison (both are hex digests)
   const match = storedFingerprint === currentFingerprint;
   
-  if (!match) {
-    console.warn('[DeviceFingerprint] Fingerprint mismatch - different device/script detected');
-  }
-  
   return match;
 }
 
@@ -160,12 +193,23 @@ export function verifyDeviceFingerprint(
  * @param isAdmin - whether user is admin
  * @param context - optional context { walletAddress, minerKey } for logging
  */
+function shouldLogMismatch(walletAddress: string): boolean {
+  if (!walletAddress) return true;
+  const now = Date.now();
+  const entry = fingerprintLogState.get(walletAddress);
+  if (!entry || now - entry.lastLogged > LOG_WINDOW_MS) {
+    fingerprintLogState.set(walletAddress, { lastLogged: now });
+    return true;
+  }
+  return false;
+}
+
 export async function verifyDeviceFingerprintMiddleware(
   req: NextApiRequest,
   session: any,
   isAdmin: boolean = false,
   context?: { walletAddress?: string; minerKey?: string }
-): Promise<boolean> {
+): Promise<FingerprintVerificationResult> {
   const walletAddress = context?.walletAddress || session?.user?.address || 'unknown';
   const minerKey = context?.minerKey || 'unknown';
 
@@ -183,7 +227,7 @@ export async function verifyDeviceFingerprintMiddleware(
       minerKey,
       'Global fingerprint bypass enabled via DISABLE_DEVICE_FINGERPRINT'
     );
-    return true;
+    return 'ok';
   }
 
   // Admins bypass fingerprint check (can use scripts)
@@ -195,42 +239,70 @@ export async function verifyDeviceFingerprintMiddleware(
       minerKey,
       'Admin wallet bypassed device fingerprint check'
     );
-    return true;
+    return 'ok';
   }
 
   if (!session?.deviceFingerprint) {
-    await logFingerprintEvent(
-      req,
-      'DEVICE_FINGERPRINT_MISSING',
-      walletAddress,
-      minerKey,
-      'No device fingerprint stored in session'
-    );
-    return false;
+    if (shouldLogMismatch(walletAddress)) {
+      await logFingerprintEvent(
+        req,
+        'DEVICE_FINGERPRINT_MISSING',
+        walletAddress,
+        minerKey,
+        'No device fingerprint stored in session'
+      );
+    }
+    fingerprintState.set(walletAddress, {
+      lastMismatch: Date.now(),
+      graceActive: true
+    });
+    return 'retry';
   }
 
   const isValid = verifyDeviceFingerprint(req, session.deviceFingerprint);
   
   if (!isValid) {
-    // Log detailed mismatch info
-    const storedFingerprint = session.deviceFingerprint.substring(0, 16) + '...';
-    const currentFingerprint = generateDeviceFingerprint(req).substring(0, 16) + '...';
-    const storedUserAgent = session.userAgent || 'unknown';
-    const currentUserAgent = req.headers['user-agent'] || 'unknown';
-    
-    console.warn('  Stored fingerprint:', storedFingerprint);
-    console.warn('  Current fingerprint:', currentFingerprint);
-    console.warn('  Stored User-Agent:', storedUserAgent);
-    console.warn('  Current User-Agent:', currentUserAgent);
-    
-    await logFingerprintEvent(
-      req,
-      'DEVICE_FINGERPRINT_MISMATCH',
-      walletAddress,
-      minerKey,
-      `Device fingerprint mismatch - possible script or unauthorized access`
-    );
+    const now = Date.now();
+    const state = fingerprintState.get(walletAddress);
+    const shouldRetry =
+      !state || now - state.lastMismatch > GRACE_WINDOW_MS || state.graceActive;
+
+    if (shouldLogMismatch(walletAddress)) {
+      const storedFingerprint = session.deviceFingerprint.substring(0, 16) + '...';
+      const currentFingerprint = generateDeviceFingerprint(req).substring(0, 16) + '...';
+      const storedUserAgent = session.userAgent || 'unknown';
+      const currentUserAgent = req.headers['user-agent'] || 'unknown';
+
+      console.warn('[DeviceFingerprint] Fingerprint mismatch detected');
+      console.warn('  Stored fingerprint:', storedFingerprint);
+      console.warn('  Current fingerprint:', currentFingerprint);
+      console.warn('  Stored User-Agent:', storedUserAgent);
+      console.warn('  Current User-Agent:', currentUserAgent);
+
+      await logFingerprintEvent(
+        req,
+        'DEVICE_FINGERPRINT_MISMATCH',
+        walletAddress,
+        minerKey,
+        `Device fingerprint mismatch - possible script or unauthorized access`
+      );
+    }
+
+    if (shouldRetry) {
+      fingerprintState.set(walletAddress, {
+        lastMismatch: now,
+        graceActive: false
+      });
+      return 'retry';
+    }
+
+    fingerprintState.set(walletAddress, {
+      lastMismatch: now,
+      graceActive: false
+    });
+    return 'blocked';
   }
 
-  return isValid;
+  fingerprintState.delete(walletAddress);
+  return 'ok';
 }

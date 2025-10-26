@@ -29,3 +29,29 @@ export interface DbLogMetadata extends LogMetadata {
 }
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'http' | 'debug';
+
+export interface ErrorLogMetadata extends LogMetadata {
+  minerKey?: string;
+  miner_key?: string;
+  miner_keys?: unknown;
+  walletAddress?: string;
+  address?: string;
+  walletAddresses?: unknown;
+  wallet_addresses?: unknown;
+  issueType?: string;
+  errorType?: string;
+  part?: string;
+  step?: string;
+  section?: string;
+  detail?: string;
+  message?: string;
+}
+
+export interface NormalizedErrorLogDetails {
+  minerKey: string;
+  walletAddress: string;
+  issueType: string;
+  part: string;
+  detailMessage?: string;
+  rawMetadata?: LogMetadata;
+}

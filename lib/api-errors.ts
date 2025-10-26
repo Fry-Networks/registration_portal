@@ -7,6 +7,7 @@
 
 import type { NextApiResponse } from 'next';
 import { loggers } from './logger';
+import { ErrorLogMetadata } from './logger.types';
 
 export interface ApiErrorResponse {
   success: false;
@@ -182,7 +183,11 @@ export const CommonErrors = {
 type HandleApiErrorOptions = {
   status?: number;
   response?: ApiErrorResponse;
-  metadata?: Record<string, any>;
+  metadata?: ErrorLogMetadata;
+  issueType?: string;
+  part?: string;
+  minerKey?: string;
+  walletAddress?: string;
 };
 
 /**
@@ -199,9 +204,35 @@ export const handleApiError = (
   error: unknown,
   options: HandleApiErrorOptions = {}
 ) => {
-  const { status = 500, response, metadata } = options;
+  const {
+    status = 500,
+    response,
+    metadata,
+    issueType,
+    part,
+    minerKey,
+    walletAddress,
+  } = options;
 
-  loggers.apiError(endpoint, error, metadata);
+  const logMetadata: ErrorLogMetadata = {
+    ...(metadata ?? {}),
+    issueType: issueType ?? metadata?.issueType ?? 'API_ERROR',
+    part: part ?? metadata?.part ?? endpoint,
+  };
+
+  if (minerKey && !logMetadata.minerKey && !logMetadata.miner_key) {
+    logMetadata.minerKey = minerKey;
+  }
+
+  if (
+    walletAddress &&
+    !logMetadata.walletAddress &&
+    !logMetadata.address
+  ) {
+    logMetadata.walletAddress = walletAddress;
+  }
+
+  loggers.apiError(endpoint, error, logMetadata);
 
   const payload = response ?? CommonErrors.internalError();
   res.status(status).json(payload);

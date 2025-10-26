@@ -3,7 +3,14 @@ import { getClientToken } from '../clientToken';
 import { generateRequestSignatureAsync } from '../requestSignature.client';
 import { useFingerprintReady } from '../../app/fingerprintcontext';
 
-export type Summary = { pending: number; claimable: number; claimed?: number; accruing?: number; nextUnlockAt?: string };
+export type Summary = {
+  pending: number;
+  claimable: number;
+  claimed?: number;
+  accruing?: number;
+  nextUnlockAt?: string | null;
+  firstRewardAt?: string | null;
+};
 
 const fetcher = async (key: string): Promise<Summary> => {
   const [, miner_key] = key.split(':');
@@ -24,7 +31,7 @@ const fetcher = async (key: string): Promise<Summary> => {
   });
   if (!res.ok) throw new Error('Failed to fetch summary');
   const json = await res.json();
-  return json?.summary ?? { pending: 0, claimable: 0 };
+  return json?.summary ?? { pending: 0, claimable: 0, firstRewardAt: null };
 };
 
 export function useRewardSummary(miner_key?: string) {

@@ -416,6 +416,23 @@ export const computeDeviceStatus = (
     isError = true;
   }
 
+  // Basic profile requirements – show device alerts when contact info is missing.
+  if (!device.email || device.email.trim().length === 0) {
+    deviceStatus.email = 'Email not set';
+    isError = true;
+  }
+
+  const firstName = device.names?.first_name?.trim();
+  const lastName = device.names?.last_name?.trim();
+  if (!firstName) {
+    deviceStatus.first_name = 'First name not set';
+    isError = true;
+  }
+  if (!lastName) {
+    deviceStatus.last_name = 'Last name not set';
+    isError = true;
+  }
+  
   // Connectivity wallet check intentionally removed
 
   if (product && isRegistrationNeeded(product)) {

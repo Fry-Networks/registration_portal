@@ -21,29 +21,41 @@ export async function generateRequestSignatureAsync(
   body: any,
   timestamp: number
 ): Promise<string> {
-  if (typeof window === 'undefined' || !crypto) {
-    throw new Error('WebCrypto API not available');
-  }
-
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
   const encoder = new TextEncoder();
   const data = encoder.encode(message);
   const keyData = encoder.encode(SIGNATURE_SECRET);
 
-  // Generate HMAC-SHA256 using Web Crypto API
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+  if (typeof window !== 'undefined' && crypto?.subtle) {
+    // Preferred path: leverage Web Crypto API when available
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
 
-  const signature = await crypto.subtle.sign('HMAC', key, data);
-  const hashArray = Array.from(new Uint8Array(signature));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const signature = await crypto.subtle.sign('HMAC', key, data);
+    const hashArray = Array.from(new Uint8Array(signature));
+    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
 
-  return hashHex;
+  // Fallback for environments without Web Crypto (e.g., some in-app browsers or HTTP contexts)
+  try {
+    const [{ hmac }, { sha256 }, { bytesToHex }] = await Promise.all([
+      import('@noble/hashes/hmac'),
+      import('@noble/hashes/sha256'),
+      import('@noble/hashes/utils')
+    ]);
+
+    const mac = hmac.create(sha256, keyData);
+    mac.update(data);
+    return bytesToHex(mac.digest());
+  } catch (fallbackError) {
+    console.error('Request signature fallback failed', fallbackError);
+    throw new Error('WebCrypto API not available');
+  }
 }
 
 /**
