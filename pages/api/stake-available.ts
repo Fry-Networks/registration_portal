@@ -1,31 +1,62 @@
-
 import { NextApiRequest, NextApiResponse } from "next";
-import axios from "axios";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth/[...nextauth]";
-import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
-import { getFRYPrice } from "../../lib/price";
+import { loggers } from "../../lib/logger";
 import { Device } from "../../lib/types";
+import {
+    CommonErrors,
+    createApiError,
+    ErrorCodes,
+    handleApiError,
+} from "../../lib/api-errors";
+
+const ENDPOINT = '/api/stake-available';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
-    const session = await getServerSession(req, res, authOptions);
-    // Check if user is authenticated
-    if (!session || !session.user) {
-        console.log(`no session`);
-        res.status(401).json({ message: "Unauthorized 1" });
+    if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        res.status(405).json(
+            createApiError(
+                ErrorCodes.INVALID_INPUT,
+                'Unsupported request method',
+                'Use POST to check stake availability.'
+            )
+        );
         return;
     }
 
-    const data: {
-        address: string
-        miner_key: string
-    } = req.body;
+    const session = await getServerSession(req, res, authOptions);
+    // Check if user is authenticated
+    if (!session || !session.user?.address) {
+        res.status(401).json(CommonErrors.noSession());
+        return;
+    }
 
-    const { address, miner_key } = data;
+    const { address, miner_key } = (req.body ?? {}) as {
+        address?: string;
+        miner_key?: string;
+    };
+
     if (session.user.address !== address || !address) {
-        console.log(`get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`);
-        res.status(401).json({ message: "Unauthorized 2" });
+        loggers.apiError(ENDPOINT, new Error('Wallet mismatch checking stake availability'), {
+            sessionAddress: session.user.address,
+            address,
+            miner_key,
+            issueType: 'STAKE_AVAILABLE_WALLET_MISMATCH',
+            part: 'stake-available.auth',
+        });
+        res.status(401).json(CommonErrors.walletMismatch());
+        return;
+    }
+    if (!miner_key) {
+        res.status(400).json(
+            createApiError(
+                ErrorCodes.INVALID_INPUT,
+                'Miner key is required',
+                'Please provide the miner key.'
+            )
+        );
         return;
     }
     try {
@@ -34,15 +65,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const collection = db.collection('devices');
         const device = (await collection.findOne({ miner_key })) as unknown as Device
         if (!device) {
-            res.status(404).json({ message: "not found" });
+            res.status(404).json(CommonErrors.deviceNotFound());
             return;
         }
         if(!device.staked) {
-            res.status(401).json({ message: "Unauthorized 3" });
+            res.status(400).json(
+                createApiError(
+                    ErrorCodes.NO_STAKE_FOUND,
+                    'No stake record found for this device',
+                    'Stake funds before checking availability.'
+                )
+            );
             return;
         }
         if(device.staked?.amount == 0) {
-            res.status(401).json({ message: "Unauthorized 4" });
+            res.status(400).json(
+                createApiError(
+                    ErrorCodes.ZERO_STAKE_AMOUNT,
+                    'Stake amount is zero',
+                    'Please verify the staking transaction and try again.'
+                )
+            );
             return;
         }
         const dayCheck = (Date.now() - new Date(device.staked.time).getTime())  / (1000 * 60 * 60 * 24) > 1;
@@ -55,8 +98,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         res.status(200).json({ message: "ok", data });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "error" });
+        handleApiError(res, ENDPOINT, error, {
+            response: createApiError(
+                ErrorCodes.INTERNAL_ERROR,
+                'Failed to compute stake availability',
+                'Please try again. If the issue persists, contact support.'
+            ),
+            minerKey: miner_key,
+            walletAddress: address,
+            issueType: 'STAKE_AVAILABLE_ERROR',
+            part: 'stake-available.handler',
+            metadata: {
+                miner_key,
+                address,
+            },
+        });
     }
 };
-

@@ -1,9 +1,15 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
-import algosdk from 'algosdk';
 import clientPromise from '../../lib/mongoclient';
+import { loggers } from '../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../lib/api-errors';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -14,34 +20,50 @@ export default async function handler(
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    console.log(`no session`);
-    res.status(401).json({ message: 'Unauthorized 1' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
-  const data: {
-    miner: number;
-    reward_wallet: string;
-    address: string;
-  } = req.body;
+  const { miner, reward_wallet, address } = (req.body ?? {}) as {
+    miner?: number | string;
+    reward_wallet?: string;
+    address?: string;
+  };
 
-  const { miner, reward_wallet, address } = data;
   try {
-    if (session.user.address !== address || !address) {
-      console.log(
-        `reward session.user.address: ${session.user.address}, address: ${address} SPOOF`
+    if (!address || session.user.address !== address) {
+      loggers.apiError('/api/update-reward-wallet', new Error('Wallet mismatch during reward wallet update'), {
+        sessionAddress: session.user.address,
+        address,
+        miner,
+        issueType: 'UPDATE_REWARD_WALLET_WALLET_MISMATCH',
+        part: 'update-reward-wallet.auth',
+      });
+      res.status(401).json(CommonErrors.walletMismatch());
+      return;
+    }
+    if (!reward_wallet) {
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Reward wallet is required',
+          'Please provide the wallet address you want to use for rewards.'
+        )
       );
-      res.status(401).json({ message: 'Unauthorized 2' });
       return;
     }
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    const test = await collection.findOne({
+    const existingDevice = await collection.findOne({
       miner_key: miner,
       address: session.user.address
     });
+    if (!existingDevice) {
+      res.status(404).json(CommonErrors.deviceNotFound());
+      return;
+    }
     await collection.updateOne(
       { miner_key: miner, address: session.user.address },
       {
@@ -51,7 +73,20 @@ export default async function handler(
 
     res.status(200).json({ message: 'ok' });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/update-reward-wallet', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to update reward wallet',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey: String(miner ?? ''),
+      walletAddress: address,
+      issueType: 'UPDATE_REWARD_WALLET_ERROR',
+      part: 'update-reward-wallet.handler',
+      metadata: {
+        miner,
+        address,
+      },
+    });
   }
 }

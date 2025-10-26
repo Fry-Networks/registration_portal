@@ -84,18 +84,37 @@ export default async function handler(
     return;
   }
 
-  const data: {
-    miner_key: string;
-    no?: number; // optional in weekly mode to claim all claimable
-    address: string;
-  } = req.body;
+  const data = (req.body ?? {}) as {
+    miner_key?: string;
+    no?: number;
+    preview?: boolean;
+  };
 
-  const { miner_key, no } = data;
+  const miner_key = typeof data.miner_key === 'string' ? data.miner_key : undefined;
+  const no = typeof data.no === 'number' ? data.no : undefined;
+  const previewMode = data.preview === true;
+
+  if (!miner_key) {
+    res.status(400).json({
+      success: false,
+      code: 'INVALID_INPUT',
+      message: 'Missing miner key for claim request'
+    });
+    return;
+  }
 
   // Layer 4: Device fingerprint verification (bypassed for admins)
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (fingerprintStatus === 'retry') {
+    res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+    return;
+  }
+  if (fingerprintStatus === 'blocked') {
     res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -103,12 +122,14 @@ export default async function handler(
     });
     return;
   }
-  if (lockSet.has(miner_key)) {
-    res.status(429).json({ success: false, code: 'NETWORK_ERROR', message: 'Another claim is in progress. Please try again shortly.' });
-    return;
-  }
-  lockSet.add(miner_key);
-
+  const lockKey = miner_key;
+  let lockAcquired = false;
+  const releaseLock = () => {
+    if (lockAcquired) {
+      lockSet.delete(lockKey);
+      lockAcquired = false;
+    }
+  };
   let records: DeviceClaimTarget[] = [];
   let step = { id: 1, value: 'Step1: Initialization' };
 
@@ -122,19 +143,16 @@ export default async function handler(
 
     const device = await deviceCollection.findOne({ miner_key: miner_key });
     if (!device) {
-      lockSet.delete(miner_key);
       res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
       return;
     }
 
     if (!device.reward_wallet) {
-      lockSet.delete(miner_key);
       res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: 'No reward wallet set' });
       return;
     }
 
     if (!device.address || device.address !== session.user.address) {
-      lockSet.delete(miner_key);
       res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
     }
@@ -148,7 +166,6 @@ export default async function handler(
       const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
       const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
       if (weeklyTargets.length === 0 && dailyTargets.length === 0) {
-        lockSet.delete(miner_key);
         res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
         return;
       }
@@ -156,7 +173,6 @@ export default async function handler(
       dailyTargets.forEach((dr: any) => records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
     } else {
       if (weeklyClaimables.length === 0 && dailyClaimables.length === 0) {
-        lockSet.delete(miner_key);
         res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
         return;
       }
@@ -207,7 +223,6 @@ export default async function handler(
     const includesFry1 = resultArray.some((entry) => String(entry.asset_id) === FRY_1.id);
 
     if (!testMode && isMinerDevice && includesFry1) {
-      lockSet.delete(miner_key);
       res.status(400).json({
         success: false,
         code: 'FRY1_RETIRED',
@@ -216,6 +231,25 @@ export default async function handler(
       });
       return;
     }
+
+    if (previewMode) {
+      res.status(200).json({
+        success: true,
+        preview: true,
+        totals: resultArray.map((entry) => ({
+          asset_id: entry.asset_id,
+          amount: Number(entry.totalMicro) / Math.pow(10, entry.decimals)
+        }))
+      });
+      return;
+    }
+
+    if (lockSet.has(lockKey)) {
+      res.status(429).json({ success: false, code: 'NETWORK_ERROR', message: 'Another claim is in progress. Please try again shortly.' });
+      return;
+    }
+    lockSet.add(lockKey);
+    lockAcquired = true;
 
     step.value = 'Preparing network parameters';
     const suggestedParams = await algodClient.getTransactionParams().do();
@@ -347,7 +381,7 @@ export default async function handler(
         { $inc: { total_claimable: -totalAmount, total_claimed: totalAmount } }
       );
       if (!modifiedAny) {
-        lockSet.delete(miner_key);
+        releaseLock();
         return res.status(409).json({
           success: false,
           code: 'ALREADY_TRANSITIONED',
@@ -360,7 +394,7 @@ export default async function handler(
     step.id = 4;
     step.value = `Step4: Recorded transaction ID in database.`;
 
-    lockSet.delete(miner_key);
+    releaseLock();
     res.status(200).json({
       success: true,
       message: `Claim submitted for ${miner_key}`,
@@ -377,10 +411,13 @@ export default async function handler(
 
     loggers.apiError('/api/rewards/claim', claimError, {
       miner_key,
+      address: session.user.address,
+      issueType: 'REWARD_CLAIM_ERROR',
+      part: `claim.step${step.id}`,
       step: step.value,
       detail: detailMessage,
     });
-    lockSet.delete(miner_key);
+    releaseLock();
 
     if (step.id === 2) {
       try {

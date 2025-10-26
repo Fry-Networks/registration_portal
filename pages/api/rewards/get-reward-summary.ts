@@ -2,6 +2,12 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
@@ -92,16 +98,25 @@ export default async function handler(
 
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
+
+  const walletAddress = session.user.address;
 
   const { miner_key } = req.body as GetRewardSummaryData;
 
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -118,11 +133,11 @@ export default async function handler(
       .findOne({ miner_key });
 
     if (!device) {
-      return res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
+      return res.status(404).json(CommonErrors.deviceNotFound());
     }
 
-    if (device.address && device.address !== session.user.address) {
-      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    if (device.address && device.address !== walletAddress) {
+      res.status(401).json(CommonErrors.walletMismatch());
       return;
     }
 
@@ -134,15 +149,33 @@ export default async function handler(
     let claimed = 0;
     let accruing = 0;
     let nextUnlockAt: string | null = null;
+    let firstRewardAt: string | null = null;
+    let firstRewardMs = Number.POSITIVE_INFINITY;
+
+    const considerDate = (raw?: string | Date | null) => {
+      if (!raw) return;
+      const date = raw instanceof Date ? raw : new Date(raw);
+      if (Number.isNaN(date.getTime())) return;
+      const ms = date.getTime();
+      if (ms < firstRewardMs) {
+        firstRewardMs = ms;
+        firstRewardAt = date.toISOString();
+      }
+    };
 
     if (doc) {
       // Sum weekly (post-cutoff)
       if (Array.isArray(doc.weekly_rewards)) {
         for (const wr of doc.weekly_rewards) {
-          if (wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE) {
-            if (wr.status === 'pending') pending = Math.round((pending + (wr.amount || 0)) * 100) / 100;
-            if (wr.status === 'claimable') claimable = Math.round((claimable + (wr.amount || 0)) * 100) / 100;
-            if (wr.status === 'claimed') claimed = Math.round((claimed + (wr.amount || 0)) * 100) / 100;
+          considerDate(wr?.unlock_at);
+
+          if (wr.unlock_at) {
+            const unlockDate = new Date(wr.unlock_at);
+            if (unlockDate >= CUTOFF_DATE) {
+              if (wr.status === 'pending') pending = Math.round((pending + (wr.amount || 0)) * 100) / 100;
+              if (wr.status === 'claimable') claimable = Math.round((claimable + (wr.amount || 0)) * 100) / 100;
+              if (wr.status === 'claimed') claimed = Math.round((claimed + (wr.amount || 0)) * 100) / 100;
+            }
           }
         }
       }
@@ -150,6 +183,8 @@ export default async function handler(
       // Include pre-cutoff daily totals (historical daily behavior)
       if (Array.isArray(doc.daily_rewards)) {
         for (const dr of doc.daily_rewards) {
+          considerDate(dr?.created_at);
+
           const created = new Date(dr.created_at);
           if (created < CUTOFF_DATE) {
             if (dr.status === 'pending') pending = Math.round((pending + (dr.amount || 0)) * 100) / 100;
@@ -171,9 +206,32 @@ export default async function handler(
       }
     }
 
-    res.status(200).json({ success: true, summary: { pending, claimable, claimed, accruing, nextUnlockAt } });
+    res.status(200).json({
+      success: true,
+      summary: {
+        pending,
+        claimable,
+        claimed,
+        accruing,
+        nextUnlockAt,
+        firstRewardAt
+      }
+    });
   } catch (error) {
-    console.error('get-reward-summary error:', error);
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
+    handleApiError(res, '/api/rewards/get-reward-summary', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to load reward summary',
+        'Please refresh the page. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress,
+      issueType: 'REWARDS_SUMMARY_ERROR',
+      part: 'get-reward-summary.handler',
+      metadata: {
+        miner_key,
+        address: walletAddress,
+      },
+    });
   }
 }

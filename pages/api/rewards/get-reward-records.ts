@@ -6,6 +6,12 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 interface GetRewardAmountData {
   miner_key: string;
@@ -60,16 +66,34 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json(CommonErrors.noSession());
+    return;
+  }
+  const walletAddress = session.user.address;
+
+  const { miner_key, status, date, mode } = req.body as GetRewardAmountData;
+  if (!miner_key || typeof miner_key !== 'string') {
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'A miner key is required to view reward records',
+        'Please select a device and try again.'
+      )
+    );
     return;
   }
 
-  const { miner_key, status, date, mode } = req.body as GetRewardAmountData;
-
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -93,11 +117,8 @@ export default async function handler(
     return d;
   }
 
-  // console.log(`Miner Key: ${miner_key} Status: ${status}`);
-
-  const client = await clientPromise;
-
   try {
+    const client = await clientPromise;
     const db = client.db('main');
 
     const device = await db
@@ -105,15 +126,13 @@ export default async function handler(
       .findOne({ miner_key });
 
     if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
+      return res.status(404).json(CommonErrors.deviceNotFound());
     }
 
-    if (device.address && device.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized 1' });
+    if (device.address && device.address !== walletAddress) {
+      res.status(401).json(CommonErrors.walletMismatch());
       return;
     }
-
-    const weeklyMode = mode === 'weekly' || mode === 'dailyPreview';
 
     // Always use device-rewards as SoT; legacy only as soft fallback
     const devRewardsCol = db.collection('device-rewards');
@@ -205,7 +224,23 @@ export default async function handler(
     return;
 
   } catch (error) {
-    console.error(`Reward Amount: error`);
-    res.status(500).json({ message: 'Internal server error' });
+    handleApiError(res, '/api/rewards/get-reward-records', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to load reward records',
+        'Please refresh the page. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress,
+      issueType: 'REWARD_RECORDS_ERROR',
+      part: 'get-reward-records.handler',
+      metadata: {
+        miner_key,
+        address: walletAddress,
+        status,
+        mode,
+        date: date instanceof Date ? date.toISOString() : date,
+      },
+    });
   }
 }

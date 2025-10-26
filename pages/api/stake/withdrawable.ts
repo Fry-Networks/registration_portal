@@ -117,7 +117,14 @@ export default async function handler(
         'Unable to determine withdraw availability',
         'Please try again. If this persists, contact support.'
       ),
-      metadata: { miner_key }
+      minerKey: miner_key,
+      walletAddress: address,
+      issueType: 'WITHDRAWABLE_CHECK_ERROR',
+      part: 'withdrawable.handler',
+      metadata: {
+        miner_key,
+        address,
+      },
     });
   }
 }

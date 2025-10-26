@@ -7,6 +7,12 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -80,18 +86,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // Layer 3: Session check
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
+  const walletAddress = session.user.address;
 
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: 'get-totals' });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: 'get-totals' });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
-      message: 'Request originated from different device or script'
+      message: 'Request originated from a different device or script'
     });
   }
 
@@ -104,7 +118,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Get all devices owned by this user
     const devices = await db
       .collection(testMode ? 'test-devices' : 'devices')
-      .find({ address: session.user.address })
+      .find({ address: walletAddress })
       .project({ miner_key: 1 })
       .toArray();
 
@@ -189,7 +203,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       nextUnlockAt: nextUnlockAt.toISOString()
     });
   } catch (error) {
-    console.error('get-asset-totals error:', error);
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
+    handleApiError(res, '/api/rewards/get-asset-totals', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to load asset totals',
+        'Please refresh the page. If the problem persists, contact support.'
+      ),
+      walletAddress,
+      issueType: 'REWARDS_TOTALS_ERROR',
+      part: 'get-asset-totals.handler',
+      metadata: {
+        address: walletAddress,
+      },
+    });
   }
 }

@@ -7,6 +7,12 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 export default async function handler(
   req: NextApiRequest,
@@ -53,9 +59,10 @@ export default async function handler(
 
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
+  const walletAddress = session.user.address;
 
   const { miner_key, page = 1 } = req.body as {
     miner_key: string;
@@ -64,8 +71,15 @@ export default async function handler(
 
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -76,7 +90,13 @@ export default async function handler(
   const CUTOFF_DATE = new Date(CUTOFF_ISO);
 
   if (!miner_key || typeof miner_key !== 'string') {
-    res.status(400).json({ message: 'Invalid miner_key' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'A miner key is required to view reward history',
+        'Please select a device and try again.'
+      )
+    );
     return;
   }
 
@@ -85,12 +105,25 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db('main');
+
+    const device = await db
+      .collection(testMode ? 'test-devices' : 'devices')
+      .findOne({ miner_key });
+    if (!device) {
+      res.status(404).json(CommonErrors.deviceNotFound());
+      return;
+    }
+    if (device.address && device.address !== walletAddress) {
+      res.status(401).json(CommonErrors.walletMismatch());
+      return;
+    }
+
     // Always use device-rewards as source of truth; legacy collections are deprecated
     const devRewardsCol = db.collection('device-rewards');
     const doc = await devRewardsCol.findOne({ miner_key });
     if (!doc) {
       // Strict device-rewards only: if no doc, return empty dataset
-      res.status(200).json({ success: true, items: [], totalPages: 1 });
+      res.status(200).json({ success: true, items: [], totalPages: 1, weeklyCount: 0, dailyCount: 0, totalCount: 0 });
       return;
     }
     const daysBetween = (a: Date, b: Date): number => {
@@ -153,6 +186,8 @@ export default async function handler(
         etaDate: new Date(new Date(dr.created_at).getTime() + 30 * dayMs)
       }));
 
+    const weeklyCount = weekly.length;
+    const dailyCount = daily.length;
     const all = weekly.concat(daily)
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const total = all.length;
@@ -181,9 +216,23 @@ export default async function handler(
       fiatValue: priceCache[it.asset_id]?.usd ? Number(it.amount || 0) * priceCache[it.asset_id].usd : undefined
     }));
 
-    res.status(200).json({ success: true, items: itemsWithFiat, totalPages });
+    res.status(200).json({ success: true, items: itemsWithFiat, totalPages, weeklyCount, dailyCount, totalCount: total });
   } catch (error) {
-    console.error('get-rewards-page error:', error);
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
+    handleApiError(res, '/api/rewards/get-rewards-page', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to load reward history',
+        'Please refresh the page. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress,
+      issueType: 'REWARDS_HISTORY_ERROR',
+      part: 'get-rewards-page.handler',
+      metadata: {
+        miner_key,
+        address: walletAddress,
+        page,
+      },
+    });
   }
 }

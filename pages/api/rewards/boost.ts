@@ -103,8 +103,15 @@ export default async function handler(
 
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -207,8 +214,11 @@ export default async function handler(
           if (swappedAsset === undefined) {
             loggers.apiError('/api/rewards/boost', new Error('FRY 1.0 swap failed'), {
               miner_key,
+              address: session.user.address,
               asset_id: FRY_1.id,
               amount: feeAmount,
+              issueType: 'REWARD_BOOST_SWAP_ERROR',
+              part: 'boost.swap.fry1',
             });
             res
               .status(500)
@@ -239,8 +249,11 @@ export default async function handler(
         if (swappedAsset === undefined) {
           loggers.apiError('/api/rewards/boost', new Error('Swap to FRY 2.0 failed'), {
             miner_key,
+            address: session.user.address,
             asset_id: resultArray[i].asset_id,
             amount: feeAmount,
+            issueType: 'REWARD_BOOST_SWAP_ERROR',
+            part: 'boost.swap.alt',
           });
           res
             .status(500)
@@ -287,7 +300,10 @@ export default async function handler(
     if (!tx) {
       loggers.apiError('/api/rewards/boost', new Error('Broadcast returned empty response'), {
         miner_key,
+        address: session.user.address,
         txCount: signedTxns.length,
+        issueType: 'REWARD_BOOST_BROADCAST_ERROR',
+        part: 'boost.broadcast.submit',
       });
       res
         .status(500)
@@ -386,7 +402,15 @@ export default async function handler(
         ErrorCodes.INTERNAL_ERROR,
         'Instant claim failed',
         'Please try again. If the problem continues, contact support.'
-      )
+      ),
+      minerKey: miner_key,
+      walletAddress: session.user.address,
+      issueType: 'REWARD_BOOST_ERROR',
+      part: 'boost.handler',
+      metadata: {
+        miner_key,
+        address: session.user.address,
+      },
     });
     return;
   }

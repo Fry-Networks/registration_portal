@@ -10,6 +10,13 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const token = '';
 const server = 'https://xna-mainnet-api.algonode.cloud/';
@@ -62,16 +69,24 @@ export default async function handler(
   // Session check happens AFTER security verification
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
+  const walletAddress = session.user.address;
 
   const { txId } = req.body as { txId: string };
 
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintVerified = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: 'confirm-txn' });
-  if (!fingerprintVerified) {
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: 'confirm-txn' });
+  if (fingerprintStatus === 'retry') {
+    return res.status(409).json({
+      success: false,
+      code: 'DEVICE_FINGERPRINT_REFRESH',
+      message: 'Security check refreshed your session. Please retry the request.'
+    });
+  }
+  if (fingerprintStatus === 'blocked') {
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
@@ -79,7 +94,13 @@ export default async function handler(
     });
   }
   if (!txId) {
-    res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: 'Missing txId' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'A transaction ID is required for confirmation',
+        'Please retry after submitting your claim transaction.'
+      )
+    );
     return;
   }
 
@@ -111,9 +132,27 @@ export default async function handler(
       { arrayFilters: [{ 'elem.tx_id': txId }] }
     );
 
+
+    loggers.txnLog('reward_claim_confirmed', txId, {
+      address: walletAddress,
+      claimedAt,
+    });
+
     res.status(200).json({ success: true, claimedAt });
-  } catch (e) {
-    console.error('confirm error:', e);
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: 'Internal server error' });
+  } catch (error) {
+    handleApiError(res, '/api/rewards/confirm', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to confirm the claim transaction',
+        'Please try again shortly.'
+      ),
+      walletAddress,
+      issueType: 'REWARD_CONFIRM_ERROR',
+      part: 'rewards-confirm.handler',
+      metadata: {
+        address: walletAddress,
+        txId,
+      },
+    });
   }
 }
