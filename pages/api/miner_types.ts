@@ -1,9 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
-import algosdk from 'algosdk';
+import { loggers } from '../../lib/logger';
 import clientPromise from '../../lib/mongoclient';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../lib/api-errors';
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -14,23 +19,36 @@ export default async function handler(
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    console.log(`no session`);
-    res.status(401).json({ message: 'Unauthorized 1' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
-  const data: {
-    miner_key: string;
-    address: string;
-  } = req.body;
+  const { miner_key, address } = (req.body ?? {}) as {
+    miner_key?: string;
+    address?: string;
+  };
 
-  const { miner_key, address } = data;
-  if (session.user.address !== address || !address) {
-    console.log(
-      `miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
+  if (!miner_key || !address) {
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing miner type lookup parameters',
+        'Submit the miner key and wallet address to check the product.'
+      )
     );
-    res.status(401).json({ message: 'Unauthorized 2' });
+    return;
+  }
+
+  if (session.user.address !== address) {
+    loggers.apiError('/api/miner_types', new Error('Wallet mismatch during miner type lookup'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key,
+      issueType: 'MINER_TYPES_WALLET_MISMATCH',
+      part: 'miner-types.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
     return;
   }
   try {
@@ -40,7 +58,7 @@ export default async function handler(
     const collection = db.collection('products');
     const test = await collection.findOne({ key: miner_type });
     if (!test) {
-      res.status(404).json({ message: 'Product Not found' });
+      res.status(404).json(CommonErrors.productNotFound());
       return;
     }
     const exists = await db
@@ -57,7 +75,20 @@ export default async function handler(
 
     res.status(200).json({ message: 'ok', name: test.name, type: test.type });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/miner_types', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to fetch miner data',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress: address,
+      issueType: 'MINER_TYPES_FETCH_ERROR',
+      part: 'miner-types.handler',
+      metadata: {
+        miner_key,
+        address,
+      },
+    });
   }
 }

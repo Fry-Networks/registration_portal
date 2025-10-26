@@ -4,6 +4,13 @@ import { ObjectId } from 'mongodb';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 type ShellyRequestBody = {
   miner_key?: string | string[];
@@ -13,9 +20,11 @@ type ShellyRequestBody = {
   address?: string;
 };
 
+import type { ApiErrorResponse } from '../../../lib/api-errors';
+
 type ShellyApiResponse =
   | { status: 'SUCCESS'; message: string }
-  | { status: 'ERROR'; message: string };
+  | ApiErrorResponse;
 
 type ShellyDevice = {
   id?: string;
@@ -101,15 +110,19 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ status: 'ERROR', message: 'Method Not Allowed' });
-    return;
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ status: 'ERROR', message: 'Unauthorized' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const body = (req.body as ShellyRequestBody) ?? {};
@@ -120,15 +133,24 @@ export default async function handler(
   const address = normalizeString(body.address);
 
   if (!minerKey || !authKey || !serverURL || !deviceIdInput || !address) {
-    res
-      .status(400)
-      .json({ status: 'ERROR', message: 'Missing required fields' });
-    return;
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Provide miner key, auth key, server URL, device ID, and address.'
+      )
+    );
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ status: 'ERROR', message: 'Unauthorized address' });
-    return;
+    loggers.apiError('/api/energy/shelly', new Error('Wallet mismatch during Shelly credential save'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      issueType: 'SHELLY_WALLET_MISMATCH',
+      part: 'energy.shelly.auth',
+    });
+    return res.status(401).json(CommonErrors.walletMismatch());
   }
 
   const normalizedDeviceId = normalizeDeviceId(deviceIdInput);
@@ -151,11 +173,13 @@ export default async function handler(
       existing.owner_address &&
       existing.owner_address !== session.user.address
     ) {
-      res.status(409).json({
-        status: 'ERROR',
-        message: 'This Shelly device is already registered by another user.'
-      });
-      return;
+      return res.status(409).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'Shelly device is already registered by another wallet',
+          'Please unlink the device from the other account or contact support.'
+        )
+      );
     }
 
     const device = await fetchShellyDevice(
@@ -165,11 +189,13 @@ export default async function handler(
     );
 
     if (!device) {
-      res.status(404).json({
-        status: 'ERROR',
-        message: 'Device ID not found in Shelly account.'
-      });
-      return;
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'Device ID not found in Shelly account',
+          'Confirm the device is linked to your Shelly account and try again.'
+        )
+      );
     }
 
     const userObjectId =
@@ -216,11 +242,13 @@ export default async function handler(
       deviceRecord?.address &&
       deviceRecord.address !== session.user.address
     ) {
-      res.status(403).json({
-        status: 'ERROR',
-        message: 'Device is registered to another address.'
-      });
-      return;
+      return res.status(403).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'Device is registered to another address',
+          'Sign in with the wallet that owns this device or or ask support to unregister it and retry.'
+        )
+      );
     }
 
     await devicesCollection.updateOne(
@@ -236,15 +264,26 @@ export default async function handler(
       message: 'Shelly credentials validated and saved.'
     });
   } catch (error) {
-    console.error('[energy/shelly] submission error', error);
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Failed to submit Shelly credentials';
     const knownError = error as Error & { statusCode?: number };
     const statusCode =
       typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
 
-    res.status(statusCode).json({ status: 'ERROR', message });
+    handleApiError(res, '/api/energy/shelly', error, {
+      status: statusCode,
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to submit Shelly credentials',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey,
+      walletAddress: session.user.address,
+      issueType: 'SHELLY_SUBMISSION_ERROR',
+      part: 'energy.shelly.handler',
+      metadata: {
+        miner_key: minerKey,
+        address,
+        deviceId: normalizedDeviceId,
+      },
+    });
   }
 }

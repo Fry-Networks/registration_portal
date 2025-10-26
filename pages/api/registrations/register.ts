@@ -21,8 +21,8 @@ export default async function handler(
     res.status(405).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
-        'Unsupported request method',
-        'Please submit registration confirmations using POST.'
+        'That request is not available.',
+        'Please complete registrations from the dashboard.'
       )
     );
     return;

@@ -4,6 +4,14 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { ObjectId } from 'mongodb';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+import type { ApiErrorResponse } from '../../../lib/api-errors';
 import {
   MIN_SECRET_LENGTH,
   MIN_TOKEN_LENGTH,
@@ -20,17 +28,9 @@ type SwitchbotRequestBody = {
   address?: string;
 };
 
-type SwitchbotSuccessResponse = {
-  message: string;
-  status: 'SUCCESS';
-};
-
-type SwitchbotErrorResponse = {
-  message: string;
-  status: 'ERROR';
-};
-
-type SwitchbotApiResponse = SwitchbotSuccessResponse | SwitchbotErrorResponse;
+type SwitchbotApiResponse =
+  | { status: 'SUCCESS'; message: string }
+  | ApiErrorResponse;
 
 const ENERGY_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const ENERGY_COLLECTION =
@@ -70,15 +70,20 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed', status: 'ERROR' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized', status: 'ERROR' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const body = (req.body as SwitchbotRequestBody) ?? {};
@@ -90,24 +95,47 @@ export default async function handler(
   const address = normalizeString(body.address)?.trim();
 
   if (!minerKey || !token || !secret || !deviceId || !address) {
-    res
-      .status(400)
-      .json({ message: 'Missing required fields', status: 'ERROR' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Provide the miner key, SwitchBot credentials, device ID, and wallet address.'
+      )
+    );
     return;
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ message: 'Unauthorized address', status: 'ERROR' });
+    loggers.apiError('/api/energy/switchbot', new Error('Wallet mismatch during SwitchBot credential save'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      issueType: 'SWITCHBOT_WALLET_MISMATCH',
+      part: 'energy.switchbot.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
     return;
   }
 
   if (token.length < MIN_TOKEN_LENGTH || secret.length < MIN_SECRET_LENGTH) {
-    res.status(400).json({ message: 'SwitchBot token or secret is too short.', status: 'ERROR' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'SwitchBot token or secret is too short',
+        'Copy the full token and secret from the SwitchBot dashboard and try again.'
+      )
+    );
     return;
   }
 
   if (deviceId.length !== 12) {
-    res.status(400).json({ message: 'Device ID must be 12 hexadecimal characters.', status: 'ERROR' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Device ID must be 12 hexadecimal characters',
+        'Verify the device ID (case-insensitive hex) and resubmit.'
+      )
+    );
     return;
   }
 
@@ -163,10 +191,13 @@ export default async function handler(
       existingCredential.owner_address &&
       existingCredential.owner_address !== session.user.address
     ) {
-      res.status(409).json({
-        message: 'This SwitchBot device is already registered by another user.',
-        status: 'ERROR'
-      });
+      res.status(409).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'This SwitchBot device is already registered by another user',
+          'Unlink the device from the other account or contact support for assistance.'
+        )
+      );
       return;
     }
 
@@ -215,10 +246,13 @@ export default async function handler(
       deviceRecord?.address &&
       deviceRecord.address !== session.user.address
     ) {
-      res.status(403).json({
-        message: 'Device is registered to another address.',
-        status: 'ERROR'
-      });
+      res.status(403).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'Device is registered to another address',
+          'Sign in with the wallet that owns this device or ask support to unregister it and retry.'
+        )
+      );
       return;
     }
 
@@ -235,13 +269,29 @@ export default async function handler(
       status: 'SUCCESS'
     });
   } catch (error) {
-    console.error('[energy/switchbot] submission error', error);
-    const message =
-      error instanceof Error ? error.message : 'Failed to submit SwitchBot credentials';
-    const knownError = error as Error & { statusCode?: number };
     const statusCode =
-      typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
+      error instanceof Error &&
+      'statusCode' in error &&
+      typeof (error as Error & { statusCode?: number }).statusCode === 'number'
+        ? (error as Error & { statusCode?: number }).statusCode
+        : 500;
 
-    res.status(statusCode).json({ status: 'ERROR', message });
+    handleApiError(res, '/api/energy/switchbot', error, {
+      status: statusCode,
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to submit SwitchBot credentials',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey,
+      walletAddress: session.user.address,
+      issueType: 'SWITCHBOT_SUBMISSION_ERROR',
+      part: 'energy.switchbot.handler',
+      metadata: {
+        miner_key: minerKey,
+        deviceId,
+        address,
+      },
+    });
   }
 }

@@ -2,36 +2,67 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const WEATHER_COLLECTION =
   process.env.MONGO_WEATHER_COLLECTION ??
   (process.env.NEXT_PUBLIC_TEST_MODE === 'true' ? 'test-weather' : 'weather');
 
+const ENDPOINT = '/api/registrations/cancel';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please manage registrations from the dashboard.'
+      )
+    );
   }
 
   const session = await getServerSession(req, res, authOptions);
-  if (!session || !session.user) {
-    return res.status(401).json({ message: 'Unauthorized' });
+  if (!session || !session.user?.address) {
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const { miner_key, address } = req.body as {
-    miner_key: string;
-    address: string;
+    miner_key?: string;
+    address?: string;
   };
 
   if (!miner_key || !address) {
-    return res.status(400).json({ message: 'Missing required fields' });
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Please submit the miner key and wallet address.'
+      )
+    );
   }
 
-  if (session.user.address !== address) {
-    return res.status(401).json({ message: 'Unauthorized address' });
+  const sessionAddress = session.user.address.trim();
+
+  if (sessionAddress !== address) {
+    loggers.apiError(ENDPOINT, new Error('Wallet mismatch during registration cancel'), {
+      miner_key,
+      address,
+      sessionAddress,
+      issueType: 'REGISTRATION_CANCEL_WALLET_MISMATCH',
+      part: 'registrations.cancel.auth',
+    });
+    return res.status(401).json(CommonErrors.walletMismatch());
   }
 
   const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
@@ -43,11 +74,11 @@ export default async function handler(
 
     const device = await collection.findOne({ miner_key });
     if (!device) {
-      return res.status(404).json({ message: 'Device not found' });
+      return res.status(404).json(CommonErrors.deviceNotFound());
     }
 
-    if (device.address && device.address !== session.user.address) {
-      return res.status(401).json({ message: 'Unauthorized device owner' });
+    if (device.address && device.address !== sessionAddress) {
+      return res.status(409).json(CommonErrors.deviceOwnerMismatch());
     }
 
     const normalizedPortalModel =
@@ -102,8 +133,29 @@ export default async function handler(
     const result = await collection.updateOne({ miner_key }, update);
 
     if (result.matchedCount === 0) {
-      return res.status(400).json({ message: 'Cancel failed' });
+      loggers.apiError(ENDPOINT, new Error('Registration cancel update failed'), {
+        miner_key,
+        address,
+        issueType: 'REGISTRATION_CANCEL_UPDATE_FAILED',
+        part: 'registrations.cancel.update',
+        testMode,
+      });
+      return res.status(500).json(
+        createApiError(
+          ErrorCodes.UPDATE_FAILED,
+          'Unable to cancel registration',
+          'Please retry in a few minutes or contact support.'
+        )
+      );
     }
+
+    loggers.dbOperation('registration_cancelled', collection.collectionName, {
+      miner_key,
+      address,
+      testMode,
+      portalReset: Boolean(device.is_registered),
+      weatherDeleted: weatherDeleteResult.deletedCount,
+    });
 
     return res.status(200).json({
       message: device.is_registered
@@ -111,7 +163,22 @@ export default async function handler(
         : 'Registration canceled'
     });
   } catch (error) {
-    console.error('Cancel error for', miner_key, error);
-    return res.status(500).json({ message: 'Internal server error' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to cancel registration',
+        'Please try again. If the problem continues, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress: sessionAddress,
+      issueType: 'REGISTRATION_CANCEL_ERROR',
+      part: 'registrations.cancel.handler',
+      metadata: {
+        miner_key,
+        address,
+        testMode,
+        weatherCollection: WEATHER_COLLECTION,
+      },
+    });
   }
 }

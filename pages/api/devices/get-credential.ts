@@ -2,6 +2,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+import type { ApiErrorResponse } from '../../../lib/api-errors';
 
 type CredentialRequestBody = {
   miner_key?: string | string[];
@@ -46,8 +54,7 @@ type CredentialSuccessResponse = {
   } | null;
 };
 
-type CredentialErrorResponse = {
-  message: string;
+type CredentialErrorResponse = ApiErrorResponse & {
   status: 'ERROR';
 };
 
@@ -80,16 +87,29 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CredentialApiResponse>
 ) {
+  const makeErrorResponse = (payload: ApiErrorResponse): CredentialErrorResponse => ({
+    ...payload,
+    status: 'ERROR',
+  });
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed', status: 'ERROR' });
+    res.status(405).json(
+      makeErrorResponse(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'That request is not available.',
+          'Please retry this action from the dashboard.'
+        )
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized', status: 'ERROR' });
+    res.status(401).json(makeErrorResponse(CommonErrors.noSession()));
     return;
   }
 
@@ -98,7 +118,15 @@ export default async function handler(
   const apiType = normalizeString(body.type) ?? DEFAULT_API_TYPE;
 
   if (!minerKey) {
-    res.status(400).json({ message: 'Missing miner key', status: 'ERROR' });
+    res.status(400).json(
+      makeErrorResponse(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Miner key is required',
+          'Submit the miner key to fetch credential details.'
+        )
+      )
+    );
     return;
   }
 
@@ -119,7 +147,7 @@ export default async function handler(
       record.owner_address &&
       record.owner_address !== session.user.address
     ) {
-      res.status(403).json({ message: 'Forbidden', status: 'ERROR' });
+      res.status(403).json(makeErrorResponse(CommonErrors.deviceOwnerMismatch()));
       return;
     }
 
@@ -144,7 +172,22 @@ export default async function handler(
 
     res.status(200).json({ data: sanitized });
   } catch (error) {
-    console.error('[devices/get-credential] error', error);
-    res.status(500).json({ message: 'Internal server error', status: 'ERROR' });
+    handleApiError(res, '/api/devices/get-credential', error, {
+      response: makeErrorResponse(
+        createApiError(
+          ErrorCodes.INTERNAL_ERROR,
+          'Failed to load device credential',
+          'Please try again. If the problem persists, contact support.'
+        )
+      ),
+      minerKey: minerKey,
+      walletAddress: session.user.address,
+      issueType: 'DEVICE_CREDENTIAL_FETCH_ERROR',
+      part: 'devices.get-credential.handler',
+      metadata: {
+        miner_key: minerKey,
+        api_type: apiType,
+      },
+    });
   }
 }

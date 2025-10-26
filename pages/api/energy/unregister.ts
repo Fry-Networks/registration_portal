@@ -3,6 +3,14 @@ import { getServerSession } from 'next-auth';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+import type { ApiErrorResponse } from '../../../lib/api-errors';
 
 type UnregisterRequestBody = {
   miner_key?: string | string[];
@@ -10,19 +18,9 @@ type UnregisterRequestBody = {
   address?: string;
 };
 
-type UnregisterSuccessResponse = {
-  message: string;
-  status: 'SUCCESS';
-};
-
-type UnregisterErrorResponse = {
-  message: string;
-  status: 'ERROR';
-};
-
 type UnregisterApiResponse =
-  | UnregisterSuccessResponse
-  | UnregisterErrorResponse;
+  | { status: 'SUCCESS'; message: string }
+  | (ApiErrorResponse & { status: 'ERROR' });
 
 const CREDENTIAL_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const CREDENTIAL_COLLECTION =
@@ -45,17 +43,28 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<UnregisterApiResponse>
 ) {
+  const makeErrorResponse = (payload: ApiErrorResponse) => ({
+    status: 'ERROR' as const,
+    ...payload,
+  });
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed', status: 'ERROR' });
-    return;
+    return res.status(405).json(
+      makeErrorResponse(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'That request is not available.',
+          'Please retry this action from the dashboard.'
+        )
+      )
+    );
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized', status: 'ERROR' });
-    return;
+    return res.status(401).json(makeErrorResponse(CommonErrors.noSession()));
   }
 
   const body = (req.body as UnregisterRequestBody) ?? {};
@@ -64,15 +73,27 @@ export default async function handler(
   const address = normalizeString(body.address);
 
   if (!minerKey || !apiType || !address) {
-    res
-      .status(400)
-      .json({ message: 'Missing required fields', status: 'ERROR' });
-    return;
+    return res.status(400).json(
+      makeErrorResponse(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Missing required fields',
+          'Please provide the miner key, credential type, and address.'
+        )
+      )
+    );
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ message: 'Unauthorized address', status: 'ERROR' });
-    return;
+    loggers.apiError('/api/energy/unregister', new Error('Wallet mismatch during energy credential unregister'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      api_type: apiType,
+      issueType: 'ENERGY_UNREGISTER_WALLET_MISMATCH',
+      part: 'energy.unregister.auth',
+    });
+    return res.status(401).json(makeErrorResponse(CommonErrors.walletMismatch()));
   }
 
   try {
@@ -90,8 +111,15 @@ export default async function handler(
       existingRecord.owner_address &&
       existingRecord.owner_address !== session.user.address
     ) {
-      res.status(403).json({ message: 'Forbidden', status: 'ERROR' });
-      return;
+      return res.status(403).json(
+        makeErrorResponse(
+          createApiError(
+            ErrorCodes.FORBIDDEN,
+            'This credential belongs to another wallet',
+            'Please sign in with the wallet that owns this credential.'
+          )
+        )
+      );
     }
 
     const deleteResult = await credentialCollection.deleteOne({
@@ -100,10 +128,15 @@ export default async function handler(
     });
 
     if (deleteResult.deletedCount === 0) {
-      res
-        .status(404)
-        .json({ message: 'No credential found to remove.', status: 'ERROR' });
-      return;
+      return res.status(404).json(
+        makeErrorResponse(
+          createApiError(
+            ErrorCodes.DEVICE_NOT_FOUND,
+            'No credential found to remove',
+            'Please refresh the page and confirm the credential is still linked.'
+          )
+        )
+      );
     }
 
     const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
@@ -122,7 +155,23 @@ export default async function handler(
       status: 'SUCCESS'
     });
   } catch (error) {
-    console.error('[energy/unregister] error', error);
-    res.status(500).json({ message: 'Internal server error', status: 'ERROR' });
+    handleApiError(res, '/api/energy/unregister', error, {
+      response: makeErrorResponse(
+        createApiError(
+          ErrorCodes.INTERNAL_ERROR,
+          'Unable to unregister energy credential',
+          'Please try again. If the problem persists, contact support.'
+        )
+      ),
+      minerKey,
+      walletAddress: session.user.address,
+      issueType: 'ENERGY_UNREGISTER_ERROR',
+      part: 'energy.unregister.handler',
+      metadata: {
+        miner_key: minerKey,
+        api_type: apiType,
+        address,
+      },
+    });
   }
 }

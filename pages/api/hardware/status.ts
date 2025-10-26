@@ -3,6 +3,13 @@ import { getServerSession } from 'next-auth';
 import clientPromise from '../../../lib/mongoclient';
 import { authOptions } from '../auth/[...nextauth]';
 import { validateMacAddress } from '../../../lib/validators/macAddressValidator';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 type HardwareStatus = {
   linked: boolean;
@@ -19,25 +26,39 @@ export type HardwareStatusResponse = {
 const HARDWARE_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const HARDWARE_COLLECTION = process.env.MONGO_CREDS_COLLECTION ?? 'hardware';
 
+const ENDPOINT = '/api/hardware/status';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    res.status(405).json({ message: 'Method Not Allowed' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
   const { miner_keys: minerKeys } = req.body ?? {};
   if (!Array.isArray(minerKeys) || minerKeys.some((key) => typeof key !== 'string')) {
-    res.status(400).json({ message: 'miner_keys must be an array of strings' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'miner_keys must be an array of strings',
+        'Please provide the list of device miner keys you want to inspect.'
+      )
+    );
     return;
   }
 
@@ -114,9 +135,27 @@ export default async function handler(
       };
     }
 
+    loggers.dbOperation('hardware_status_lookup', collection.collectionName, {
+      address: session.user.address,
+      requestedMinerKeys: uniqueKeys.length,
+      matchedCredentials: credentialDocs.length,
+    });
+
     res.status(200).json(response);
   } catch (error) {
-    console.error('[hardware/status] error', error);
-    res.status(500).json({ message: 'Failed to load hardware status' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to load hardware credential status',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: session.user.address,
+      issueType: 'HARDWARE_STATUS_ERROR',
+      part: 'hardware.status.handler',
+      metadata: {
+        miner_keys: minerKeys,
+        hardwareCollection: HARDWARE_COLLECTION,
+      },
+    });
   }
 }

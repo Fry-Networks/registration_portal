@@ -4,6 +4,13 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import clientPromise from '../../../../lib/mongoclient';
 import { LINKED_MINER_TYPES, getMinerType, collectionFor } from '../utils';
+import { loggers } from '../../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../../lib/api-errors';
 
 const DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 
@@ -28,11 +35,23 @@ const validateMac = async (params: {
     (credentials as any)?.mac_address ?? (credentials as any)?.miner_mac;
 
   if (!miner_key || typeof miner_key !== 'string') {
-    res.status(400).json({ message: 'Missing miner_key' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Miner key is required',
+        'Please provide the miner key and try again.'
+      )
+    );
     return;
   }
   if (!macValue || typeof macValue !== 'string') {
-    res.status(400).json({ message: 'Missing mac_address in credentials' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing MAC address in credentials',
+        'Please include the MAC address for this device.'
+      )
+    );
     return;
   }
 
@@ -42,7 +61,13 @@ const validateMac = async (params: {
   // Ownership check on THIS miner doc
   const existingMiner = await col.findOne({ miner_key });
   if (existingMiner && existingMiner.address && existingMiner.address !== session.user.address) {
-    res.status(403).json({ message: 'Forbidden' });
+    res.status(403).json(
+      createApiError(
+        ErrorCodes.FORBIDDEN,
+        'This device belongs to a different wallet',
+        'Please sign in with the wallet that owns this device or ask support to unregister it and retry.'
+      )
+    );
     return;
   }
 
@@ -58,7 +83,14 @@ const validateMac = async (params: {
         const linkedMacCred = lm.credentials && typeof lm.credentials.mac_address === 'string' ? lm.credentials.mac_address : '';
         const linkedMac = linkedMacTop || linkedMacCred || '';
         if (linkedMac && linkedMac !== macValue) {
-          res.status(409).json({ message: 'MAC address conflicts with linked miner registration.', conflictMinerKey: lm.miner_key });
+          res.status(409).json(
+            createApiError(
+              ErrorCodes.INVALID_INPUT,
+              'MAC address conflicts with linked miner registration',
+              'Please unlink the MAC from the linked miner first.',
+              { conflictMinerKey: lm.miner_key }
+            )
+          );
           return;
         }
       }
@@ -73,7 +105,14 @@ const validateMac = async (params: {
   });
 
   if (conflict) {
-    res.status(409).json({ message: 'MAC address is already registered to another miner', conflictMinerKey: conflict.miner_key });
+    res.status(409).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'MAC address is already registered to another miner',
+        'Please choose a different device or unlink the existing registration.',
+        { conflictMinerKey: conflict.miner_key }
+      )
+    );
     return;
   }
 
@@ -81,17 +120,37 @@ const validateMac = async (params: {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ message: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
+  }
 
   const session = await getServerSession(req, res, authOptions);
-  if (!session) {
-    console.warn('[credentials/hardware/mac] no session for request, headers:', req.headers?.cookie ? 'has-cookie' : 'no-cookie');
-    return res.status(401).json({ message: 'Unauthorized' });
+  if (!session || !session.user?.address) {
+    loggers.apiError('/api/credentials/hardware/mac', new Error('Unauthenticated MAC validation request'), {
+      hasCookie: Boolean(req.headers?.cookie),
+      issueType: 'MAC_VALIDATION_UNAUTHENTICATED',
+      part: 'credentials.hardware.mac.auth',
+    });
+    return res.status(401).json(CommonErrors.noSession());
   }
+  const walletAddress = session.user.address;
 
   const { miner_key, credentials, portal_type } = req.body;
   if (!miner_key || !credentials) {
-    return res.status(400).json({ message: 'Missing required fields' });
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Please provide the miner key and credentials.'
+      )
+    );
   }
 
   const minerType = getMinerType(miner_key);
@@ -107,8 +166,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       portalType: portal_type as string | undefined,
       credentials,
     });
-  } catch (err) {
-    console.error('MAC validation error:', err);
-    return res.status(500).json({ message: 'Internal server error' });
+  } catch (error) {
+    handleApiError(res, '/api/credentials/hardware/mac', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to validate MAC credentials',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress,
+      issueType: 'MAC_VALIDATION_ERROR',
+      part: 'credentials.hardware.mac.handler',
+      metadata: {
+        miner_key,
+        address: walletAddress,
+        portal_type,
+      },
+    });
   }
 }

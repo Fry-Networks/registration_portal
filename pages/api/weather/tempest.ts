@@ -6,6 +6,14 @@ import { authOptions } from '../auth/[...nextauth]';
 
 import clientPromise from '../../../lib/mongoclient';
 import { ObjectId } from 'mongodb';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+import type { ApiErrorResponse } from '../../../lib/api-errors';
 
 type TempestRequestBody = {
   miner_key?: string | string[];
@@ -23,13 +31,7 @@ type TempestSuccessResponse = {
   status: 'SUCCESS';
 };
 
-type TempestErrorResponse = {
-  message: string;
-
-  status: 'ERROR';
-};
-
-type TempestApiResponse = TempestSuccessResponse | TempestErrorResponse;
+type TempestApiResponse = TempestSuccessResponse | ApiErrorResponse;
 
 type StationShape = {
   station_id?: unknown;
@@ -172,7 +174,13 @@ export default async function handler(
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
 
-    res.status(405).json({ message: 'Method Not Allowed', status: 'ERROR' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
 
     return;
   }
@@ -180,9 +188,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized', status: 'ERROR' });
-
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const body = (req.body as TempestRequestBody) ?? {};
@@ -196,26 +202,38 @@ export default async function handler(
   const address = normalizeString(body.address);
 
   if (!minerKey || !stationIdInput || !token || !address) {
-    res
-
-      .status(400)
-
-      .json({ message: 'Missing required fields', status: 'ERROR' });
-
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Provide miner key, Tempest station ID, token, and address.'
+      )
+    );
     return;
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ message: 'Unauthorized address', status: 'ERROR' });
-
+    loggers.apiError('/api/weather/tempest', new Error('Wallet mismatch during Tempest credential save'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      issueType: 'TEMPEST_WALLET_MISMATCH',
+      part: 'weather.tempest.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
     return;
   }
 
   const stationNumeric = normalizeNumber(stationIdInput);
 
   if (stationNumeric === undefined) {
-    res.status(400).json({ message: 'Invalid station ID', status: 'ERROR' });
-
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Invalid station ID',
+        'Ensure the Tempest station ID is numeric.'
+      )
+    );
     return;
   }
 
@@ -240,13 +258,9 @@ export default async function handler(
     const stationIdentifier = stationId ?? stationNumeric;
 
     if (stationIdentifier === undefined) {
-      res.status(500).json({
-        message: 'Failed to resolve Tempest station identifier.',
-
-        status: 'ERROR'
-      });
-
-      return;
+      const error = new Error('Failed to resolve Tempest station identifier.');
+      (error as Error & { statusCode?: number }).statusCode = 500;
+      throw error;
     }
 
     const existingCredential = await collection.findOne<{
@@ -263,12 +277,13 @@ export default async function handler(
       existingCredential.owner_address &&
       existingCredential.owner_address !== session.user.address
     ) {
-      res.status(409).json({
-        message: 'This Tempest station is already registered by another user.',
-
-        status: 'ERROR'
-      });
-
+      res.status(409).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'This Tempest station is already registered by another user.',
+          'Unlink the station from the other account or contact support for assistance.'
+        )
+      );
       return;
     }
 
@@ -331,11 +346,13 @@ export default async function handler(
       deviceRecord?.address &&
       deviceRecord.address !== session.user.address
     ) {
-      res.status(403).json({
-        message: 'Device is registered to another address.',
-
-        status: 'ERROR'
-      });
+      res.status(403).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'Device is registered to another address.',
+          'Sign in with the wallet that owns this device or ask support to unlink it first.'
+        )
+      );
 
       return;
     }
@@ -360,20 +377,29 @@ export default async function handler(
         status: 'SUCCESS'
       });
   } catch (error) {
-    console.error('[weather/tempest] submission error', error);
-
-    const message =
-      error instanceof Error
-        ? (error as Error & { statusCode?: number }).message
-        : 'Failed to submit Tempest credentials';
-
     const statusCode =
       error instanceof Error &&
       'statusCode' in error &&
-      typeof error.statusCode === 'number'
-        ? error.statusCode
+      typeof (error as Error & { statusCode?: number }).statusCode === 'number'
+        ? (error as Error & { statusCode?: number }).statusCode
         : 500;
 
-    res.status(statusCode).json({ message, status: 'ERROR' });
+    handleApiError(res, '/api/weather/tempest', error, {
+      status: statusCode,
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to submit Tempest credentials',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey,
+      walletAddress: session.user.address,
+      issueType: 'TEMPEST_SUBMISSION_ERROR',
+      part: 'weather.tempest.handler',
+      metadata: {
+        miner_key: minerKey,
+        stationID: stationIdInput,
+        address,
+      },
+    });
   }
 }

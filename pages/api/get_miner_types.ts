@@ -1,27 +1,46 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import axios from "axios";
 import { getServerSession } from "next-auth";
 import { authOptions } from "./auth/[...nextauth]";
-import algosdk from "algosdk";
 import clientPromise from "../../lib/mongoclient";
+import { loggers } from "../../lib/logger";
+import {
+    CommonErrors,
+    createApiError,
+    ErrorCodes,
+    handleApiError,
+} from "../../lib/api-errors";
+
+const ENDPOINT = '/api/get_miner_types';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
 
-    const session = await getServerSession(req, res, authOptions);
-    // Check if user is authenticated
-    if (!session || !session.user) {
-        console.log(`no session`);
-        res.status(401).json({ message: "Unauthorized 1" });
+    if (req.method !== 'POST') {
+        res.setHeader('Allow', 'POST');
+        res.status(405).json(
+            createApiError(
+                ErrorCodes.INVALID_INPUT,
+                'That request is not available.',
+                'Please retry this action from the dashboard.'
+            )
+        );
         return;
     }
 
-    const data: {
-        address: string
-    } = req.body;
+    const session = await getServerSession(req, res, authOptions);
+    // Check if user is authenticated
+    if (!session || !session.user?.address) {
+        res.status(401).json(CommonErrors.noSession());
+        return;
+    }
 
-    const { address } = data;
-    if (session.user.address !== address || !address) {
-        console.log(`get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`);
-        res.status(401).json({ message: "Unauthorized 2" });
+    const { address } = (req.body ?? {}) as { address?: string };
+    if (!address || session.user.address !== address) {
+        loggers.apiError(ENDPOINT, new Error('Wallet mismatch fetching miner types'), {
+            sessionAddress: session.user.address,
+            address,
+            issueType: 'MINER_TYPES_WALLET_MISMATCH',
+            part: 'get-mine-types.auth',
+        });
+        res.status(401).json(CommonErrors.walletMismatch());
         return;
     }
     try {
@@ -35,8 +54,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         res.status(200).json({ message: "ok", data });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "error" });
+        handleApiError(res, ENDPOINT, error, {
+            response: createApiError(
+                ErrorCodes.INTERNAL_ERROR,
+                'Failed to load miner types',
+                'Please try again or contact support.'
+            ),
+            walletAddress: address,
+            issueType: 'MINER_TYPES_FETCH_ERROR',
+            part: 'get-mine-types.handler',
+            metadata: {
+                address,
+            },
+        });
     }
 };
-

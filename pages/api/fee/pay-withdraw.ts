@@ -37,8 +37,8 @@ export default async function handler(
     return res.status(405).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
-        'Unsupported request method',
-        'Please use POST to trigger a fee withdrawal.'
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
       )
     );
   }

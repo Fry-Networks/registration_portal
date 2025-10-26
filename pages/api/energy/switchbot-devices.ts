@@ -10,6 +10,13 @@ import {
   sanitizeDeviceId
 } from '../../../lib/switchbot';
 import type { SwitchbotDeviceRecord } from '../../../lib/switchbot';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 type DeviceSummary = {
   deviceId: string;
@@ -60,15 +67,19 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed' });
-    return;
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const body = req.body as {
@@ -89,18 +100,34 @@ export default async function handler(
     : undefined;
 
   if (!token || !secret || !address || !minerKey) {
-    res.status(400).json({ message: 'Missing required fields' });
-    return;
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing required fields',
+        'Please provide SwitchBot token, secret, device miner key, and address.'
+      )
+    );
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ message: 'Unauthorized address' });
-    return;
+    loggers.apiError('/api/energy/switchbot-devices', new Error('Wallet mismatch during SwitchBot device listing'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      issueType: 'SWITCHBOT_DEVICE_WALLET_MISMATCH',
+      part: 'energy.switchbot-devices.auth',
+    });
+    return res.status(401).json(CommonErrors.walletMismatch());
   }
 
   if (token.length < MIN_TOKEN_LENGTH || secret.length < MIN_SECRET_LENGTH) {
-    res.status(400).json({ message: 'SwitchBot token or secret is too short.' });
-    return;
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'SwitchBot token or secret is too short',
+        'Please copy the full token and secret from your SwitchBot account.'
+      )
+    );
   }
 
   try {
@@ -110,8 +137,14 @@ export default async function handler(
     if (!payload || payload.statusCode !== 100) {
       const message =
         payload?.message ?? 'SwitchBot API rejected the provided credentials.';
-      res.status(400).json({ message });
-      return;
+      return res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'SwitchBot API rejected the credentials',
+          'Please verify your SwitchBot token and secret.',
+          { message }
+        )
+      );
     }
 
     const records = (payload.body?.deviceList ?? [])
@@ -145,13 +178,24 @@ export default async function handler(
 
     res.status(200).json({ devices: availableDevices });
   } catch (error) {
-    console.error('[energy/switchbot-devices] error', error);
-    const message =
-      error instanceof Error ? error.message : 'Failed to fetch SwitchBot devices';
     const knownError = error as Error & { statusCode?: number };
     const statusCode =
       typeof knownError.statusCode === 'number' ? knownError.statusCode : 500;
 
-    res.status(statusCode).json({ status: 'ERROR', message });
+    handleApiError(res, '/api/energy/switchbot-devices', error, {
+      status: statusCode,
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to fetch SwitchBot devices',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: session.user.address,
+      issueType: 'SWITCHBOT_DEVICE_LIST_ERROR',
+      part: 'energy.switchbot-devices.handler',
+      metadata: {
+        address,
+        minerKey,
+      },
+    });
   }
 }

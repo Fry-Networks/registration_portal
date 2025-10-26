@@ -1,9 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
+import { authOptions, MySession } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { MongoServerError } from 'mongodb';
 import { describeMacIssue, validateMacAddress } from '../../../lib/validators/macAddressValidator';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const HARDWARE_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const PORTAL_CREDS_COLLECTION = process.env.MONGO_PORTAL_CREDS_COLLECTION ?? 'portal_creds';
@@ -37,12 +44,20 @@ export default async function handler(
 ) {
   if (!['GET', 'POST', 'DELETE'].includes(req.method ?? '')) {
     res.setHeader('Allow', ['GET', 'POST', 'DELETE']);
-    res.status(405).end('Method Not Allowed');
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please manage hardware credentials from the dashboard.'
+      ) as ErrorResponse
+    );
     return;
   }
 
+  let session: MySession | null = null;
+
   try {
-    const session = await getServerSession(req, res, authOptions);
+    session = await getServerSession(req, res, authOptions);
 
     if (!session || !session.user || !session.user.address) {
       if (req.method === 'GET') {
@@ -50,7 +65,7 @@ export default async function handler(
         return;
       }
 
-      res.status(401).json({ message: 'Unauthorized' });
+      res.status(401).json(CommonErrors.noSession() as ErrorResponse);
       return;
     }
 
@@ -64,7 +79,13 @@ export default async function handler(
       const { miner_key } = req.query;
 
       if (!miner_key || typeof miner_key !== 'string') {
-        res.status(400).json({ message: 'Missing miner_key' });
+        res.status(400).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'Missing miner key',
+            'Provide the miner key to load hardware details.'
+          ) as ErrorResponse
+        );
         return;
       }
 
@@ -73,7 +94,13 @@ export default async function handler(
       if (!existingMiner) {
         res
           .status(404)
-          .json({ message: 'No registration found for miner_key' });
+          .json(
+            createApiError(
+              ErrorCodes.DEVICE_NOT_FOUND,
+              'No registration found for miner key',
+              'Verify the miner key and try again.'
+            ) as ErrorResponse
+          );
         return;
       }
 
@@ -81,7 +108,7 @@ export default async function handler(
         existingMiner.address &&
         existingMiner.address !== session.user.address
       ) {
-        res.status(403).json({ message: 'Forbidden' });
+        res.status(403).json(CommonErrors.deviceOwnerMismatch() as ErrorResponse);
         return;
       }
 
@@ -93,12 +120,24 @@ export default async function handler(
       const { miner_key, miner_mac } = req.body ?? {};
 
       if (!miner_key || typeof miner_key !== 'string') {
-        res.status(400).json({ message: 'Missing miner_key' });
+        res.status(400).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'Missing miner key',
+            'Please include the miner key when registering hardware credentials.'
+          ) as ErrorResponse
+        );
         return;
       }
 
       if (!miner_mac || typeof miner_mac !== 'string') {
-        res.status(400).json({ message: 'Missing miner_mac' });
+        res.status(400).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'Missing miner MAC',
+            'Provide the hardware MAC address for this device.'
+          ) as ErrorResponse
+        );
         return;
       }
 
@@ -106,7 +145,13 @@ export default async function handler(
 
       const validation = validateMacAddress(trimmedMac);
       if (!validation.valid || !validation.normalized) {
-        res.status(400).json({ message: describeMacIssue(validation.reason) });
+        res.status(400).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            describeMacIssue(validation.reason),
+            'Review the MAC format and try again.'
+          ) as ErrorResponse
+        );
         return;
       }
       const normalizedMac = validation.normalized;
@@ -172,9 +217,9 @@ export default async function handler(
             : '';
 
         if (existingNormalized === normalizedMac) {
-          res.status(200).json({ message: 'MAC address unchanged.' });
-          return;
-        }
+        res.status(200).json({ message: 'MAC address unchanged.' });
+        return;
+      }
 
         await portalCollection.updateOne(
           { miner_key },
@@ -203,10 +248,16 @@ export default async function handler(
       return;
     }
 
-    const { miner_key: deleteMinerKey } = req.body ?? {};
+   const { miner_key: deleteMinerKey } = req.body ?? {};
 
     if (!deleteMinerKey || typeof deleteMinerKey !== 'string') {
-      res.status(400).json({ message: 'Missing miner_key' });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Missing miner key',
+          'Provide the miner key to remove hardware credentials.'
+        ) as ErrorResponse
+      );
       return;
     }
 
@@ -215,7 +266,13 @@ export default async function handler(
     });
 
     if (!existingMiner) {
-      res.status(404).json({ message: 'No registration found for miner_key' });
+      res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'No registration found for miner key',
+          'Verify the miner key and try again.'
+        ) as ErrorResponse
+      );
       return;
     }
 
@@ -223,7 +280,7 @@ export default async function handler(
       existingMiner.address &&
       existingMiner.address !== session.user.address
     ) {
-      res.status(403).json({ message: 'Forbidden' });
+      res.status(403).json(CommonErrors.deviceOwnerMismatch() as ErrorResponse);
       return;
     }
 
@@ -257,18 +314,33 @@ export default async function handler(
 
     res.status(200).json({ message: 'Hardware credentials deleted.' });
   } catch (error) {
-    console.error('[hardware/register] error', error);
     if (error instanceof MongoServerError && error.code === 13) {
-      res.status(500).json({
-        message:
-          'Database user is not authorized to access the hardware credentials collection. Update Mongo permissions or set MONGO_CREDS_DB / MONGO_CREDS_COLLECTION.'
+      handleApiError(res, '/api/hardware/register', error, {
+        response: createApiError(
+          ErrorCodes.INTERNAL_ERROR,
+          'Not authorized to access hardware credentials',
+          'Check permissions.'
+        ),
+        walletAddress: req.body?.address ?? null,
+        issueType: 'HARDWARE_REGISTER_DB_PERMISSION_ERROR',
+        part: 'hardware.register.mongoAuth',
       });
       return;
     }
 
-    const message =
-      error instanceof Error ? error.message : 'Internal server error';
-    res.status(500).json({ message });
+    handleApiError(res, '/api/hardware/register', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unexpected hardware credential error',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: session?.user?.address ?? undefined,
+      issueType: 'HARDWARE_REGISTER_ERROR',
+      part: `hardware.register.${req.method?.toLowerCase()}`,
+      metadata: {
+        method: req.method,
+        miner_key: req.body?.miner_key,
+      },
+    });
   }
 }
-
