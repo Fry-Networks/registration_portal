@@ -168,7 +168,14 @@ export default async function handler(
         'Unable to withdraw verification stake',
         'Please try again. If this persists, contact support.'
       ),
-      metadata: { miner_key }
+      minerKey: miner_key,
+      walletAddress: address,
+      metadata: {
+        miner_key,
+        address,
+        issueType: 'VERIFICATION_STAKE_WITHDRAW_ERROR',
+        part: 'handler.finalize',
+      },
     });
   }
 }
@@ -229,6 +236,8 @@ export async function withdraw(
       address,
       asset_id,
       amount,
+      issueType: 'VERIFICATION_STAKE_WITHDRAW_ERROR',
+      part: 'withdraw.transaction',
     });
     return null;
   }

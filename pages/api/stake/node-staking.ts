@@ -6,9 +6,9 @@ import algosdk from 'algosdk';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
-import logger, { loggers } from '../../../lib/logger';
+import { loggers } from '../../../lib/logger';
 // ADDED: Import standardized error helpers for consistent API error responses
-import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
+import { CommonErrors, createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
 
 import { Product } from '../../../lib/types';
 
@@ -88,9 +88,15 @@ export default async function handler(
       });
     } else {
       // ERROR: Database update didn't match any documents (should never happen since we checked above)
-      logger.warn('Node stake update failed', {
+      loggers.apiError('/api/stake/node-staking', new Error('Node stake update failed'), {
         miner_key: miner,
         matchedCount: result.matchedCount,
+        address,
+        txId,
+        asset_id,
+        amount,
+        issueType: 'NODE_STAKE_UPDATE_FAILED',
+        part: 'node.dbUpdate',
       });
       res.status(400).json(
         createApiError(
@@ -107,18 +113,24 @@ export default async function handler(
   } catch (error) {
     // CATCH-ALL ERROR: Log the full error details and return user-friendly message
     // Occurs when: Any unexpected error happens during the node stake process
-    logger.error('Node stake operation failed', {
-      miner_key: miner,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-    });
-    res.status(500).json(
-      createApiError(
+    handleApiError(res, '/api/stake/node-staking', error, {
+      response: createApiError(
         ErrorCodes.INTERNAL_ERROR,
         'An error occurred while processing node operation stake',
         'Please try again. If the problem persists, contact support.',
         { errorId: `${miner}-${Date.now()}` }
-      )
-    );
+      ),
+      minerKey: miner,
+      walletAddress: address,
+      issueType: 'NODE_STAKE_ERROR',
+      part: 'node.handler',
+      metadata: {
+        miner_key: miner,
+        address,
+        txId,
+        asset_id,
+        amount,
+      },
+    });
   }
 }

@@ -176,8 +176,8 @@ export default async function handler(
       .json(
         createApiError(
           ErrorCodes.INVALID_INPUT,
-          'Unsupported request method',
-          'Please submit bug reports with a POST request'
+          'That request is not available.',
+          'Please submit bug reports from the dashboard.'
         )
       );
     return;

@@ -64,8 +64,8 @@ export default async function handler(
     res.status(405).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
-        'Unsupported request method',
-        'Use GET to retrieve announcements.'
+        'That request is not available.',
+        'Please access announcements through the dashboard.'
       )
     );
     return;

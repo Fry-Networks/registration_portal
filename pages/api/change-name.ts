@@ -21,8 +21,8 @@ export default async function handler(
     res.status(405).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
-        'Unsupported request method',
-        'Please use POST when updating a device nickname.'
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
       )
     );
     return;

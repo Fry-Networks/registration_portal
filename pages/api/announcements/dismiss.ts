@@ -21,8 +21,8 @@ export default async function handler(
     res.status(405).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
-        'Unsupported request method',
-        'Use POST to dismiss an announcement.'
+        'That request is not available.',
+        'Please dismiss announcements from the dashboard.'
       )
     );
     return;

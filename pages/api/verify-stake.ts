@@ -26,8 +26,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.status(405).json(
             createApiError(
                 ErrorCodes.INVALID_INPUT,
-                'Unsupported request method',
-                'Submit stake verification using POST.'
+                'That request is not available.',
+                'Please retry this action from the dashboard.'
             )
         );
         return;

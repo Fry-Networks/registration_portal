@@ -5,9 +5,9 @@ import algosdk from 'algosdk';
 import type { indexerModels } from 'algosdk'; // Reuse Algorand indexer typings to satisfy strict TypeScript checks
 import clientPromise from '../../../lib/mongoclient';
 import mongoose from 'mongoose';
-import logger, { loggers } from '../../../lib/logger';
+import { loggers } from '../../../lib/logger';
 // ADDED: Import standardized error helpers for consistent API error responses
-import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
+import { CommonErrors, createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
 import {
   Algodv2,
   Indexer,
@@ -39,7 +39,7 @@ export default async function handler(
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
@@ -53,10 +53,7 @@ export default async function handler(
   const { miner, txId, address, asset_id, amount } = data;
   try {
     if (session.user.address !== address || !address) {
-      // console.log(
-      //   `stake session.user.address: ${session.user.address}, address: ${address} SPOOF`
-      // );
-      res.status(401).json({ message: 'Unauthorized 2' });
+      res.status(401).json(CommonErrors.walletMismatch());
       return;
     }
     const client = await clientPromise;
@@ -65,7 +62,7 @@ export default async function handler(
       .collection('products')
       .findOne({ key: miner.split('-')[0] })) as Product;
     if (!product) {
-      res.status(404).json({ message: 'not found' });
+      res.status(404).json(CommonErrors.productNotFound());
       return;
     }
     /*let price = await getFRYPrice();
@@ -75,7 +72,13 @@ export default async function handler(
         const FRYamount = Math.floor((USD / price))
         */
     if (!product.reward.stake) {
-      res.status(404).json({ message: 'product stake empty' });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'This product does not define a verification stake',
+          'Please contact support to confirm the staking requirements.'
+        )
+      );
       return;
     }
     const stake_amt = amount;
@@ -84,16 +87,28 @@ export default async function handler(
       .collection(testMode ? 'test-devices' : 'devices')
       .findOne({ miner_key: miner });
     if (!miner_data) {
-      res.status(404).json({ message: 'miner not found' });
+      res.status(404).json(CommonErrors.deviceNotFound());
       return;
     }
     if (miner_data.verified) {
-      res.status(400).json({ message: 'already verified' });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.ALREADY_STAKED,
+          'This device is already verified',
+          'If you believe this is incorrect, please contact support.'
+        )
+      );
       return;
     }
     const FRYamount = stake_amt;
     if (FRYamount === 0) {
-      res.status(404).json({ message: 'withdraw = 0' });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.ZERO_STAKE_AMOUNT,
+          'Stake amount cannot be zero',
+          'Please submit the verification transaction again with the correct amount.'
+        )
+      );
       return;
     }
 
@@ -123,7 +138,22 @@ export default async function handler(
     }
 
     if (!checking) {
-      res.status(400).json({ message: 'Failed in trasaction verification' });
+      loggers.apiError('/api/stake/verify-node', new Error('Transaction verification timed out'), {
+        miner_key: miner,
+        address,
+        txId,
+        asset_id,
+        amount: FRYamount,
+        issueType: 'NODE_VERIFICATION_TX_TIMEOUT',
+        part: 'verify-node.transactionCheck',
+      });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_TRANSACTION,
+          'We could not verify the staking transaction on-chain',
+          'Please confirm the transaction ID and try again.'
+        )
+      );
       return;
     }
 
@@ -150,20 +180,48 @@ export default async function handler(
         matchedCount: result.matchedCount,
       });
     } else {
-      logger.warn('Node verification update failed', {
+      loggers.apiError('/api/stake/verify-node', new Error('Node verification update failed'), {
         miner_key: miner,
+        address,
+        txId,
+        asset_id,
+        amount: FRYamount,
+        issueType: 'NODE_VERIFICATION_UPDATE_FAILED',
+        part: 'verify-node.dbUpdate',
         matchedCount: result.matchedCount,
       });
+      res.status(400).json(
+        createApiError(
+          ErrorCodes.UPDATE_FAILED,
+          'Failed to update node verification status',
+          'Please try again. If the problem persists, contact support.',
+          { miner_key: miner }
+        )
+      );
+      return;
     }
 
-    res.status(200).json({ message: 'ok' });
+    res.status(200).json({ success: true, message: 'ok' });
   } catch (error) {
-    logger.error('Node verification operation failed', {
-      miner_key: miner,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+    handleApiError(res, '/api/stake/verify-node', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'An error occurred while processing node verification',
+        'Please try again. If the problem persists, contact support.',
+        { errorId: `${miner}-${Date.now()}` }
+      ),
+      minerKey: miner,
+      walletAddress: address,
+      issueType: 'NODE_VERIFICATION_ERROR',
+      part: 'verify-node.handler',
+      metadata: {
+        miner_key: miner,
+        address,
+        txId,
+        asset_id,
+        amount,
+      },
     });
-    res.status(500).json({ message: 'error' });
   }
 }
 
@@ -198,10 +256,10 @@ async function confirmTransaction(
     amount = confirmedTxn['txn']['txn'][amountField] || 0; // Default to 0 if amt field is missing
     if (amount < lowerBound || amount > upperBound) return { code: 3 };
   } catch (error) {
-    logger.error('Transaction confirmation failed', {
+    loggers.apiError('/api/stake/verify-node#confirm', error, {
       txId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      issueType: 'NODE_VERIFICATION_CONFIRMATION_FAILED',
+      part: 'verify-node.confirmTransaction',
     });
     return { code: 4 };
   }

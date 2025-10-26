@@ -2,6 +2,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+import type { ApiErrorResponse } from '../../../lib/api-errors';
 
 type UnregisterRequestBody = {
   miner_key?: string | string[];
@@ -14,14 +22,9 @@ type UnregisterSuccessResponse = {
   status: 'SUCCESS';
 };
 
-type UnregisterErrorResponse = {
-  message: string;
-  status: 'ERROR';
-};
-
 type UnregisterApiResponse =
   | UnregisterSuccessResponse
-  | UnregisterErrorResponse;
+  | ApiErrorResponse;
 
 const WEATHER_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 const WEATHER_COLLECTION =
@@ -46,15 +49,19 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed', status: 'ERROR' });
-    return;
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
   }
 
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user?.address) {
-    res.status(401).json({ message: 'Unauthorized', status: 'ERROR' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const body = (req.body as UnregisterRequestBody) ?? {};
@@ -63,15 +70,29 @@ export default async function handler(
   const address = normalizeString(body.address);
 
   if (!minerKey || !apiType || !address) {
-    res
+    return res
       .status(400)
-      .json({ message: 'Missing required fields', status: 'ERROR' });
-    return;
+      .json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Missing required fields',
+          'Provide miner key, credential type, and wallet address.'
+        )
+      );
   }
 
   if (address !== session.user.address) {
-    res.status(401).json({ message: 'Unauthorized address', status: 'ERROR' });
-    return;
+    loggers.apiError('/api/weather/unregister', new Error('Wallet mismatch during weather credential unregister'), {
+      sessionAddress: session.user.address,
+      address,
+      miner_key: minerKey,
+      api_type: apiType,
+      issueType: 'WEATHER_UNREGISTER_WALLET_MISMATCH',
+      part: 'weather.unregister.auth',
+    });
+    return res
+      .status(401)
+      .json(CommonErrors.walletMismatch());
   }
 
   try {
@@ -89,8 +110,7 @@ export default async function handler(
       existingRecord.owner_address &&
       existingRecord.owner_address !== session.user.address
     ) {
-      res.status(403).json({ message: 'Forbidden', status: 'ERROR' });
-      return;
+      return res.status(403).json(CommonErrors.deviceOwnerMismatch());
     }
 
     const deleteResult = await weatherCollection.deleteOne({
@@ -99,10 +119,15 @@ export default async function handler(
     });
 
     if (deleteResult.deletedCount === 0) {
-      res
+      return res
         .status(404)
-        .json({ message: 'No credential found to remove.', status: 'ERROR' });
-      return;
+        .json(
+          createApiError(
+            ErrorCodes.DEVICE_NOT_FOUND,
+            'No credential found to remove.',
+            'Refresh the page to confirm the credential is still linked.'
+          )
+        );
     }
 
     const testMode =
@@ -123,7 +148,21 @@ export default async function handler(
       status: 'SUCCESS'
     });
   } catch (error) {
-    console.error('[weather/unregister] error', error);
-    res.status(500).json({ message: 'Internal server error', status: 'ERROR' });
+    handleApiError(res, '/api/weather/unregister', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Internal server error',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey,
+      walletAddress: session.user.address,
+      issueType: 'WEATHER_UNREGISTER_ERROR',
+      part: 'weather.unregister.handler',
+      metadata: {
+        miner_key: minerKey,
+        api_type: apiType,
+        address,
+      },
+    });
   }
 }
