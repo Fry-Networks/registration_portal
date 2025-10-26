@@ -4,28 +4,40 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { FRY_2, ALL_RELEASE_DATE, CORE_RELEASE_DATE, MODS_RELEASE_DATE } from '../../../lib/utils';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+
+const ENDPOINT = '/api/conversion/get_fry_conversion';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
-  const data: {
-    address: string;
-    convertType: string;
-  } = req.body;
+  const { address, convertType } = (req.body ?? {}) as {
+    address?: string;
+    convertType?: string;
+  };
 
-  const { address, convertType } = data;
   if (session.user.address !== address || !address) {
-    console.log(
-      `Fry_Conversion session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
-    res.status(401).json({ message: 'Unauthorized 2' });
+    loggers.apiError(ENDPOINT, new Error('Wallet mismatch retrieving conversion state'), {
+      sessionAddress: session.user.address,
+      address,
+      issueType: 'FRY_CONVERSION_WALLET_MISMATCH',
+      part: 'conversion.get-fry.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
     return;
   }
   try {
@@ -34,10 +46,13 @@ export default async function handler(
     const collection = db.collection('fry-conversions');
     const user = await collection.findOne({ address });
     if (!user) {
-      res.status(401).json({
-        success: false,
-        message: 'Not Existed Account For Conversion.'
-      });
+      res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'No conversion account found for this wallet',
+          'Please verify the wallet address and try again.'
+        )
+      );
       return;
     }
 
@@ -79,10 +94,13 @@ export default async function handler(
       }
 
       if (success === false) {
-        res.status(401).json({
-          success: false,
-          message: `Failed to add the rewards for account ${address}.`
-        });
+        res.status(500).json(
+          createApiError(
+            ErrorCodes.UPDATE_FAILED,
+            `Failed to update conversion totals for ${address}`,
+            'Please retry in a few minutes.'
+          )
+        );
         return;
       }
 
@@ -101,7 +119,19 @@ export default async function handler(
       user // user object includes 'history' array if present in DB
     });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to compute conversion state',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: address,
+      issueType: 'FRY_CONVERSION_STATE_ERROR',
+      part: 'conversion.get-fry.handler',
+      metadata: {
+        address,
+        convertType,
+      },
+    });
   }
 }

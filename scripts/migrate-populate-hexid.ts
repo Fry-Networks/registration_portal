@@ -44,6 +44,7 @@ async function run() {
     firstMinerKeysArgIndex >= 0 && args[firstMinerKeysArgIndex + 1]
       ? Number(args[firstMinerKeysArgIndex + 1])
       : undefined;
+  const checkResidualOnly = args.includes('--check-residual');
 
   // Allow passing MONGO_URI inline via --mongo-uri, otherwise fall back to env
   const mongoUriArgIndex = args.findIndex((a) => a === '--mongo-uri');
@@ -112,6 +113,190 @@ async function run() {
   const mainDb = client.db('main');
   const credsDbName = process.env.MONGO_CREDS_DB ?? 'creds';
   const credsDb = client.db(credsDbName);
+  const devicesColl = mainDb.collection('devices');
+
+  if (checkResidualOnly) {
+    console.log('\n=== Residual Position/hexId Check (main.devices) ===\n');
+    const residualFilter = {
+      $or: [
+        { 'position.lat': { $exists: true } },
+        { 'position.lng': { $exists: true } },
+        { hexId: { $exists: true } }
+      ]
+    };
+
+    const totalResidual = await devicesColl.countDocuments(residualFilter);
+    const withPosition = await devicesColl.countDocuments({
+      $or: [{ 'position.lat': { $exists: true } }, { 'position.lng': { $exists: true } }]
+    });
+    const withHexId = await devicesColl.countDocuments({ hexId: { $exists: true } });
+
+    console.log(`Devices with residual fields: ${totalResidual}`);
+    console.log(`  • With position lat/lng:   ${withPosition}`);
+    console.log(`  • With hexId:             ${withHexId}`);
+
+    if (totalResidual === 0) {
+      await client.close();
+      process.exit(0);
+    }
+
+    const residualDocs = await devicesColl
+      .find<{
+        _id: any;
+        miner_key?: string;
+        address?: string;
+        position?: { lat?: unknown; lng?: unknown } | null;
+        hexId?: unknown;
+      }>(residualFilter, {
+        projection: { _id: 1, miner_key: 1, address: 1, position: 1, hexId: 1 }
+      })
+      .toArray();
+
+    console.log('\nResidual device list:');
+    residualDocs.forEach((doc, index) => {
+      const key = doc.miner_key ?? '(unknown miner key)';
+      const positionInfo =
+        doc.position !== undefined ? JSON.stringify(doc.position) : 'null';
+      const hexInfo =
+        doc.hexId !== undefined ? JSON.stringify(doc.hexId) : 'null';
+      const addressInfo = doc.address ? ` | address=${doc.address}` : '';
+      console.log(
+        `  [${index + 1}/${residualDocs.length}] ${key}${addressInfo} | position=${positionInfo} | hexId=${hexInfo}`
+      );
+    });
+
+    const readline = await import('node:readline/promises');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    let deletedCount = 0;
+    let wouldDeleteCount = 0;
+    let skippedCount = 0;
+
+    try {
+      const modeAnswerRaw = await rl.question(
+        '\nChoose action: [a] delete all residual fields, [o] review one by one, [s] skip (default s): '
+      );
+      const mode = modeAnswerRaw.trim().toLowerCase();
+
+      const actAll = mode === 'a' || mode === 'all' || mode === 'y' || mode === 'yes';
+      const actOneByOne = mode === 'o' || mode === 'one' || mode === 'each';
+
+      if (actAll) {
+        for (const doc of residualDocs) {
+          const key = doc.miner_key ?? '(unknown miner key)';
+          const unset: Record<string, ''> = {};
+          if (doc.position !== undefined) {
+            unset['position'] = '';
+          }
+          if (doc.hexId !== undefined) {
+            unset['hexId'] = '';
+          }
+          if (Object.keys(unset).length === 0) {
+            skippedCount += 1;
+            continue;
+          }
+
+          if (dryRun) {
+            wouldDeleteCount += 1;
+            console.log(`  [DRY RUN] Would remove residual fields for ${key}.`);
+          } else {
+            const result = await devicesColl.updateOne(
+              { _id: doc._id },
+              { $unset: unset }
+            );
+            if (result.modifiedCount && result.modifiedCount > 0) {
+              deletedCount += 1;
+              console.log(`  Removed residual fields for ${key}.`);
+            } else {
+              skippedCount += 1;
+            }
+          }
+        }
+      } else if (actOneByOne) {
+        for (let index = 0; index < residualDocs.length; index++) {
+          const doc = residualDocs[index];
+          const key = doc.miner_key ?? '(unknown miner key)';
+          const positionInfo =
+            doc.position !== undefined ? JSON.stringify(doc.position) : 'null';
+          const hexInfo =
+            doc.hexId !== undefined ? JSON.stringify(doc.hexId) : 'null';
+
+          console.log(`\n[${index + 1}/${residualDocs.length}] Miner key: ${key}`);
+          if (doc.address) {
+            console.log(`  Address: ${doc.address}`);
+          }
+          console.log(`  Position: ${positionInfo}`);
+          console.log(`  hexId: ${hexInfo}`);
+
+          const answerRaw = await rl.question(
+            'Remove position/hexId from main.devices for this record? (y/N to skip, q to quit): '
+          );
+          const answer = answerRaw.trim().toLowerCase();
+
+          if (answer === 'q' || answer === 'quit') {
+            console.log('Aborting at user request.');
+            break;
+          }
+
+          if (answer === 'y' || answer === 'yes') {
+            const unset: Record<string, ''> = {};
+            if (doc.position !== undefined) {
+              unset['position'] = '';
+            }
+            if (doc.hexId !== undefined) {
+              unset['hexId'] = '';
+            }
+
+            if (Object.keys(unset).length === 0) {
+              console.log('  No residual fields detected during update. Skipping.');
+              skippedCount += 1;
+              continue;
+            }
+
+            if (dryRun) {
+              wouldDeleteCount += 1;
+              console.log(`  [DRY RUN] Would remove residual fields for ${key}.`);
+            } else {
+              const result = await devicesColl.updateOne(
+                { _id: doc._id },
+                { $unset: unset }
+              );
+              if (result.modifiedCount && result.modifiedCount > 0) {
+                deletedCount += 1;
+                console.log(`  Removed residual fields for ${key}.`);
+              } else {
+                console.log(
+                  '  Update did not modify any documents (fields may have been removed already).'
+                );
+                skippedCount += 1;
+              }
+            }
+          } else {
+            skippedCount += 1;
+            console.log('  Skipped.');
+          }
+        }
+      } else {
+        console.log('Skipping cleanup (no action taken).');
+      }
+    } finally {
+      rl.close();
+    }
+
+    console.log('\nResidual cleanup summary:');
+    if (dryRun) {
+      console.log(`  Would delete fields on: ${wouldDeleteCount}`);
+    } else {
+      console.log(`  Deleted fields on:       ${deletedCount}`);
+    }
+    console.log(`  Skipped:                ${skippedCount}`);
+
+    await client.close();
+    process.exit(0);
+  }
 
   if (dryRun) {
     console.log('\n╔════════════════════════════════════════╗');
@@ -125,8 +310,6 @@ async function run() {
     credsDbName,
     dryRun ? '[DRY-RUN MODE]' : '[LIVE MODE]'
   );
-
-  const devicesColl = mainDb.collection('devices');
 
   // Phase 1: Clean up existing creds documents with position data
   console.log('\n=== Phase 1: Cleaning up existing creds documents ===');

@@ -1,21 +1,21 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk from 'algosdk';
 import type { indexerModels } from 'algosdk'; // Use Algorand indexer typings for safer transaction access
+import { loggers } from '../../../lib/logger';
 import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
 import mongoose from 'mongoose';
 import {
-  Algodv2,
-  Indexer,
-  makeAssetTransferTxnWithSuggestedParamsFromObject,
-  mnemonicToSecretKey,
-  Account
+  Indexer
 } from 'algosdk';
-import { check } from 'prettier';
 import { VERIFY_RESULT } from '../../../lib/txn';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const token = '';
 const port = 443;
@@ -42,16 +42,39 @@ export default async function handler(
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
-  const data: {
-    address: string;
-    txId: string;
-  } = req.body;
-  const { address, txId } = data;
+  const { address, txId } = (req.body ?? {}) as {
+    address?: string;
+    txId?: string;
+  };
+
+  if (!address || !txId) {
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing transaction verification parameters',
+        'Provide the wallet address and transaction ID to verify.'
+      )
+    );
+    return;
+  }
+
+  if (session.user.address !== address) {
+    loggers.apiError('/api/algorand/verify-txn', new Error('Wallet mismatch during transaction verify'), {
+      sessionAddress: session.user.address,
+      address,
+      txId,
+      issueType: 'VERIFY_TXN_WALLET_MISMATCH',
+      part: 'algorand.verify-txn.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
+    return;
+  }
+
   try {
     let checking = false;
     let checkingRetry = 0;
@@ -87,8 +110,20 @@ export default async function handler(
 
     res.status(200).json({ success: true, message: 'ok' });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/algorand/verify-txn', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to verify transaction status',
+        'Please try again. If the issue persists, contact support.'
+      ),
+      walletAddress: address,
+      issueType: 'VERIFY_TXN_HANDLER_ERROR',
+      part: 'algorand.verify-txn.handler',
+      metadata: {
+        address,
+        txId,
+      },
+    });
   }
 }
 
@@ -126,7 +161,12 @@ export async function verifyTransaction(address: string, txId: string) {
       return VERIFY_RESULT.FAILED;
     }
   } catch (error) {
-    console.error(address + ':' + error);
+    loggers.apiError('/api/algorand/verify-txn#lookup', error, {
+      address,
+      txId,
+      issueType: 'VERIFY_TXN_LOOKUP_ERROR',
+      part: 'algorand.verify-txn.lookup',
+    });
     return VERIFY_RESULT.INTERNAL_ERROR;
   }
 }

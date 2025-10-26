@@ -9,8 +9,15 @@ import {
   FRY_2,
   fNODE,
   getFRYAssetBalances,
-  normalizeAssetId
+  normalizeAssetId,
 } from '../../../lib/utils';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -26,25 +33,46 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const session = await getServerSession(req, res, authOptions);
-  // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
-    return;
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
   }
 
-  const data: {
-    address: string;
-    convertType: string;
-  } = req.body;
+  const session = await getServerSession(req, res, authOptions);
+  if (!session || !session.user) {
+    return res.status(401).json(CommonErrors.noSession());
+  }
+  const walletAddress = session.user.address;
 
-  const { address, convertType } = data;
-  if (session.user.address !== address || !address) {
-    console.log(
-      `Fry_Conversion session.user.address: ${session.user.address}, address: ${address} SPOOF`
+  const { address, convertType } = (req.body ?? {}) as {
+    address?: string;
+    convertType?: string;
+  };
+
+  if (!address || typeof address !== 'string' || !convertType) {
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing conversion parameters',
+        'Please include the wallet address and conversion type.'
+      )
     );
-    res.status(401).json({ message: 'Unauthorized 2' });
-    return;
+  }
+
+  if (walletAddress !== address) {
+    loggers.apiError('/api/conversion/transfer_reward', new Error('Wallet mismatch during conversion transfer'), {
+      sessionAddress: walletAddress,
+      address,
+      issueType: 'FRY_CONVERSION_WALLET_MISMATCH',
+      part: 'transfer-reward.auth',
+    });
+    return res.status(401).json(CommonErrors.walletMismatch());
   }
 
   try {
@@ -53,11 +81,13 @@ export default async function handler(
     const collection = db.collection('fry-conversions');
     const user = await collection.findOne({ address });
     if (!user) {
-      res.status(401).json({
-        success: false,
-        message: 'Not Existed Account For Conversion.'
-      });
-      return;
+      return res.status(401).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'No conversion account found for this wallet',
+          'Please verify the address and try again.'
+        )
+      );
     }
 
     const assetId = convertType === FRY_2.id ? FRY_2.id : fNODE.id;
@@ -65,10 +95,17 @@ export default async function handler(
 
     const vaultBalance = await getFRYAssetBalances(assetId);
     if (vaultBalance < claimableAmount) {
-      res.status(402).json({
-        message: `Conversion failed: Insufficient funds available in the rewards vault to process your claim. Vault Balance: ${vaultBalance}, Your Claimable Amount: ${claimableAmount.toFixed(5)} Please contact support to resolve this.`
-      });
-      return;
+      return res.status(402).json(
+        createApiError(
+          ErrorCodes.UPDATE_FAILED,
+          'Conversion failed: insufficient vault balance',
+          'Please contact support so we can top up the conversion vault.',
+          {
+            vaultBalance,
+            claimableAmount: Number(claimableAmount.toFixed(5)),
+          }
+        )
+      );
     }
 
     const claimableMonths = Number(user.claimableMonths ?? 0);
@@ -76,20 +113,20 @@ export default async function handler(
     const pendingAmount = Number(user.pendingAmount ?? 0);
 
     if (claimableAmount <= 0 || claimableMonths <= 0) {
-      res.status(400).json({
-        success: false,
-        message: 'No claimable conversion amount available yet. Refresh to check your vesting schedule.'
-      });
-      return;
+      return res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'No claimable conversion amount available yet',
+          'Refresh to check your vesting schedule and try again next month.'
+        )
+      );
     }
 
     const ratio = Array.isArray(user.ratio) && user.ratio.length >= 2 ? user.ratio : [80, 40];
-
     const tokenLabel = convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE';
 
-    const fryPortion = convertType === FRY_2.id
-      ? claimableAmount * ratio[0]
-      : claimableAmount * ratio[1];
+    const fryPortion =
+      convertType === FRY_2.id ? claimableAmount * ratio[0] : claimableAmount * ratio[1];
 
     const pendingAfter = Math.max(0, Number((pendingAmount - fryPortion).toFixed(8)));
 
@@ -98,7 +135,7 @@ export default async function handler(
       claimableAmount,
       claimableMonths,
       claimedMonths,
-      isProcessing: { $ne: true }
+      isProcessing: { $ne: true },
     };
 
     const now = new Date();
@@ -107,23 +144,24 @@ export default async function handler(
       $set: {
         isProcessing: true,
         processingStartedAt: now,
-        lastConversionAttemptAt: now
-      }
+        lastConversionAttemptAt: now,
+      },
     });
 
     if (lockResult.modifiedCount <= 0) {
-      res.status(409).json({
-        success: false,
-        message: 'Another conversion is already in progress. Please wait a moment and try again.'
-      });
-      return;
+      return res.status(409).json(
+        createApiError(
+          ErrorCodes.OPERATION_IN_PROGRESS,
+          'Another conversion is already in progress',
+          'Please wait a moment and try again.'
+        )
+      );
     }
 
     let shouldReleaseLock = true;
 
     try {
       const accountInfo = await algodClient.accountInformation(address).do();
-      // Keep comparisons stable even when indexer returns bigint ids.
       const normalizedTarget = normalizeAssetId(assetId);
       const assets = (accountInfo.assets ?? []) as Array<{
         ['asset-id']?: number | string | bigint;
@@ -132,16 +170,18 @@ export default async function handler(
       }>;
       const isOptedIn = assets.some((a) => {
         const candidate =
-          a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ??
-          null;
+          a['asset-id'] ?? a.assetId ?? (a as Record<string, unknown>)?.asset_id ?? null;
         return normalizeAssetId(candidate) === normalizedTarget;
       });
 
       if (!isOptedIn) {
-        res.status(402).json({
-          message: `Please opt-in the ${tokenLabel} asset to your account.`
-        });
-        return;
+        return res.status(402).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            `Please opt in to the ${tokenLabel} asset`,
+            'Open your Algorand wallet and opt in before retrying.'
+          )
+        );
       }
 
       const suggestedParams = await algodClient.getTransactionParams().do();
@@ -154,7 +194,7 @@ export default async function handler(
         title: 'FRY 1.0 Conversion',
         asset_id: assetId,
         amount: claimableAmount,
-        date: now
+        date: now,
       };
 
       const enc = new TextEncoder();
@@ -176,18 +216,24 @@ export default async function handler(
       const signedTxn = txn.signTxn(rekey.sk);
       const tx = await algodClient.sendRawTransaction(signedTxn).do();
       if (!tx) {
-        res.status(402).json({
-          message: 'Failed to make claiming transaction for conversion'
-        });
-        return;
+        return res.status(402).json(
+          createApiError(
+            ErrorCodes.TRANSACTION_FAILED,
+            'Failed to submit conversion transaction',
+            'Please try again shortly.'
+          )
+        );
       }
 
       const result = await verifyTransaction(account.addr.toString(), tx.txid);
       if (result !== VERIFY_RESULT.OK) {
-        res
-          .status(402)
-          .json({ message: 'Failed to verify claim transaction' });
-        return;
+        return res.status(402).json(
+          createApiError(
+            ErrorCodes.TRANSACTION_FAILED,
+            'Failed to verify conversion transaction',
+            'Please wait a moment and try again.'
+          )
+        );
       }
 
       const finalUpdate = await collection.updateOne(
@@ -200,18 +246,18 @@ export default async function handler(
             pendingAmount: pendingAfter,
             isProcessing: false,
             lastConversionAt: now,
-            lastConversionTxId: tx.txid
+            lastConversionTxId: tx.txid,
           },
           $unset: {
-            processingStartedAt: ''
+            processingStartedAt: '',
           },
           $push: {
             history: {
               amount: claimableAmount,
               tokenType: tokenLabel,
-              date: now
-            }
-          }
+              date: now,
+            },
+          },
         }
       );
 
@@ -223,8 +269,8 @@ export default async function handler(
 
       return res.status(200).json({
         success: true,
-        message: `You’ve received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule. Check back next month for your next claim!`,
-        txId: tx.txid
+        message: `You have received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule. Check back next month for your next claim!`,
+        txId: tx.txid,
       });
     } finally {
       if (shouldReleaseLock) {
@@ -233,23 +279,36 @@ export default async function handler(
             { address },
             {
               $set: {
-                isProcessing: false
+                isProcessing: false,
               },
               $unset: {
-                processingStartedAt: ''
-              }
+                processingStartedAt: '',
+              },
             }
           );
         } catch (unlockError) {
-          console.error('Failed to release fry conversion processing lock', {
+          loggers.apiError('/api/conversion/transfer_reward', unlockError, {
             address,
-            error: unlockError instanceof Error ? unlockError.message : unlockError
+            issueType: 'FRY_CONVERSION_UNLOCK_ERROR',
+            part: 'transfer-reward.unlock',
           });
         }
       }
     }
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    handleApiError(res, '/api/conversion/transfer_reward', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to process FRY conversion claim',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress,
+      issueType: 'FRY_CONVERSION_TRANSFER_ERROR',
+      part: 'transfer-reward.handler',
+      metadata: {
+        address,
+        convertType,
+      },
+    });
   }
 }

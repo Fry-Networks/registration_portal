@@ -3,20 +3,27 @@ import clientPromise from '../../../lib/mongoclient';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { hydrateDeviceWithPosition } from '../../../lib/devicePosition';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
-  const {address} = req.body;
+  const walletAddress = session.user.address;
+
+  const { address } = req.body ?? {};
 
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -24,7 +31,13 @@ export default async function handler(
   const { miner_key } = req.query;
 
   if (!miner_key || typeof miner_key !== 'string') {
-    return res.status(400).json({ error: 'Invalid or missing miner_key' });
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Invalid or missing miner key',
+        'Please provide the device miner key.'
+      )
+    );
   }
 
   try {
@@ -36,20 +49,31 @@ export default async function handler(
       .findOne({ miner_key });
 
     if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'Device not found',
+          'Please verify the miner key and try again.'
+        )
+      );
     }
 
     const hydratedDevice = await hydrateDeviceWithPosition(client, device as any);
 
     if (address) {
-      if (session.user.address !== address) {
-        res.status(401).json({ message: 'Unauthorized 1' });
-        return;
+      if (walletAddress !== address) {
+        loggers.apiError('/api/devices/[miner_key]', new Error('Wallet mismatch loading device detail'), {
+          sessionAddress: walletAddress,
+          address,
+          miner_key,
+          issueType: 'DEVICE_DETAIL_WALLET_MISMATCH',
+          part: 'devices.miner-key.auth',
+        });
+        return res.status(401).json(CommonErrors.walletMismatch());
       }
 
-      if (device.address && device.address !== session.user.address) {
-        res.status(401).json({ message: 'Unauthorized 2' });
-        return;
+      if (device.address && device.address !== walletAddress) {
+        return res.status(401).json(CommonErrors.walletMismatch());
       }
       return res.status(200).json({ device: hydratedDevice });
     }
@@ -62,7 +86,21 @@ export default async function handler(
       }
     });
   } catch (error) {
-    console.error(`Error fetching device : ${miner_key}`, error);
-    return res.status(500).json({ error: 'Internal Server Error' });
+    handleApiError(res, '/api/devices/[miner_key]', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to load device information',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress,
+      issueType: 'DEVICE_FETCH_ERROR',
+      part: 'devices.miner-key.handler',
+      metadata: {
+        miner_key,
+        address,
+        hasAddressFilter: Boolean(address),
+      },
+    });
   }
 }

@@ -1,11 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
-import algosdk from 'algosdk';
 import { getServerSession } from 'next-auth';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { FRY_1, FC_CHECKED, FC_UNCHECKED, FC_STARTED } from '../../../lib/utils';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
+
+const ENDPOINT = '/api/conversion/check_avail_conversion';
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,22 +20,24 @@ export default async function handler(
 ) {
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
-  const data: {
-    address: string;
-    isLoading: boolean;
-  } = req.body;
+  const { address, isLoading } = (req.body ?? {}) as {
+    address?: string;
+    isLoading?: boolean;
+  };
 
-  const { address, isLoading } = data;
   if (session.user.address !== address || !address) {
-    console.log(
-      `Fry_Conversion session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
-    res.status(401).json({ message: 'Unauthorized 2' });
+    loggers.apiError(ENDPOINT, new Error('Wallet mismatch on conversion availability check'), {
+      sessionAddress: session.user.address,
+      address,
+      issueType: 'CONVERSION_CHECK_WALLET_MISMATCH',
+      part: 'conversion.check-avail.auth',
+    });
+    res.status(401).json(CommonErrors.walletMismatch());
     return;
   }
   try {
@@ -51,7 +60,12 @@ export default async function handler(
       }
 
       if (user['amount'] === 0) {
-        res.status(401).json({ message: 'The Empty Balance For Conversion.' });
+        res.status(400).json(
+          createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'The balance for conversion is zero.'
+          )
+        );
         return;
       
       } else {
@@ -71,10 +85,13 @@ export default async function handler(
         }
     
         if (success === false) {
-          res.status(402).json({
-            success: false,
-            message: `Failed to set checking available for account ${address}.`
-          });
+          res.status(500).json(
+            createApiError(
+              ErrorCodes.UPDATE_FAILED,
+              `Failed to update conversion availability for ${address}`,
+              'Please retry in a few minutes.'
+            )
+          );
           return;
         }
       }
@@ -82,10 +99,28 @@ export default async function handler(
       return;
     }
 
-    res.status(402).json({ success: false, message: 'Invalid Account For FRY1.0 Conversion' });
+    res.status(404).json(
+      createApiError(
+        ErrorCodes.DEVICE_NOT_FOUND,
+        'Invalid account for FRY1.0 conversion',
+        'Please confirm the wallet address and try again.'
+      )
+    );
     return;
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to evaluate conversion availability',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: address,
+      issueType: 'FRY_CONVERSION_CHECK_ERROR',
+      part: 'conversion.check-avail.handler',
+      metadata: {
+        address,
+        isLoading,
+      },
+    });
   }
 }

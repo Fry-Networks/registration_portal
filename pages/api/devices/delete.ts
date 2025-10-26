@@ -2,8 +2,13 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
-import { withdraw } from '../stake/stake-withdraw';
+import logger from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 import { Product } from '../../../lib/types';
 
 const DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
@@ -19,11 +24,21 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
+  }
+
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
-    res.status(401).json({ message: 'No session' });
-    return;
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const { miner_key, address } = req.body;
@@ -35,18 +50,27 @@ export default async function handler(
     const exists = await collection.findOne({ miner_key: miner_key });
 
     if (!exists) {
-      res.status(400).json({ message: 'Miner key is not found' });
-      return;
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'Miner key not found',
+          'Please verify the miner key and try again.'
+        )
+      );
     }
 
     if (!exists.is_registered) {
-      res.status(400).json({ message: 'Miner is not registered' });
-      return;
+      return res.status(400).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_REGISTERED,
+          'This device is not registered',
+          'Refresh the page to confirm its status.'
+        )
+      );
     }
 
     if (exists.address && exists.address !== session.user.address) {
-      res.status(401).json({ message: 'Unauthorized' });
-      return;
+      return res.status(401).json(CommonErrors.walletMismatch());
     }
 
     const credentialDb = client.db(DB_NAME);
@@ -73,8 +97,13 @@ export default async function handler(
       .collection('products')
       .findOne({ key: miner_key.split('-')[0] })) as Product;
     if (!product) {
-      res.status(404).json({ message: 'Product not found' });
-      return;
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.PRODUCT_NOT_FOUND,
+          'Product configuration not found',
+          'Please contact support for assistance.'
+        )
+      );
     }
 
     const result = await collection.updateOne(
@@ -113,9 +142,20 @@ export default async function handler(
       });
     }
   } catch (error) {
-    console.error(miner_key + ':' + error);
-    res.status(500).json({
-      message: `There's an error during deleting the device. Please check internet status and try again. If error occured again let us know`
+    handleApiError(res, '/api/devices/delete', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to delete device',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      minerKey: miner_key,
+      walletAddress: address,
+      issueType: 'DEVICE_DELETE_ERROR',
+      part: 'devices.delete.handler',
+      metadata: {
+        miner_key,
+        address,
+      },
     });
   }
 }

@@ -2,6 +2,13 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import algosdk, { waitForConfirmation } from 'algosdk';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 // Algorand client setup
 const token = '';
@@ -14,27 +21,75 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
+const ENDPOINT = '/api/algorand/send-txn';
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const session = await getServerSession(req, res, authOptions);
-  // Check if user is authenticated
-  if (!session || !session.user) {
-    console.log(`no session`);
-    res.status(401).json({ message: 'Unauthorized' });
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
     return;
   }
 
-  const data: {
-    asset_id: string;
-    from: string;
-    to: string;
-    amount: number;
-    note: string;
+  const session = await getServerSession(req, res, authOptions);
+  // Check if user is authenticated
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
+    return;
+  }
+
+  const walletAddress = session.user.address;
+
+  const {
+    asset_id,
+    to,
+    amount,
+    note,
+    staking,
+  } = (req.body ?? {}) as {
+    asset_id?: string;
+    to?: string;
+    amount?: number;
+    note?: string;
     staking?: boolean;
-  } = req.body;
-  const { asset_id, from: _fromIgnored, to, amount, note, staking } = data;
+  };
+
+  if (
+    !asset_id ||
+    !to ||
+    typeof amount !== 'number' ||
+    Number.isNaN(amount) ||
+    !note ||
+    typeof note !== 'string'
+  ) {
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Missing transaction parameters',
+        'Please include asset id, destination, amount, and note.'
+      )
+    );
+    return;
+  }
+
+  if (amount <= 0) {
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Transaction amount must be greater than zero',
+        'Adjust the amount and try again.'
+      )
+    );
+    return;
+  }
 
   try {
     // Convert mnemonic to secret key
@@ -70,9 +125,32 @@ export default async function handler(
     // Send the signed transaction to the network
     const tx = await algodClient.sendRawTransaction(signedTxn).do();
 
+    loggers.txnLog('algorand_send_txn', tx.txid, {
+      asset_id,
+      to,
+      amount,
+      staking,
+      testMode,
+    });
+
     return res.status(200).json({ txId: tx.txid });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ txId: null });
+    handleApiError(res, ENDPOINT, error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Failed to broadcast Algorand transaction',
+        'Please try again.'
+      ),
+      walletAddress,
+      issueType: 'ALGOD_SEND_TXN_ERROR',
+      part: 'algorand.send-txn.handler',
+      metadata: {
+        asset_id,
+        to,
+        amount,
+        staking,
+      },
+    });
+    return;
   }
 }

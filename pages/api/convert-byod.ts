@@ -1,23 +1,41 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
-import algosdk from 'algosdk';
 import clientPromise from '../../lib/mongoclient';
+import { loggers } from '../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../lib/api-errors';
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
+  }
+
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   const session = await getServerSession(req, res, authOptions);
   // Check if user is authenticated
-  if (!session || !session.user) {
-    console.log(`no session`);
-    res.status(401).json({ message: 'Unauthorized 1' });
-    return;
+  if (!session || !session.user?.address) {
+    loggers.apiError('/api/convert-byod', new Error('Unauthenticated request'), {
+      issueType: 'BYOD_CONVERSION_UNAUTHENTICATED',
+      part: 'convert-byod.auth',
+    });
+    return res.status(401).json(CommonErrors.noSession());
   }
 
   const data: {
@@ -28,15 +46,22 @@ export default async function handler(
 
   const { address, byod, key } = data;
   if (session.user.address !== address || !address) {
-    console.log(
-      `byod session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    );
-    res.status(401).json({ message: 'Unauthorized 2' });
-    return;
+    loggers.apiError('/api/convert-byod', new Error('Wallet mismatch during BYOD conversion'), {
+      sessionAddress: session.user.address,
+      address,
+      issueType: 'BYOD_CONVERSION_WALLET_MISMATCH',
+      part: 'convert-byod.auth',
+    });
+    return res.status(401).json(CommonErrors.walletMismatch());
   }
   if (['SDN', 'RDN', 'SVN'].includes(key)) {
-    res.status(400).json({ message: 'Invalid key' });
-    return;
+    return res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'This product key is not eligible for BYOD conversion',
+        'Please choose a supported product.'
+      )
+    );
   }
 
   try {
@@ -51,8 +76,13 @@ export default async function handler(
         .toArray()
     )[0];
     if (!license) {
-      res.status(404).json({ message: 'Not found' });
-      return;
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.LICENSE_NOT_FOUND,
+          'License not found',
+          'Please verify the BYOD code and try again.'
+        )
+      );
     }
     const productsCollection = db.collection('products');
     const products = await productsCollection.find({}).toArray();
@@ -60,8 +90,13 @@ export default async function handler(
       return { name: product.name, key: product.key };
     });
     if (!data.find((product) => product.key === key)) {
-      res.status(404).json({ message: 'Not found' });
-      return;
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.PRODUCT_NOT_FOUND,
+          'Product not found',
+          'Please select a valid product for conversion.'
+        )
+      );
     }
     const product = data.find((product) => product.key === key)!;
     const devicesCollection = db.collection(
@@ -69,8 +104,13 @@ export default async function handler(
     );
     const byodAlreadyUsed = await devicesCollection.findOne({ byod: byod });
     if (byodAlreadyUsed) {
-      res.status(400).json({ message: 'Byod already used' });
-      return;
+      return res.status(400).json(
+        createApiError(
+          ErrorCodes.ALREADY_REGISTERED,
+          'This BYOD license has already been used',
+          'Please contact support if you believe this is incorrect.'
+        )
+      );
     }
     let minerkey = generateMinerKey(key);
     while (await devicesCollection.findOne({ miner_key: minerkey })) {
@@ -87,8 +127,21 @@ export default async function handler(
 
     res.status(200).json({ message: 'ok', miner_key: minerkey });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ message: 'error' });
+    handleApiError(res, '/api/convert-byod', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to convert BYOD license',
+        'Please try again. If the problem persists, contact support.'
+      ),
+      walletAddress: address,
+      issueType: 'BYOD_CONVERSION_ERROR',
+      part: 'convert-byod.handler',
+      metadata: {
+        address,
+        byod,
+        key,
+      },
+    });
   }
 }
 

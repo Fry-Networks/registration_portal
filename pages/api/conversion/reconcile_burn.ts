@@ -5,6 +5,13 @@ import {
   reconcileFryBurn,
   ReconcileBurnError
 } from '../../../lib/conversion/reconcileBurn';
+import { loggers } from '../../../lib/logger';
+import {
+  CommonErrors,
+  createApiError,
+  ErrorCodes,
+  handleApiError,
+} from '../../../lib/api-errors';
 
 export default async function handler(
   req: NextApiRequest,
@@ -12,19 +19,31 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
-    res.status(405).json({ message: 'Method Not Allowed' });
+    res.status(405).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'That request is not available.',
+        'Please retry this action from the dashboard.'
+      )
+    );
     return;
   }
 
   const session = await getServerSession(req, res, authOptions);
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized' });
+  if (!session || !session.user?.address) {
+    res.status(401).json(CommonErrors.noSession());
     return;
   }
 
   const isAdmin = Boolean((session.user as any)?.admin);
   if (!isAdmin) {
-    res.status(403).json({ message: 'Forbidden' });
+    res.status(403).json(
+      createApiError(
+        ErrorCodes.FORBIDDEN,
+        'You do not have permission to reconcile burns',
+        'Please contact an administrator for access.'
+      )
+    );
     return;
   }
 
@@ -43,7 +62,13 @@ export default async function handler(
       : undefined;
 
   if (!address) {
-    res.status(400).json({ success: false, message: 'Wallet address is required.' });
+    res.status(400).json(
+      createApiError(
+        ErrorCodes.INVALID_INPUT,
+        'Wallet address is required.',
+        'Submit a wallet address to reconcile burns.'
+      )
+    );
     return;
   }
 
@@ -59,7 +84,19 @@ export default async function handler(
       res.status(error.status).json({ success: false, message: error.message });
       return;
     }
-    console.log(error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    handleApiError(res, '/api/conversion/reconcile_burn', error, {
+      response: createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unexpected error reconciling conversion burn',
+        'Please review the transaction details and try again.'
+      ),
+      walletAddress: address,
+      issueType: 'FRY_CONVERSION_RECONCILE_ERROR',
+      part: 'conversion.reconcile-burn.handler',
+      metadata: {
+        address,
+        txId,
+      },
+    });
   }
 }
