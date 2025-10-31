@@ -48,6 +48,7 @@ fi
 export NODE_ENV="${NODE_ENV:-development}"
 export NEXT_PUBLIC_TEST_MODE="${NEXT_PUBLIC_TEST_MODE:-true}"
 export NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED="${NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED:-true}"
+export DISABLE_DEVICE_FINGERPRINT="${DISABLE_DEVICE_FINGERPRINT:-true}"
 
 echo "Loaded secrets from 1Password vault '${vault}' item '${item}'."
 echo "Starting Next.js dev server..."
