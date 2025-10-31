@@ -1,8 +1,10 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 
 interface FingerprintContextValue {
   ready: boolean;
   setReady: (ready: boolean) => void;
+  refresh: () => Promise<boolean>;
+  registerRefresh: (fn: () => Promise<boolean>) => void;
 }
 
 const FingerprintContext = createContext<FingerprintContextValue | undefined>(
@@ -13,8 +15,23 @@ export const FingerprintProvider: React.FC<{ children: React.ReactNode }> = ({
   children
 }) => {
   const [ready, setReady] = useState(false);
+  const [refreshFn, setRefreshFn] = useState<() => Promise<boolean>>(
+    () => async () => false
+  );
 
-  const value = useMemo(() => ({ ready, setReady }), [ready]);
+  const registerRefresh = useCallback((fn: () => Promise<boolean>) => {
+    setRefreshFn(() => fn);
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      ready,
+      setReady,
+      refresh: refreshFn,
+      registerRefresh
+    }),
+    [ready, refreshFn, registerRefresh]
+  );
 
   return (
     <FingerprintContext.Provider value={value}>
@@ -23,12 +40,23 @@ export const FingerprintProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
-export function useFingerprintReady(): FingerprintContextValue {
+export function useFingerprintReady(): Pick<FingerprintContextValue, 'ready' | 'setReady' | 'refresh'> {
   const ctx = useContext(FingerprintContext);
   if (!ctx) {
     throw new Error(
       'useFingerprintReady must be used within a FingerprintProvider'
     );
   }
-  return ctx;
+  const { ready, setReady, refresh } = ctx;
+  return { ready, setReady, refresh };
+}
+
+export function useRegisterFingerprintRefresh(): (fn: () => Promise<boolean>) => void {
+  const ctx = useContext(FingerprintContext);
+  if (!ctx) {
+    throw new Error(
+      'useRegisterFingerprintRefresh must be used within a FingerprintProvider'
+    );
+  }
+  return ctx.registerRefresh;
 }

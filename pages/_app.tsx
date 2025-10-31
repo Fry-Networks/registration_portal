@@ -1,8 +1,9 @@
+import Head from 'next/head';
 import { NextPage } from 'next';
 import { AppProps } from 'next/app';
 import '../app/globals.css';
 import { useSession, SessionProvider, getSession, signOut } from 'next-auth/react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from 'react-modal';
 import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
 import { WalletProvider } from '@txnlab/use-wallet-react';
@@ -15,7 +16,7 @@ import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
 import { generateClientToken } from '../lib/clientToken';
-import { FingerprintProvider, useFingerprintReady } from '../app/fingerprintcontext';
+import { FingerprintProvider, useFingerprintReady, useRegisterFingerprintRefresh } from '../app/fingerprintcontext';
 import type { MySession } from './api/auth/[...nextauth]';
 import { useClientErrorLogger } from '../lib/hooks/useClientErrorLogger';
 import { useWallet } from '@txnlab/use-wallet-react';
@@ -44,6 +45,10 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
   useEffect(() => {
     let mounted = true;
+
+    const dappName = 'Fry Networks Dashboard';
+    const dappIcon =
+      process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png';
 
     const manager = new WalletManager({
       wallets: [
@@ -154,6 +159,18 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
                       <Navbar />
                       <div className="relative flex flex-col">
                         {showAnnouncementBanner && <AnnouncementBanner />}
+                        <Head>
+                          <title>Fry Networks Dashboard</title>
+                          <meta
+                            name="description"
+                            content="Manage Fry Networks devices, rewards, staking, and credentials."
+                          />
+                          <meta name="application-name" content="Fry Networks Dashboard" />
+                          <link
+                            rel="icon"
+                            href={process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png'}
+                          />
+                        </Head>
                         <div
                           id="main"
                           className="w-full min-h-screen bg-background text-foreground dark"
@@ -185,9 +202,47 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   useClientErrorLogger(session);
   const isLoading = status === 'loading';
   const { ready: fingerprintReady, setReady: setFingerprintReady } = useFingerprintReady();
+  const registerRefresh = useRegisterFingerprintRefresh();
   const { activeAccount, wallets } = useWallet();
   const toast = useToastContext();
   const walletMismatchNotified = useRef(false);
+  const previousAuthStatus = useRef(status);
+  const noopRefresh = useCallback(async () => false, []);
+
+  const sessionUserAgent = session?.userAgent ?? null;
+
+  const refreshFingerprint = useCallback(async (): Promise<boolean> => {
+    if (status !== 'authenticated') return false;
+    try {
+      const res = await fetch('/api/auth/capture-fingerprint', { method: 'POST' });
+      if (!res.ok) return false;
+      const data = await res.json().catch(() => ({}));
+      const fingerprint = data?.fingerprint;
+      const ua = data?.userAgent ?? sessionUserAgent ?? null;
+
+      if (fingerprint && update) {
+        await update({
+          deviceFingerprint: fingerprint,
+          userAgent: ua
+        });
+      } else {
+        await getSession();
+      }
+
+      setFingerprintReady(true);
+      return true;
+    } catch (error) {
+      console.error('[Fingerprint] Failed to refresh fingerprint', error);
+      return false;
+    }
+  }, [status, update, sessionUserAgent, setFingerprintReady]);
+
+  useEffect(() => {
+    registerRefresh(refreshFingerprint);
+    return () => {
+      registerRefresh(noopRefresh);
+    };
+  }, [registerRefresh, refreshFingerprint, noopRefresh]);
 
   useEffect(() => {
     if (status !== 'authenticated') {
@@ -205,51 +260,25 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
     const MAX_RETRIES = 3;
     const RETRY_DELAY_MS = 1500;
 
-    const capture = async () => {
-      for (let attempt = 0; attempt < MAX_RETRIES && !cancelled; attempt++) {
-        try {
-          const res = await fetch('/api/auth/capture-fingerprint', { method: 'POST' });
-          if (!res.ok) {
-            throw new Error(`capture-fingerprint failed: ${res.status}`);
-          }
-          const data = await res.json();
-          const fingerprint = data?.fingerprint || null;
-          const ua = data?.userAgent || null;
-
-          if (fingerprint) {
-            await update?.({
-              ...(session || {}),
-              deviceFingerprint: fingerprint,
-              userAgent: ua ?? session?.userAgent ?? null
-            });
-          } else {
-            await getSession();
-          }
-
-          if (!cancelled) {
-            setFingerprintReady(true);
-          }
-          return;
-        } catch (error) {
-          console.error('[Fingerprint] Failed to capture fingerprint', error);
-          if (cancelled) return;
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-        }
-      }
-
-      if (!cancelled) {
-        // Fail open after retries but log for investigation
+    const attempt = async (remaining: number) => {
+      if (cancelled) return;
+      const success = await refreshFingerprint();
+      if (success || cancelled) return;
+      if (remaining > 1) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        await attempt(remaining - 1);
+      } else {
         console.warn('[Fingerprint] Continuing without refreshed fingerprint after retries');
         setFingerprintReady(true);
       }
     };
 
-    void capture();
+    void attempt(MAX_RETRIES);
 
     return () => {
       cancelled = true;
     };
-  }, [session, status, update, setFingerprintReady]);
+  }, [session, status, refreshFingerprint, setFingerprintReady]);
 
   useEffect(() => {
     if (devMode) {
@@ -301,7 +330,10 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   }, [activeAccount?.address, session?.user?.address, status, toast, wallets]);
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    const prevStatus = previousAuthStatus.current;
+    previousAuthStatus.current = status;
+
+    if (prevStatus === 'authenticated' && status === 'unauthenticated') {
       wallets.forEach((wallet) => {
         if (typeof wallet.disconnect === 'function') {
           void wallet.disconnect().catch(() => undefined);
@@ -309,6 +341,25 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
       });
     }
   }, [status, wallets]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let lastCapture = 0;
+    const FOCUS_CAPTURE_INTERVAL_MS = 5 * 60 * 1000;
+
+    const handleFocus = () => {
+      if (status !== 'authenticated') return;
+      const now = Date.now();
+      if (now - lastCapture < FOCUS_CAPTURE_INTERVAL_MS) return;
+      lastCapture = now;
+      void refreshFingerprint();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [status, refreshFingerprint]);
 
   const showInfo = (text: string) => {
     return (

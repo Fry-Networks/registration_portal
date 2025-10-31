@@ -14,7 +14,7 @@ import { logSecurityEventAggregated } from './securityEventAggregation';
 
 type FingerprintState = {
   lastMismatch: number;
-  graceActive: boolean;
+  retryCount: number;
 };
 
 type FingerprintLogState = {
@@ -39,6 +39,7 @@ if (!globalAny.__fingerprintLogState) {
 }
 
 const GRACE_WINDOW_MS = 30_000;
+const MAX_MISMATCH_RETRIES = 3;
 const LOG_WINDOW_MS = 5_000;
 
 export type FingerprintVerificationResult = 'ok' | 'retry' | 'blocked';
@@ -80,7 +81,7 @@ async function logFingerprintEvent(
   let severity: 'low' | 'medium' | 'high' | 'critical' = 'high';
   
   if (type === 'DEVICE_FINGERPRINT_BYPASS') {
-    eventDetails = 'Admin bypass allowed';
+    eventDetails = errorMessage ?? 'Admin bypass allowed';
     severity = 'low';
   } else if (type === 'DEVICE_FINGERPRINT_MISSING') {
     eventDetails = 'No fingerprint in session';
@@ -230,6 +231,18 @@ export async function verifyDeviceFingerprintMiddleware(
     return 'ok';
   }
 
+  // Allow internal SSR/service requests to bypass fingerprint checks
+  if ((req.headers['x-internal-request'] || '').toString().toLowerCase() === 'next-ssr') {
+    await logFingerprintEvent(
+      req,
+      'DEVICE_FINGERPRINT_BYPASS',
+      walletAddress,
+      minerKey,
+      'Internal Next.js request bypassed device fingerprint check'
+    );
+    return 'ok';
+  }
+
   // Admins bypass fingerprint check (can use scripts)
   if (isAdmin) {
     await logFingerprintEvent(
@@ -254,7 +267,7 @@ export async function verifyDeviceFingerprintMiddleware(
     }
     fingerprintState.set(walletAddress, {
       lastMismatch: Date.now(),
-      graceActive: true
+      retryCount: 0
     });
     return 'retry';
   }
@@ -264,8 +277,8 @@ export async function verifyDeviceFingerprintMiddleware(
   if (!isValid) {
     const now = Date.now();
     const state = fingerprintState.get(walletAddress);
-    const shouldRetry =
-      !state || now - state.lastMismatch > GRACE_WINDOW_MS || state.graceActive;
+    const withinWindow = state ? now - state.lastMismatch <= GRACE_WINDOW_MS : false;
+    const retryCount = withinWindow && state ? state.retryCount : 0;
 
     if (shouldLogMismatch(walletAddress)) {
       const storedFingerprint = session.deviceFingerprint.substring(0, 16) + '...';
@@ -288,17 +301,17 @@ export async function verifyDeviceFingerprintMiddleware(
       );
     }
 
-    if (shouldRetry) {
+    if (retryCount < MAX_MISMATCH_RETRIES) {
       fingerprintState.set(walletAddress, {
         lastMismatch: now,
-        graceActive: false
+        retryCount: retryCount + 1
       });
       return 'retry';
     }
 
     fingerprintState.set(walletAddress, {
       lastMismatch: now,
-      graceActive: false
+      retryCount
     });
     return 'blocked';
   }

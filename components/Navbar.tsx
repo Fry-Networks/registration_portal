@@ -54,6 +54,14 @@ export default function Navbar() {
   const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
 
   useEffect(() => {
+    console.log('[Wallet] hook activeAccount', activeAccount);
+  }, [activeAccount]);
+
+  useEffect(() => {
+    console.log('[Wallet] hook activeWallet', activeWallet);
+  }, [activeWallet]);
+
+  useEffect(() => {
     const root = document.documentElement;
 
     const updateHeight = () => {
@@ -234,6 +242,14 @@ export default function Navbar() {
   }, [wallets]);
 
   useEffect(() => {
+    console.log('[Wallet] state snapshot', wallets);
+  }, [walletStateSignature, wallets]);
+
+  useEffect(() => {
+    console.debug('[Wallet] state snapshot', wallets);
+  }, [walletStateSignature, wallets]);
+
+  useEffect(() => {
     if (devMode) return;
     if (activeAccount) return;
 
@@ -300,12 +316,17 @@ export default function Navbar() {
     }
 
     const rawAddress = activeAccount?.address || activeWallet?.accounts?.[0]?.address;
+    console.log('[Wallet] computed raw address', rawAddress);
     if (rawAddress) {
       setAddress(`${rawAddress.slice(0, 4)}...${rawAddress.slice(-4)}`);
     } else {
       setAddress('');
     }
   }, [activeAccount, activeWallet, devAccount, devConnect, devMode]);
+
+  useEffect(() => {
+    console.log('[Wallet] address state updated', address);
+  }, [address]);
 
   // Countdown to next Friday 00:05 UTC
   useEffect(() => {
@@ -478,28 +499,41 @@ export default function Navbar() {
             {wallets.map((wallet, index) => {
               const alreadyConnected = wallet.isActive && (wallet.accounts?.length ?? 0) > 0;
               return (
-              <div
-                key={`wallet ${index}`}
-                className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
-                onClick={async () => {
-                  try {
-                    if (alreadyConnected) {
+                <div
+                  key={`wallet ${index}`}
+                  className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
+                  onClick={async () => {
+                    try {
+                      console.log('[Wallet] connect requested', wallet.id);
+                      if (alreadyConnected) {
+                        setIsWalletModalOpen(false);
+                        return;
+                      }
+                      if (wallet.id === 'pera') {
+                        try {
+                          console.log('[Wallet] attempting pre-disconnect for Pera');
+                          await wallet.disconnect();
+                        } catch (discError) {
+                          console.warn('[Wallet] pre-disconnect failed', discError);
+                        }
+                      }
+                      const accounts = await wallet.connect();
+                      console.log('[Wallet] connect result', wallet.id, accounts);
+                      if (wallet.setActive) {
+                        wallet.setActive();
+                      }
+                      const firstAccount =
+                        accounts?.[0] ?? wallet.accounts?.[0];
+                      if (firstAccount?.address) {
+                        wallet.setActiveAccount(firstAccount.address);
+                      }
                       setIsWalletModalOpen(false);
-                      return;
-                    }
-                    const accounts = await wallet.connect();
-                    const firstAccount =
-                      accounts?.[0] ?? wallet.accounts?.[0];
-                    if (firstAccount?.address) {
-                      wallet.setActiveAccount(firstAccount.address);
-                    }
-                    setIsWalletModalOpen(false);
-                  } catch (error) {
-                    const typedError = error as {
-                      name?: string;
-                      data?: { type?: string };
-                      cancelled?: boolean;
-                    } | undefined;
+                    } catch (error) {
+                  const typedError = error as {
+                    name?: string;
+                    data?: { type?: string };
+                    cancelled?: boolean;
+                  } | undefined;
 
                     const isPeraSessionConflict =
                       typedError?.name === 'PeraWalletConnectError' &&
