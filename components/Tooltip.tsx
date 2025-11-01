@@ -19,12 +19,12 @@ const positionClasses: Record<string, string> = {
   right: 'top-1/2 -translate-y-1/2 left-full ml-2'
 };
 
-const Tooltip = ({ children, text, side = 'top', className = '' }: TooltipProps) => {
+const Tooltip = ({ children, text, side = 'top', className = 'inline-flex' }: TooltipProps) => {
   return (
-    <div className="relative inline-flex group/tooltip">
+    <div className={`relative group/tooltip ${className}`}>
       {children}
       <div
-        className={`pointer-events-none absolute hidden group-hover/tooltip:flex ${positionClasses[side]} ${className}`}
+        className={`pointer-events-none absolute hidden group-hover/tooltip:flex ${positionClasses[side]}`}
       >
         <div className="max-w-xs rounded-md bg-gray-900 px-3 py-2 text-xs text-white shadow-lg">
           {text}

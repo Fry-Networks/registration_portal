@@ -43,11 +43,16 @@ export default function WeeklyCard({
         <div>
           <div className="text-sm text-gray-400">Week of Fri–Thu</div>
           <div className="text-lg text-white font-semibold">{item.weekLabel || new Date(item.createdAt).toDateString()}</div>
-          <div className="text-xs text-gray-500 mt-1">Unlock: {unlockStr}</div>
+          <div className="text-xs text-gray-500 mt-1">
+            Unlock: {unlockStr}
+          </div>
+          <div className="text-[0.65rem] text-gray-500 mt-0.5 italic">
+            Unlock moves this reward into the 30-day pending window; it becomes claimable once the bar reaches 30/30 days.
+          </div>
         </div>
         <div className="text-right">
           <div className="text-sm text-gray-400">Amount</div>
-          <div className="text-xl text-white font-bold">{item.amount} {assetName}</div>
+          <div className="text-xl text-white font-bold">{item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {assetName}</div>
         </div>
       </div>
 

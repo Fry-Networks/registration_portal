@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Tooltip from './Tooltip';
+import { REWARD_STATUS_DESCRIPTIONS } from '../lib/utils';
 
 interface FloatingTotalsWidgetProps {
   totals: {
@@ -23,6 +25,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   estimatedFnode,
   estimatedTfry
 }) => {
+  const ACCRUING_LABEL = 'Accruing (weekly preview)';
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
@@ -246,7 +249,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
                         <div className="text-xs uppercase tracking-wide text-gray-400">FRY 1.0 Totals</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div></div>
+                          <div>
+                            <div className="text-gray-500">
+                              <Tooltip text={REWARD_STATUS_DESCRIPTIONS.accruing}>
+                                <span>{ACCRUING_LABEL}</span>
+                              </Tooltip>
+                            </div>
+                            <div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div>
+                          </div>
                           <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
                           <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.fry1.claimable)}</div></div>
                           <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimed)}</div></div>
@@ -255,7 +265,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
                         <div className="text-xs uppercase tracking-wide text-gray-400">fNode Totals</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div></div>
+                          <div>
+                            <div className="text-gray-500">
+                              <Tooltip text={REWARD_STATUS_DESCRIPTIONS.accruing}>
+                                <span>{ACCRUING_LABEL}</span>
+                              </Tooltip>
+                            </div>
+                            <div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.accruing)}</div>
+                          </div>
                           <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.pending)}</div></div>
                           <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.fnode.claimable)}</div></div>
                           <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fnode.claimed)}</div></div>
@@ -264,7 +281,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
                         <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                          <div><div className="text-gray-500">Accruing</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div></div>
+                          <div>
+                            <div className="text-gray-500">
+                              <Tooltip text={REWARD_STATUS_DESCRIPTIONS.accruing}>
+                                <span>{ACCRUING_LABEL}</span>
+                              </Tooltip>
+                            </div>
+                            <div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div>
+                          </div>
                           <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
                           <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.tfry?.claimable || 0)}</div></div>
                           <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimed || 0)}</div></div>
@@ -281,7 +305,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                       </div>
                     </div>
                     <div className="rounded-lg border border-gray-800/70 bg-black/60 px-3 py-2 text-xs leading-relaxed text-gray-300">
-                      Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.
+                      Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. Unlocked rewards sit in Pending for 30 days before becoming Claimable. This countdown shows time remaining to the next weekly unlock, and estimates are projected from your current accrual pace for each asset.
                     </div>
                   </motion.div>
                 ) : (
@@ -425,7 +449,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     <div className="text-gray-400 mb-1">FRY 1.0 Totals (924268058)</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Accruing:</span>
+                        <span className="text-gray-500" title={REWARD_STATUS_DESCRIPTIONS.accruing}>{ACCRUING_LABEL}:</span>
                         <span className="font-semibold">{fmt(totals.totals.fry1.accruing)}</span>
                       </div>
                       <div className="flex justify-between">
@@ -448,7 +472,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     <div className="text-gray-400 mb-1">fNode Totals (2485202024)</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Accruing:</span>
+                        <span className="text-gray-500" title={REWARD_STATUS_DESCRIPTIONS.accruing}>{ACCRUING_LABEL}:</span>
                         <span className="font-semibold">{fmt(totals.totals.fnode.accruing)}</span>
                       </div>
                       <div className="flex justify-between">
@@ -473,7 +497,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
-                        <span className="text-gray-500">Accruing:</span>
+                        <span className="text-gray-500" title={REWARD_STATUS_DESCRIPTIONS.accruing}>{ACCRUING_LABEL}:</span>
                         <span className="font-semibold">{fmt(totals.totals.tfry?.accruing || 0)}</span>
                       </div>
                       <div className="flex justify-between">

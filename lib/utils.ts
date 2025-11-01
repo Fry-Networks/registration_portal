@@ -107,11 +107,8 @@ export const isNodeStakingNeeded = (product: Product): boolean => {
 };
 
 export const isRegistrationStaked = (device: Device): boolean => {
-  if (device.registration && device.registration.amount !== 0) {
-    return true;
-  }
-
-  return false;
+  const amount = device.registration?.amount;
+  return typeof amount === 'number' && amount > 0;
 };
 
 export const isNodeProduct = (product: Product): boolean => {
@@ -119,11 +116,8 @@ export const isNodeProduct = (product: Product): boolean => {
 };
 
 export const isNodeStaked = (device: Device): boolean => {
-  if (device.node && device.node.amount !== 0) {
-    return true;
-  }
-
-  return false;
+  const amount = device.node?.amount;
+  return typeof amount === 'number' && amount > 0;
 };
 
 export const anchorIdForMinerKey = (minerKey: string): string => {
@@ -312,15 +306,15 @@ export const getAssetDecimals = async (
 
 export const getAssetName = (assetId: string) => {
   if (assetId === FRY_1.id) {
-    return 'fry1.0';
+    return 'FRY1.0';
   } else if (assetId === FRY_2.id) {
-    return 'fry2.0';
+    return 'FRY2.0';
   } else if (assetId === fNODE.id) {
-    return 'fnode';
+    return 'fNODE';
   } else if (assetId === tFRY.id) {
-    return 'tFry';
+    return 'tFRY';
   } else if (assetId === fVPN.id) {
-    return 'fvpn';
+    return 'fVPN';
   }
 };
 
@@ -332,12 +326,22 @@ export const getAssetDisplay = (assetId: string) => {
   return name ? `${name} (${assetId})` : assetId;
 };
 
+export const REWARD_STATUS_DESCRIPTIONS = {
+  accruing:
+    "This week's earnings preview. After the Friday 00:05 UTC cut they move into Pending for a 30-day lock.",
+  pending:
+    'Rewards currently in the 30-day lock. They become Claimable once the lock completes.',
+  claimable:
+    'Unlocked rewards ready to claim — the 30-day lock has completed.'
+};
+
 /**
  * Whether Boost (Instant Claim) is supported for the given asset.
  * Matches existing backend constraints: FRY 1.0, fNODE, fVPN; excludes FRY 2.0.
  */
 export const isBoostAssetSupported = (assetId: string): boolean => {
-  return assetId === FRY_1.id || assetId === fNODE.id || assetId === fVPN.id;
+  const normalized = String(assetId);
+  return normalized === FRY_1.id || normalized === fNODE.id || normalized === fVPN.id || normalized === tFRY.id;
 };
 
 export const getAlgoBalance = async (address: string) => {
@@ -407,12 +411,12 @@ export const computeDeviceStatus = (
   let isError = false;
 
   if (!device.position) {
-    deviceStatus.position = 'Not set';
+    deviceStatus.position = 'Position not set';
     isError = true;
   }
 
   if (!device.reward_wallet) {
-    deviceStatus.reward_wallet = 'Not set';
+    deviceStatus.reward_wallet = 'Reward wallet not set';
     isError = true;
   }
 
@@ -439,13 +443,28 @@ export const computeDeviceStatus = (
     if (!device.registration) {
       deviceStatus.registration = 'Not staked for registration';
       isError = true;
-    } else if (device.registration.asset_id !== product.reward.tokens?.register) {
-      deviceStatus.registration =
-        'Registration staking information is changed. Please check and stake again';
-      isError = true;
-    } else if (device.registration.amount === 0) {
-      deviceStatus.registration = 'Not staked for registration';
-      isError = true;
+    } else {
+      const isCurrentlyStaked = device.registration.amount && device.registration.amount > 0;
+      
+      if (isCurrentlyStaked) {
+        // Check for correct token only if currently staked
+        if (device.registration.asset_id !== product.reward.tokens?.register) {
+          deviceStatus.registration =
+            'Registration staking information is changed. Please check and stake again';
+          isError = true;
+        }
+      } else {
+        // Not currently staked - check if this is due to config change
+        if (device.registration.asset_id && 
+            device.registration.asset_id !== product.reward.tokens?.register) {
+          deviceStatus.registration =
+            'Registration staking information is changed. Please check and stake again';
+          isError = true;
+        } else {
+          deviceStatus.registration = 'Not staked for registration';
+          isError = true;
+        }
+      }
     }
   }
 
@@ -453,14 +472,34 @@ export const computeDeviceStatus = (
     if (!device.node) {
       deviceStatus.node = 'Not staked for node operation';
       isError = true;
-    } else if (device.node.asset_id !== product.reward.tokens?.node) {
-      deviceStatus.node =
-        'Node staking information is changed. Please check and stake again';
-      isError = true;
-    } else if (device.node.amount === 0) {
-      deviceStatus.node = 'Not staked for node operation';
-      isError = true;
+    } else {
+      const isCurrentlyStaked = device.node.amount && device.node.amount > 0;
+      
+      if (isCurrentlyStaked) {
+        // Check for correct token only if currently staked
+        if (device.node.asset_id !== product.reward.tokens?.node) {
+          deviceStatus.node =
+            'Node staking information is changed. Please check and stake again';
+          isError = true;
+        }
+      } else {
+        // Not currently staked - check if this is due to config change
+        if (device.node.asset_id && 
+            device.node.asset_id !== product.reward.tokens?.node) {
+          deviceStatus.node =
+            'Node staking information is changed. Please check and stake again';
+          isError = true;
+        } else {
+          deviceStatus.node = 'Not staked for node operation';
+          isError = true;
+        }
+      }
     }
+  }
+
+  if (!device.verified) {
+    deviceStatus.verification = 'Unverified';
+    isError = true;
   }
 
   if (isError) {

@@ -14,7 +14,7 @@ import { getSession, useSession } from 'next-auth/react';
 import { SWRConfig } from 'swr';
 import type { Summary } from '../lib/hooks/useRewardSummary';
 import clientPromise from '../lib/mongoclient';
-import { Device, FryConversion, Product } from '../lib/types';
+import { Device, FryConversion, FryToken, Product } from '../lib/types';
 import { getClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import CopyAddress from '../components/CopyAddress';
@@ -53,6 +53,7 @@ import type { Notification as AppNotification } from '../components/Notification
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
+import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
 
 const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -546,6 +547,7 @@ const cloneDeviceWithPatch = (device: Device, patch: Partial<Device>): Device =>
 const DevicesPage = ({
   initialDevices = [],
   products = [],
+  tokenMetadata = {},
   rewardFallback = {},
   statusFallback = {},
   bannerTotals = {
@@ -556,6 +558,15 @@ const DevicesPage = ({
 }: {
   initialDevices: Device[];
   products: Product[];
+  tokenMetadata?: Record<
+    string,
+    {
+      name?: string;
+      shortName?: string;
+      unitName?: string;
+      symbol?: string;
+    }
+  >;
   rewardFallback?: Record<string, Summary>;
   statusFallback?: Record<string, { [key: string]: string } | undefined>;
   bannerTotals: {
@@ -568,7 +579,7 @@ const DevicesPage = ({
   const toast = useToastContext();
   const { openModal } = useModal();
   const { data: session, status: sessionStatus } = useSession();
-  const { ready: fingerprintReady } = useFingerprintReady();
+  const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
 
 
   // Enhanced sort: supports sortField and sortDirection
@@ -656,11 +667,15 @@ const DevicesPage = ({
 
     const loadHardwareStatus = async () => {
       try {
-        const response = await fetch('/api/hardware/status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ miner_keys: minerKeys })
-        });
+        const response = await fetchWithFingerprintRetry(
+          () =>
+            fetch('/api/hardware/status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ miner_keys: minerKeys })
+            }),
+          refreshFingerprint
+        );
 
         if (!response.ok) {
           throw new Error(`Failed to load hardware status (${response.status})`);
@@ -682,7 +697,7 @@ const DevicesPage = ({
     return () => {
       cancelled = true;
     };
-  }, [minerKeys, session?.user?.address]);
+  }, [minerKeys, session?.user?.address, refreshFingerprint]);
 
   const notifications = useMemo<AppNotification[]>(() => {
     if (!devices || devices.length === 0) {
@@ -813,7 +828,10 @@ const DevicesPage = ({
 
   const handleRegister = async (minerKey: string): Promise<void> => {
     try {
-      const response = await fetch(`/api/devices/${minerKey}`);
+      const response = await fetchWithFingerprintRetry(
+        () => fetch(`/api/devices/${minerKey}`),
+        refreshFingerprint
+      );
       if (!response.ok) {
         toast.error({ heading: 'Error', message: 'Device not found' });
         return;
@@ -907,16 +925,20 @@ const DevicesPage = ({
         const clientToken = await getClientToken();
         const timestamp = Math.floor(Date.now() / 1000);
         const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-asset-totals', {}, timestamp);
-        
-        const res = await fetch('/api/rewards/get-asset-totals', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-client-token': clientToken,
-            'x-request-signature': signature,
-            'x-request-timestamp': timestamp.toString()
-          }
-        });
+
+        const res = await fetchWithFingerprintRetry(
+          () =>
+            fetch('/api/rewards/get-asset-totals', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-client-token': clientToken,
+                'x-request-signature': signature,
+                'x-request-timestamp': timestamp.toString()
+              }
+            }),
+          refreshFingerprint
+        );
         if (!res.ok) {
           if (active && res.status === 401) {
             setTotals(null);
@@ -936,7 +958,7 @@ const DevicesPage = ({
       active = false;
       if (intervalId) clearInterval(intervalId);
     };
-  }, [fingerprintReady, sessionStatus, session?.user?.address]);
+  }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
   const { estimatedFry1, estimatedFnode, estimatedTfry } = useMemo(() => {
@@ -1062,11 +1084,15 @@ const DevicesPage = ({
     async (minerKey: string): Promise<Device | null> => {
       if (!session?.user?.address) return null;
       try {
-        const response = await fetch(`/api/devices/${encodeURIComponent(minerKey)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: session.user.address })
-        });
+        const response = await fetchWithFingerprintRetry(
+          () =>
+            fetch(`/api/devices/${encodeURIComponent(minerKey)}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address: session.user.address })
+            }),
+          refreshFingerprint
+        );
         if (!response.ok) return null;
         const json = await response.json();
         const updatedDevice = json?.device as Device | undefined;
@@ -1089,7 +1115,7 @@ const DevicesPage = ({
         return null;
       }
     },
-    [session?.user?.address]
+    [session?.user?.address, refreshFingerprint]
   );
   
   const handleBoost = async (ret: boolean, message: string): Promise<void> => {
@@ -1296,6 +1322,7 @@ const DevicesPage = ({
                 key={device.miner_key}
                 initialDevice={device}
                 product={product!}
+                tokenMetadata={tokenMetadata}
                 stakeable={isProductStakeAvailable(product!)}
                 initialStatus={statusFallback[device.miner_key]}
                 hardwareStatus={hardwareStatus[device.miner_key]}
@@ -1469,6 +1496,57 @@ export async function getServerSideProps(context: any) {
     );
 
     const products = await db.collection('products').find({}).toArray();
+    const tokenDocuments = (await db
+      .collection('tokens')
+      .find({})
+      .toArray()) as unknown as FryToken[];
+
+    const tokenMetadata = tokenDocuments.reduce(
+      (acc, token) => {
+        const assetId =
+          token && typeof token.asset_id !== 'undefined'
+            ? String(token.asset_id)
+            : undefined;
+        if (!assetId || assetId.length === 0) {
+          return acc;
+        }
+
+        const entry: {
+          name?: string;
+          shortName?: string;
+          unitName?: string;
+          symbol?: string;
+        } = {};
+
+        if (typeof token.name === 'string' && token.name.trim()) {
+          entry.name = token.name.trim();
+        }
+
+        const rawShort =
+          (token as any)?.short_name ??
+          (token as any)?.shortName ??
+          (token as any)?.ticker ??
+          undefined;
+        if (typeof rawShort === 'string' && rawShort.trim()) {
+          entry.shortName = rawShort.trim();
+        }
+
+        const rawUnit =
+          (token as any)?.unit_name ?? (token as any)?.unitName ?? undefined;
+        if (typeof rawUnit === 'string' && rawUnit.trim()) {
+          entry.unitName = rawUnit.trim();
+        }
+
+        if (typeof (token as any)?.symbol === 'string' && (token as any).symbol.trim()) {
+          entry.symbol = (token as any).symbol.trim();
+        }
+
+        acc[assetId] = entry;
+        return acc;
+      },
+      {} as Record<string, { name?: string; shortName?: string; unitName?: string; symbol?: string }>
+    );
+    const serializedTokenMetadata = JSON.parse(JSON.stringify(tokenMetadata));
 
     // Server-side reward summary prefetch for all devices
     const minerKeys: string[] = devices?.map((d: any) => d.miner_key) || [];
@@ -1585,7 +1663,8 @@ export async function getServerSideProps(context: any) {
           ),
           rewardFallback,
           statusFallback,
-          bannerTotals
+          bannerTotals,
+          tokenMetadata: serializedTokenMetadata
         }
       };
     }
@@ -1597,7 +1676,8 @@ export async function getServerSideProps(context: any) {
           products: [],
           rewardFallback: {},
           statusFallback: {},
-          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } }
+          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } },
+          tokenMetadata: serializedTokenMetadata
         }
       };
     } else if (!devices && products) {
@@ -1617,7 +1697,8 @@ export async function getServerSideProps(context: any) {
           ),
           rewardFallback: {},
           statusFallback: {},
-          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } }
+          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } },
+          tokenMetadata: serializedTokenMetadata
         }
       };
     } else if (devices && !products) {
@@ -1649,7 +1730,8 @@ export async function getServerSideProps(context: any) {
           products: [],
           rewardFallback,
           statusFallback,
-          bannerTotals
+          bannerTotals,
+          tokenMetadata: serializedTokenMetadata
         }
       };
     } else {
@@ -1691,7 +1773,8 @@ export async function getServerSideProps(context: any) {
           ),
           rewardFallback,
           statusFallback,
-          bannerTotals
+          bannerTotals,
+          tokenMetadata: serializedTokenMetadata
         }
       };
     }

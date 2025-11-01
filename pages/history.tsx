@@ -17,6 +17,14 @@ import BoostModal from '../components/modals/Boost';
 import { getClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import { useFingerprintReady } from '../app/fingerprintcontext';
+import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
+import {
+  collectStakeHistory,
+  type StakeEvent,
+  type StakeHistoryMap
+} from '../lib/history/collectStakeHistory';
+import Tooltip from '../components/Tooltip';
+import { REWARD_STATUS_DESCRIPTIONS } from '../lib/utils';
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -177,13 +185,22 @@ export default function History({
   const [showFilters, setShowFilters] = useState(false);
   const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
   const { data: session } = useSession();
+  const [stakeHistoryData, setStakeHistoryData] = useState<StakeHistoryMap | null>(null);
+  const hasStakeHistory = useMemo(() => {
+    if (!stakeHistoryData) return false;
+    return (
+      stakeHistoryData.verification.length > 0 ||
+      stakeHistoryData.registration.length > 0 ||
+      stakeHistoryData.node.length > 0
+    );
+  }, [stakeHistoryData]);
 
 
   const { miner_key } = router.query;
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
   const [now, setNow] = useState(() => Date.now());
-  const { ready: fingerprintReady } = useFingerprintReady();
+  const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
   const isLoadingAllRef = useRef(false);
   const [isLoadingAll, setIsLoadingAll] = useState(false);
 
@@ -231,21 +248,31 @@ export default function History({
   const StatusPill = ({
     label,
     value,
-    colorClass
+    colorClass,
+    tooltip
   }: {
     label: string;
     value: unknown;
     colorClass: string;
-  }) => (
-    <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] font-semibold ${colorClass}`}
-    >
-      <span className="uppercase tracking-wide text-[0.68rem]">{label}</span>
-      <span className="text-white text-sm font-semibold tracking-normal normal-case">
-        {formatSummaryValue(value)}
+    tooltip?: string;
+  }) => {
+    const pill = (
+      <span
+        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] font-semibold ${colorClass}`}
+      >
+        <span className="uppercase tracking-wide text-[0.68rem]">{label}</span>
+        <span className="text-white text-sm font-semibold tracking-normal normal-case">
+          {formatSummaryValue(value)}
+        </span>
       </span>
-    </span>
-  );
+    );
+
+    if (!tooltip) {
+      return pill;
+    }
+
+    return <Tooltip text={tooltip}>{pill}</Tooltip>;
+  };
 
   const unlockMessaging = useMemo(() => {
     if (!resolvedNextUnlock) return null;
@@ -288,16 +315,20 @@ export default function History({
         const timestamp = Math.floor(Date.now() / 1000);
         const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
         
-        const response = await fetch('api/rewards/get-rewards-page', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-client-token': clientToken,
-            'x-request-signature': signature,
-            'x-request-timestamp': timestamp.toString()
-          },
-          body: JSON.stringify(body)
-        });
+        const response = await fetchWithFingerprintRetry(
+          () =>
+            fetch('api/rewards/get-rewards-page', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-client-token': clientToken,
+                'x-request-signature': signature,
+                'x-request-timestamp': timestamp.toString()
+              },
+              body: JSON.stringify(body)
+            }),
+          refreshFingerprint
+        );
 
         if (!response.ok) {
           console.error('Failed to fetch rewards page', response.status);
@@ -318,7 +349,7 @@ export default function History({
         return null;
       }
     },
-    [fingerprintReady, minerKey]
+    [fingerprintReady, minerKey, refreshFingerprint]
   );
 
   const applyPageData = useCallback(
@@ -487,21 +518,29 @@ export default function History({
   // Device identity (nickname/name and product name)
   const [deviceMeta, setDeviceMeta] = useState<{ nickname?: string; name?: string; productName?: string } | null>(null);
   useEffect(() => {
-    if (typeof miner_key !== 'string') return;
-    if (!session?.user?.address) return;
+    if (typeof miner_key !== 'string' || !session?.user?.address) {
+      setStakeHistoryData(null);
+      return;
+    }
     let active = true;
+    setStakeHistoryData(null);
     (async () => {
       try {
-        const res = await fetch(`/api/devices/${miner_key}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: session.user.address })
-        });
+        const res = await fetchWithFingerprintRetry(
+          () =>
+            fetch(`/api/devices/${miner_key}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address: session.user.address })
+            }),
+          refreshFingerprint
+        );
         if (!active) return;
         if (!res.ok) return;
         const json = await res.json();
-        const nick = json?.device?.nickname;
-        const name = json?.device?.name;
+        const deviceDetail = json?.device;
+        const nick = deviceDetail?.nickname;
+        const name = deviceDetail?.name;
         let productName: string | undefined = undefined;
         try {
           const pr = await fetch('/api/products/get-product', {
@@ -514,11 +553,13 @@ export default function History({
             productName = pj?.data?.[0]?.name;
           }
         } catch {}
+        if (!active) return;
+        setStakeHistoryData(collectStakeHistory(deviceDetail));
         setDeviceMeta({ nickname: nick, name, productName });
       } catch {}
     })();
     return () => { active = false; };
-  }, [miner_key, session?.user?.address]);
+  }, [miner_key, session?.user?.address, refreshFingerprint]);
 
   // (moved) Infinite scroll observer defined after derived lists for type safety
 
@@ -670,11 +711,11 @@ export default function History({
         </div>
       </div>
       {/* Device identity */}
-      {deviceMeta && (
-        <div className="px-2 sm:px-20 mt-3 text-gray-300">
-          <div className="text-white text-lg sm:text-xl font-semibold">
-            {deviceMeta.nickname || deviceMeta.name || '-'}
-            {typeof miner_key === 'string' && (
+  {deviceMeta && (
+    <div className="px-2 sm:px-20 mt-3 text-gray-300">
+      <div className="text-white text-lg sm:text-xl font-semibold">
+        {deviceMeta.nickname || deviceMeta.name || '-'}
+        {typeof miner_key === 'string' && (
               <span className="text-gray-400 font-normal"> {' '}({miner_key})</span>
             )}
           </div>
@@ -683,40 +724,50 @@ export default function History({
               Product: <span className="text-white">{deviceMeta.productName}</span>
             </div>
           )}
-        </div>
-      )}
-      <div className="px-2 sm:px-20 mt-4 text-white border-b border-white/10 py-3">
-        {summary && (
-          <div className="flex flex-wrap gap-2">
-            <StatusPill
-              label="Accruing"
-              value={summary.accruing ?? 0}
-              colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
-            />              
-            <StatusPill
-              label="Pending"
-              value={summary.pending ?? 0}
-              colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
-            />
-            <StatusPill
-              label="Claimable"
-              value={summary.claimable ?? 0}
-              colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
-            />
-            {typeof summary.claimed === 'number' && (
-              <StatusPill
-                label="Claimed"
-                value={summary.claimed}
-                colorClass="border-gray-600 bg-gray-800 text-gray-300"
-              />
-            )}
-          </div>
+    </div>
+  )}
+  <div className="px-2 sm:px-20 mt-4 text-white border-b border-white/10 py-3">
+    {summary && (
+      <>
+      <div className="flex flex-wrap gap-2">
+        <StatusPill
+          label="Accruing (weekly preview)"
+          value={summary.accruing ?? 0}
+          colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
+          tooltip={REWARD_STATUS_DESCRIPTIONS.accruing}
+        />
+        <StatusPill
+          label="Pending"
+          value={summary.pending ?? 0}
+          colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
+          tooltip={REWARD_STATUS_DESCRIPTIONS.pending}
+        />
+        <StatusPill
+          label="Claimable"
+          value={summary.claimable ?? 0}
+          colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+          tooltip={REWARD_STATUS_DESCRIPTIONS.claimable}
+        />
+        {typeof summary.claimed === 'number' && (
+          <StatusPill
+            label="Claimed"
+            value={summary.claimed}
+            colorClass="border-gray-600 bg-gray-800 text-gray-300"
+          />
         )}
       </div>
-      <div className="px-2 sm:px-20 mt-6">
-        {/* Tabs + Status on left; compact date filters on right */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
+      </>
+    )}
+  </div>
+  {hasStakeHistory && (
+    <div className="px-2 sm:px-20 mt-6">
+      <StakeHistorySection history={stakeHistoryData} />
+    </div>
+  )}
+  <div className="px-2 sm:px-20 mt-6">
+    {/* Tabs + Status on left; compact date filters on right */}
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1 rounded-full bg-gray-900/40 p-1 shadow-sm shadow-black/30 ring-1 ring-gray-800/60">
               {tabOptions.map(({ key, label, icon: Icon }) => {
                 const active = tab === key;
@@ -839,11 +890,15 @@ function MinerSelect() {
   const current = typeof router.query.miner_key === 'string' ? router.query.miner_key : '';
   const [list, setList] = useState<string[]>(current ? [current] : []);
   const [val, setVal] = useState<string>(current);
+  const { refresh: refreshFingerprint } = useFingerprintReady();
   useEffect(() => {
     let active = true;
     const run = async () => {
       try {
-        const res = await fetch('/api/devices/list', { method: 'POST' });
+        const res = await fetchWithFingerprintRetry(
+          () => fetch('/api/devices/list', { method: 'POST' }),
+          refreshFingerprint
+        );
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
@@ -854,7 +909,7 @@ function MinerSelect() {
     };
     run();
     return () => { active = false; };
-  }, []);
+  }, [refreshFingerprint, val]);
   return (
     <select
       value={val}
@@ -866,6 +921,98 @@ function MinerSelect() {
         <option key={k} value={k}>{k}</option>
       ))}
     </select>
+  );
+}
+
+function StakeHistorySection({ history }: { history: StakeHistoryMap | null }) {
+  if (!history) return null;
+
+  const sections: Array<{ key: keyof StakeHistoryMap; label: string; entries: StakeEvent[] }> = [
+    { key: 'verification', label: 'Verification Stake History', entries: history.verification },
+    { key: 'registration', label: 'Registration Stake History', entries: history.registration },
+    { key: 'node', label: 'Node Operation Stake History', entries: history.node }
+  ];
+
+  const hasAny = sections.some((section) => section.entries.length > 0);
+  if (!hasAny) return null;
+
+  const formatDateTime = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleString();
+  };
+
+  const formatAmount = (amount: number) => amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatTx = (txId: string) => (txId.length <= 12 ? txId : `${txId.slice(0, 6)}…${txId.slice(-4)}`);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Stake Activity</h2>
+        <p className="mt-1 text-sm text-gray-400">
+          Track every stake and withdrawal for this device across verification, registration, and node operation.
+        </p>
+      </div>
+      {sections.map((section) => {
+        if (section.entries.length === 0) return null;
+        return (
+          <div key={section.key} className="rounded-lg border border-gray-800 bg-black/40 p-4 shadow-inner shadow-black/20">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">{section.label}</h3>
+            <div className="overflow-x-auto text-xs">
+              <table className="min-w-full divide-y divide-gray-800">
+                <thead>
+                  <tr className="text-left text-[0.7rem] uppercase tracking-wide text-gray-500">
+                    <th className="py-2 pr-4">Action</th>
+                    <th className="py-2 pr-4">Amount</th>
+                    <th className="py-2 pr-4">Asset</th>
+                    <th className="py-2 pr-4">Lock Type</th>
+                    <th className="py-2 pr-4">Transaction</th>
+                    <th className="py-2 pr-4">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-900/60 text-gray-300">
+                  {section.entries.map((event, idx) => (
+                    <tr key={`${event.txId}-${idx}`}>
+                      <td className="py-2 pr-4 font-semibold">
+                        {event.action === 'staked' ? (
+                          <span className="text-emerald-300">Staked</span>
+                        ) : (
+                          <span className="text-amber-300">Withdrawn</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4">{formatAmount(event.amount)}</td>
+                      <td className="py-2 pr-4 font-mono text-[0.65rem]">{event.assetId ?? '—'}</td>
+                      <td className="py-2 pr-4">
+                        {event.lockType
+                          ? event.lockType === 'two'
+                            ? 'Type 2 (6 month)'
+                            : 'Type 1 (24 hour)'
+                          : '—'}
+                      </td>
+                      <td className="py-2 pr-4 font-mono text-[0.65rem]">
+                        {event.txId ? (
+                          <a
+                            href={`https://algoexplorer.io/tx/${event.txId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sky-400 hover:text-sky-300"
+                          >
+                            {formatTx(event.txId)}
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="py-2 pr-4">{formatDateTime(event.time)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

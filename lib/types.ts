@@ -19,25 +19,84 @@ export interface Device extends mongoose.Document {
   is_registered: boolean;
   registered_portal_model?: string;
   staked?: {
-    type: string;
-    amount: number;
-    time: Date;
-    txId: string;
-    asset_id: string;
+    type: string | null;
+    amount: number | null;
+    time: Date | null;
+    txId: string | null;
+    asset_id: string | null;
     withdraw_boost: boolean;
     rewarded_time?: Date;
+    history?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+      type?: string;
+    }>;
+    lastWithdrawal?: {
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+      type?: string;
+    };
+    withdrawals?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+      type?: string;
+    }>;
   };
   registration?: {
-    amount: number;
-    time: Date;
-    txId: string;
-    asset_id: string;
+    amount: number | null;
+    time: Date | null;
+    txId: string | null;
+    asset_id: string | null;
+    history?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+      type?: string;
+    }>;
+    lastWithdrawal?: {
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+    };
+    withdrawals?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+    }>;
   };
   node?: {
-    amount: number;
-    time: Date;
-    txId: string;
-    asset_id: string;
+    amount: number | null;
+    time: Date | null;
+    txId: string | null;
+    asset_id: string | null;
+    history?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+      type?: string;
+    }>;
+    lastWithdrawal?: {
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+    };
+    withdrawals?: Array<{
+      amount: number;
+      txId: string;
+      time: Date;
+      asset_id: string;
+    }>;
   };
   names?: {
     first_name: string;

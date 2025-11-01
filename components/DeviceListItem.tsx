@@ -14,7 +14,9 @@ import {
   isRegistrationStaked,
   isRegistrationNeeded,
   isNodeStakingNeeded,
-  anchorIdForMinerKey
+  anchorIdForMinerKey,
+  REWARD_STATUS_DESCRIPTIONS,
+  isBoostAssetSupported
 } from '../lib/utils';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
@@ -57,9 +59,19 @@ type TokenConfig = {
   node?: string;
 };
 
+type TokenMetadataEntry = {
+  name?: string;
+  shortName?: string;
+  unitName?: string;
+  symbol?: string;
+};
+
+type TokenMetadataMap = Record<string, TokenMetadataEntry>;
+
 export default function DeviceListItem({
   initialDevice,
   product,
+  tokenMetadata = {},
   stakeable,
   handleDeleteButton,
   handleStaking,
@@ -85,6 +97,7 @@ export default function DeviceListItem({
   handleWithdrawStake: (device: Device) => void;
   handleWithdrawAllButton: (device: Device) => void;
   initialStatus?: { [key: string]: string } | undefined;
+  tokenMetadata?: TokenMetadataMap;
   hardwareStatus?: {
     linked: boolean;
     valid: boolean;
@@ -145,13 +158,22 @@ export default function DeviceListItem({
       .filter(([key]) => key !== 'hardware')
       .map(([key, value]) => {
         const trimmed = typeof value === 'string' ? value.trim() : '';
+        const containsNotSet = /not\s+set/i.test(trimmed);
         switch (key) {
           case 'position':
-            return trimmed && trimmed.toLowerCase() !== 'not set' ? `Position ${trimmed}` : 'Position not set';
+            if (!trimmed) return 'Position not set';
+            if (/^position\b/i.test(trimmed)) {
+              return containsNotSet ? 'Position not set' : trimmed;
+            }
+            if (containsNotSet) return 'Position not set';
+            return `Position ${trimmed}`;
           case 'reward_wallet':
-            return trimmed && trimmed.toLowerCase() !== 'not set'
-              ? `Reward wallet ${trimmed}`
-              : 'Reward wallet not set';
+            if (!trimmed) return 'Reward wallet not set';
+            if (/^reward\s+wallet\b/i.test(trimmed)) {
+              return containsNotSet ? 'Reward wallet not set' : trimmed;
+            }
+            if (containsNotSet) return 'Reward wallet not set';
+            return `Reward wallet ${trimmed}`;
           case 'email':
             return trimmed || 'Email not set';
           case 'first_name':
@@ -288,11 +310,11 @@ export default function DeviceListItem({
     return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   };
 
-  const formatAmount = (amount?: number) =>
-    typeof amount === 'number' ? amount.toLocaleString() : '—';
+  const formatAmount = (amount?: number | null) =>
+    typeof amount === 'number' && Number.isFinite(amount) ? amount.toLocaleString() : '—';
 
   const formatAssetId = useCallback(
-    (assetId?: string, fallbackKey?: keyof typeof productTokens) => {
+    (assetId?: string | null, fallbackKey?: keyof typeof productTokens) => {
       if (assetId) return assetId;
       if (fallbackKey && typeof productTokens[fallbackKey] === 'string') {
         return productTokens[fallbackKey] as string;
@@ -302,7 +324,37 @@ export default function DeviceListItem({
     [productTokens]
   );
 
-  const formatTx = (txId?: string) => (txId ? `${txId.slice(0, 6)}…${txId.slice(-6)}` : '—');
+  const resolveTokenDetail = useCallback(
+    (assetId?: string | null, fallbackKey?: keyof typeof productTokens) => {
+      const resolvedId = formatAssetId(assetId, fallbackKey);
+      if (!resolvedId || resolvedId === 'n/a') {
+        return {
+          id: null as string | null,
+          label: 'Token not configured',
+          name: 'Token not configured'
+        };
+      }
+
+      const meta = tokenMetadata?.[resolvedId];
+      const labelCandidate =
+        (meta?.unitName && meta.unitName.trim()) ||
+        (meta?.shortName && meta.shortName.trim()) ||
+        (meta?.symbol && meta.symbol.trim()) ||
+        (meta?.name && meta.name.trim());
+      const label = labelCandidate || `Asset ${resolvedId}`;
+      const name = (meta?.name && meta.name.trim()) || label;
+
+      return {
+        id: resolvedId,
+        label,
+        name
+      };
+    },
+    [formatAssetId, tokenMetadata]
+  );
+
+  const formatTx = (txId?: string | null) =>
+    txId ? `${txId.slice(0, 6)}…${txId.slice(-6)}` : '—';
 
   const formatTokenAmount = (value: number) =>
     Number.isFinite(value)
@@ -316,6 +368,124 @@ export default function DeviceListItem({
     if (!value) return '—';
     return value.length > 14 ? `${value.slice(0, 6)}…${value.slice(-6)}` : value;
   };
+
+  const rewardTokenDetail = useMemo(
+    () => resolveTokenDetail(product?.reward?.tokens?.reward, 'reward'),
+    [resolveTokenDetail, product?.reward?.tokens?.reward]
+  );
+
+  const rewardTokenUnitLabel = rewardTokenDetail.id ? rewardTokenDetail.label : 'tokens';
+  const boostSupported = useMemo(() => {
+    const id = rewardTokenDetail.id ?? product?.reward?.tokens?.reward ?? '';
+    return isBoostAssetSupported(id);
+  }, [rewardTokenDetail.id, product?.reward?.tokens?.reward]);
+  const stakeTokenDetail = useMemo(
+    () => resolveTokenDetail(product?.reward?.tokens?.stake, 'stake'),
+    [resolveTokenDetail, product?.reward?.tokens?.stake]
+  );
+
+  const baseDailyReward =
+    typeof product?.reward?.unverified === 'number' ? product.reward.unverified : null;
+
+  const formatDailyValue = useCallback((value: number | null) => {
+    if (value === null) return '—';
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }, []);
+
+  const dailyRewardEntries = useMemo(() => {
+    if (baseDailyReward === null) {
+      return [];
+    }
+
+    const typeOneDaily = baseDailyReward * 1.5;
+    const typeTwoDaily = baseDailyReward * 3;
+
+    return [
+      {
+        key: 'base',
+        label: 'Unverified',
+        description: 'Base daily rate without multiplier',
+        value: baseDailyReward,
+        accent: 'text-gray-200'
+      },
+      {
+        key: 'type1',
+        label: 'Type 1 • 1.5×',
+        description: '24 hour lock multiplier',
+        value: typeOneDaily,
+        accent: 'text-green-300'
+      },
+      {
+        key: 'type2',
+        label: 'Type 2 • 3×',
+        description: '6 month lock multiplier',
+        value: typeTwoDaily,
+        accent: 'text-amber-300'
+      }
+    ];
+  }, [baseDailyReward]);
+
+  const byodDiscountApplied = useMemo(
+    () => Boolean(device?.byod && device.byod.length > 0),
+    [device?.byod]
+  );
+
+  const hasStakeConfig = Boolean(product?.reward?.stake);
+
+  const adjustStakeAmount = useCallback(
+    (value?: number | null) => {
+      if (typeof value !== 'number' || Number.isNaN(value)) return null;
+      if (!byodDiscountApplied) return value;
+      return Math.round((value * 100) / 2) / 100;
+    },
+    [byodDiscountApplied]
+  );
+
+  const stakeOneRequirement = useMemo(
+    () => adjustStakeAmount(product?.reward?.stake?.stake_one ?? null),
+    [adjustStakeAmount, product?.reward?.stake?.stake_one]
+  );
+
+  const stakeTwoRequirement = useMemo(
+    () => adjustStakeAmount(product?.reward?.stake?.stake_two ?? null),
+    [adjustStakeAmount, product?.reward?.stake?.stake_two]
+  );
+
+  const stakeOptions = useMemo(() => {
+    if (!hasStakeConfig) return [];
+    const options: Array<{
+      key: 'one' | 'two';
+      title: string;
+      multiplier: string;
+      description: string;
+      amount: number | null;
+    }> = [];
+
+    if (stakeOneRequirement !== null) {
+      options.push({
+        key: 'one',
+        title: 'Type 1 • 24 hour lock',
+        multiplier: '1.5× multiplier',
+        description: 'Short lock boosts to 1.5× daily rewards.',
+        amount: stakeOneRequirement
+      });
+    }
+
+    if (stakeTwoRequirement !== null) {
+      options.push({
+        key: 'two',
+        title: 'Type 2 • 6 month lock',
+        multiplier: '3× multiplier',
+        description: 'Long lock delivers the maximum multiplier.',
+        amount: stakeTwoRequirement
+      });
+    }
+
+    return options;
+  }, [hasStakeConfig, stakeOneRequirement, stakeTwoRequirement]);
 
   const verificationUnlockTime = useMemo(() => {
     if (!device?.staked?.time) return null;
@@ -514,15 +684,16 @@ export default function DeviceListItem({
       )
     });
 
-    if (device?.staked?.time) {
-      const verificationDisplay = `${formatDateTime(device.staked.time)}${
-        verificationCountdown ? ` • ${verificationCountdown}` : ''
-      }`;
+    const verificationWithdrawal = device?.staked?.lastWithdrawal ?? null;
+    const isVerificationActive = Boolean(device?.verified && device?.staked?.time && device?.staked?.amount);
 
+    if (isVerificationActive && device?.staked?.time) {
       entries.push({
-        key: 'verification',
+        key: 'verification-active',
         label: 'Verification staked on',
-        date: verificationDisplay,
+        date: `${formatDateTime(device.staked.time)}${
+          verificationCountdown ? ` • ${verificationCountdown}` : ''
+        }`,
         color: 'border-green-500/60 bg-green-500/10',
         tooltip: (
           <div className="min-w-[280px] space-y-2">
@@ -549,7 +720,9 @@ export default function DeviceListItem({
               </span>
 
               <span className="text-gray-400">Status:</span>
-              <span className="font-medium">{verificationCountdown || <span className="text-gray-300">Unlock available</span>}</span>
+              <span className="font-medium">
+                {verificationCountdown || <span className="text-gray-300">Unlock available</span>}
+              </span>
             </div>
             <div className="border-t border-gray-700 pt-1.5 text-[0.65rem] text-gray-400 italic">
               Keeping staked after unlock maintains multiplier rewards. Withdrawing reduces to base rate.
@@ -557,58 +730,203 @@ export default function DeviceListItem({
           </div>
         )
       });
-    }
-
-    if (device?.registration?.time) {
+    } else if (verificationWithdrawal) {
       entries.push({
-        key: 'registration',
-        label: 'Registration staked on',
-        date: formatDateTime(device.registration.time),
-        color: 'border-purple-500/60 bg-purple-500/10',
+        key: 'verification-withdrawn',
+        label: 'Verification stake withdrew on',
+        date: formatDateTime(verificationWithdrawal.time ?? device?.staked?.time),
+        color: 'border-amber-500/60 bg-amber-500/10',
         tooltip: (
-          <div className="min-w-[250px] space-y-2">
-            <div className="border-b border-purple-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-purple-300">
-              Registration Stake
+          <div className="min-w-[280px] space-y-2">
+            <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+              Verification Withdrawal
             </div>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
               <span className="text-gray-400">Amount:</span>
-              <span className="font-semibold text-purple-300">{formatAmount(device.registration.amount)}</span>
+              <span className="font-semibold text-amber-200">{formatAmount(verificationWithdrawal.amount)}</span>
 
               <span className="text-gray-400">Asset ID:</span>
-              <span className="font-mono text-[0.65rem]">{formatAssetId(device.registration.asset_id, 'register')}</span>
+              <span className="font-mono text-[0.65rem]">{formatAssetId(verificationWithdrawal.asset_id ?? device?.staked?.asset_id, 'stake')}</span>
+
+              <span className="text-gray-400">Withdrawal Tx:</span>
+              <span className="font-mono text-[0.65rem]">{formatTx(verificationWithdrawal.txId)}</span>
+            </div>
+            <div className="border-t border-gray-700 pt-1.5 text-[0.65rem] text-gray-400 italic">
+              Re-stake to restore multiplier rewards for this device.
+            </div>
+          </div>
+        )
+      });
+    } else if (device?.staked?.time) {
+      // Legacy fallback for historical documents that haven't been migrated yet
+      entries.push({
+        key: 'verification-legacy',
+        label: 'Verification stake withdrew on',
+        date: formatDateTime(device.staked.time),
+        color: 'border-amber-500/60 bg-amber-500/10',
+        tooltip: (
+          <div className="min-w-[260px] space-y-2">
+            <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+              Verification Withdrawal
+            </div>
+            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+              <span className="text-gray-400">Amount:</span>
+              <span className="font-semibold text-amber-200">{formatAmount(device.staked.amount)}</span>
+
+              <span className="text-gray-400">Asset ID:</span>
+              <span className="font-mono text-[0.65rem]">{formatAssetId(device.staked.asset_id, 'stake')}</span>
 
               <span className="text-gray-400">Transaction:</span>
-              <span className="font-mono text-[0.65rem]">{formatTx(device.registration.txId)}</span>
+              <span className="font-mono text-[0.65rem]">{formatTx(device.staked.txId)}</span>
+            </div>
+            <div className="border-t border-gray-700 pt-1.5 text-[0.65rem] text-gray-400 italic">
+              Withdraw and re-stake to capture full history with the new audit trail.
             </div>
           </div>
         )
       });
     }
 
-    if (isNodeProduct(product) && device?.node?.time) {
-      entries.push({
-        key: 'node',
-        label: 'Node operation staked on',
-        date: formatDateTime(device.node.time),
-        color: 'border-orange-500/60 bg-orange-500/10',
-        tooltip: (
-          <div className="min-w-[250px] space-y-2">
-            <div className="border-b border-orange-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-orange-300">
-              Node Operation Stake
-            </div>
-            <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-              <span className="text-gray-400">Amount:</span>
-              <span className="font-semibold text-orange-300">{formatAmount(device.node.amount)}</span>
+    const registrationDetail = device?.registration;
+    if (registrationDetail) {
+      const registrationWithdrawal = registrationDetail.lastWithdrawal;
+      const registrationHistory = Array.isArray(registrationDetail.history)
+        ? registrationDetail.history
+        : [];
+      const latestHistoryEntry =
+        registrationHistory.length > 0
+          ? registrationHistory[registrationHistory.length - 1]
+          : null;
+      const stakeSource =
+        registrationDetail.time && registrationDetail.txId
+          ? {
+              amount: registrationDetail.amount,
+              asset_id: registrationDetail.asset_id,
+              time: registrationDetail.time,
+              txId: registrationDetail.txId
+            }
+          : latestHistoryEntry ?? registrationWithdrawal ?? null;
 
-              <span className="text-gray-400">Asset ID:</span>
-              <span className="font-mono text-[0.65rem]">{formatAssetId(device.node.asset_id, 'node')}</span>
+      const stakeTime = stakeSource?.time ?? registrationWithdrawal?.time ?? null;
+      if (stakeTime) {
+        const displayedRegistrationAmount =
+          registrationWithdrawal?.amount ?? stakeSource?.amount ?? null;
+        const registrationAssetId =
+          stakeSource?.asset_id ??
+          registrationWithdrawal?.asset_id ??
+          registrationDetail.asset_id;
+        const registrationTx =
+          stakeSource?.txId ?? registrationDetail.txId ?? registrationWithdrawal?.txId;
 
-              <span className="text-gray-400">Transaction:</span>
-              <span className="font-mono text-[0.65rem]">{formatTx(device.node.txId)}</span>
+        entries.push({
+          key: 'registration',
+          label: 'Registration staked on',
+          date: formatDateTime(stakeTime),
+          color: 'border-purple-500/60 bg-purple-500/10',
+          tooltip: (
+            <div className="min-w-[250px] space-y-2">
+              <div className="border-b border-purple-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-purple-300">
+                Registration Stake
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                <span className="text-gray-400">Amount:</span>
+                <span className="font-semibold text-purple-300">
+                  {formatAmount(displayedRegistrationAmount)}
+                  {registrationWithdrawal && (
+                    <span className="ml-2 text-[0.6rem] text-gray-400">(withdrawn)</span>
+                  )}
+                </span>
+
+                <span className="text-gray-400">Asset ID:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatAssetId(registrationAssetId, 'register')}
+                </span>
+
+                <span className="text-gray-400">Transaction:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatTx(registrationTx)}
+                </span>
+
+                {registrationWithdrawal && registrationWithdrawal.txId && (
+                  <>
+                    <span className="text-gray-400">Withdrawal Tx:</span>
+                    <span className="font-mono text-[0.65rem]">
+                      {formatTx(registrationWithdrawal.txId)}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        )
-      });
+          )
+        });
+      }
+    }
+
+    const nodeDetail = device?.node;
+    if (isNodeProduct(product) && nodeDetail) {
+      const nodeWithdrawal = nodeDetail.lastWithdrawal;
+      const nodeHistory = Array.isArray(nodeDetail.history) ? nodeDetail.history : [];
+      const latestNodeHistory =
+        nodeHistory.length > 0 ? nodeHistory[nodeHistory.length - 1] : null;
+      const nodeStakeSource =
+        nodeDetail.time && nodeDetail.txId
+          ? {
+              amount: nodeDetail.amount,
+              asset_id: nodeDetail.asset_id,
+              time: nodeDetail.time,
+              txId: nodeDetail.txId
+            }
+          : latestNodeHistory ?? nodeWithdrawal ?? null;
+
+      const nodeStakeTime = nodeStakeSource?.time ?? nodeWithdrawal?.time ?? null;
+      if (nodeStakeTime) {
+        const displayedNodeAmount =
+          nodeWithdrawal?.amount ?? nodeStakeSource?.amount ?? null;
+        const nodeAssetId =
+          nodeStakeSource?.asset_id ?? nodeWithdrawal?.asset_id ?? nodeDetail.asset_id;
+        const nodeTx =
+          nodeStakeSource?.txId ?? nodeDetail.txId ?? nodeWithdrawal?.txId;
+
+        entries.push({
+          key: 'node',
+          label: 'Node operation staked on',
+          date: formatDateTime(nodeStakeTime),
+          color: 'border-orange-500/60 bg-orange-500/10',
+          tooltip: (
+            <div className="min-w-[250px] space-y-2">
+              <div className="border-b border-orange-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-orange-300">
+                Node Operation Stake
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                <span className="text-gray-400">Amount:</span>
+                <span className="font-semibold text-orange-300">
+                  {formatAmount(displayedNodeAmount)}
+                  {nodeWithdrawal && (
+                    <span className="ml-2 text-[0.6rem] text-gray-400">(withdrawn)</span>
+                  )}
+                </span>
+
+                <span className="text-gray-400">Asset ID:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatAssetId(nodeAssetId, 'node')}
+                </span>
+
+                <span className="text-gray-400">Transaction:</span>
+                <span className="font-mono text-[0.65rem]">{formatTx(nodeTx)}</span>
+
+                {nodeWithdrawal && nodeWithdrawal.txId && (
+                  <>
+                    <span className="text-gray-400">Withdrawal Tx:</span>
+                    <span className="font-mono text-[0.65rem]">
+                      {formatTx(nodeWithdrawal.txId)}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        });
+      }
     }
 
     return entries;
@@ -627,19 +945,22 @@ export default function DeviceListItem({
         key: 'claimable',
         label: 'Claimable',
         value: formatTokenAmount(claimableAmount),
-        accent: 'text-green-300'
+        accent: 'text-green-300',
+        tooltip: REWARD_STATUS_DESCRIPTIONS.claimable
       },
       {
         key: 'pending',
         label: 'Pending',
         value: formatTokenAmount(pendingAmount),
-        accent: 'text-amber-300'
+        accent: 'text-amber-300',
+        tooltip: REWARD_STATUS_DESCRIPTIONS.pending
       },
       {
         key: 'accruing',
-        label: 'Weekly preview',
+        label: 'Accruing (weekly preview)',
         value: formatTokenAmount(rewardSummary?.accruing ?? 0),
-        accent: 'text-sky-300'
+        accent: 'text-sky-300',
+        tooltip: REWARD_STATUS_DESCRIPTIONS.accruing
       }
     ],
     [claimableAmount, pendingAmount, rewardSummary?.accruing]
@@ -651,6 +972,296 @@ export default function DeviceListItem({
     if (Number.isNaN(date.getTime())) return null;
     return date.toUTCString();
   }, [rewardSummary?.nextUnlockAt]);
+
+  type SectionConfig = {
+    key: 'rewards' | 'contact' | 'status';
+    title: string;
+    content: ReactNode;
+    important?: boolean;
+  };
+
+  
+  const statusImportant = shouldShowRed || shouldShowYellow;
+
+const collapsibleSections: SectionConfig[] = useMemo(
+    () => [
+      {
+        key: 'rewards',
+        title: 'Rewards & multipliers',
+        content: (
+          <div className="space-y-4">
+            <div>
+              <div className="text-gray-400">Reward token</div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-2 text-gray-200">
+                <span className="text-sm font-semibold" title={rewardTokenDetail.name}>
+                  {rewardTokenDetail.label}
+                </span>
+                {rewardTokenDetail.id && (
+                  <span className="font-mono text-[0.65rem] text-gray-500">#{rewardTokenDetail.id}</span>
+                )}
+              </div>
+            </div>
+            {dailyRewardEntries.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Daily earnings</div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {dailyRewardEntries.map((entry) => (
+                    <div
+                      key={entry.key}
+                      className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3"
+                    >
+                      <div className="text-[0.7rem] uppercase tracking-wide text-gray-500">
+                        {entry.label}
+                      </div>
+                      <div className={`mt-1 text-lg font-semibold ${entry.accent}`}>
+                        {`${formatDailyValue(entry.value)} ${rewardTokenUnitLabel}`}
+                      </div>
+                      <div className="text-[0.65rem] text-gray-500">{entry.description}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {stakeOptions.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-xs uppercase tracking-wide text-gray-500">
+                  Verification stake options
+                </div>
+                <div className="space-y-3">
+                  {stakeOptions.map((option) => (
+                    <div
+                      key={option.key}
+                      className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3"
+                    >
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-gray-200">
+                        <span className="font-semibold">{option.title}</span>
+                        <span className="text-xs text-emerald-300">{option.multiplier}</span>
+                      </div>
+                      <div className="mt-2 text-[0.85rem] text-gray-300">
+                        Stake requirement:{' '}
+                        <span className="font-semibold text-white">
+                          {option.amount !== null
+                            ? `${option.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${stakeTokenDetail.label}`
+                            : 'Not required'}
+                        </span>
+                      </div>
+                      <div className="text-[0.65rem] text-gray-500">{option.description}</div>
+                    </div>
+                  ))}
+                </div>
+                {stakeTokenDetail.id && (
+                  <div className="text-[0.65rem] text-gray-500">
+                    Stake asset:{' '}
+                    <span className="font-semibold text-gray-300" title={stakeTokenDetail.name}>
+                      {stakeTokenDetail.label}
+                    </span>{' '}
+                    <span className="font-mono text-gray-400">#{stakeTokenDetail.id}</span>
+                  </div>
+                )}
+                {byodDiscountApplied && (
+                  <div className="text-[0.65rem] text-amber-300">
+                    BYOD licence detected: stake requirements shown include the 50% BYOD discount.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      },
+      {
+        key: 'contact',
+        title: 'Wallets & contact',
+        content: (
+          <div className="space-y-3">
+            <div>
+              <div className="text-gray-400">Owner wallet</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
+                {device.address ? (
+                  <>
+                    <span>{device.address}</span>
+                    <CopyAddress address={device.address} />
+                  </>
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-400">Reward wallet</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
+                {device.reward_wallet ? (
+                  <>
+                    <span>{device.reward_wallet}</span>
+                    <CopyAddress address={device.reward_wallet} />
+                  </>
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-400">Email</div>
+              <div className="mt-1 text-gray-200 break-words">{device.email ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-gray-400">Location</div>
+              <div className="mt-1 text-gray-200">
+                {device?.position?.lat && device?.position?.lng
+                  ? `${device.position.lat.toFixed(4)}°, ${device.position.lng.toFixed(4)}°`
+                  : '—'}
+              </div>
+            </div>
+          </div>
+        )
+      },
+      {
+        key: 'status',
+        title: 'Status',
+        important: shouldShowRed || shouldShowYellow,
+        content: (
+          <div className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-gray-400">Verification</span>
+              <span
+                className={`font-semibold ${
+                  deviceStatusOkay
+                    ? 'text-green-300'
+                    : shouldShowYellow
+                      ? 'text-yellow-300'
+                      : 'text-red-300'
+                }`}
+              >
+                {device.verified ? 'Verified' : 'Unverified'}
+              </span>
+            </div>
+            {Object.keys(deviceStatus).length > 0 && (
+              <div className="space-y-2">
+                {Object.entries(deviceStatus).map(([key, value]) => (
+                  <div
+                    key={key}
+                    className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+                  >
+                    {value}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      }
+    ],
+    [
+      byodDiscountApplied,
+      dailyRewardEntries,
+      device.address,
+      device.email,
+      device.position?.lat,
+      device.position?.lng,
+      device.reward_wallet,
+      deviceStatus,
+      deviceStatusOkay,
+      rewardTokenDetail.label,
+      rewardTokenDetail.id,
+      rewardTokenDetail.name,
+      rewardTokenUnitLabel,
+      shouldShowRed,
+      shouldShowYellow,
+      stakeOptions,
+      stakeTokenDetail.id,
+      stakeTokenDetail.label,
+      stakeTokenDetail.name,
+      device.verified,
+      formatDailyValue
+    ]
+  );
+
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    const baseState: Record<string, boolean> = { rewards: true, contact: true, status: true };
+    if (typeof window === 'undefined') {
+      return statusImportant ? { ...baseState, status: true } : baseState;
+    }
+
+    let initial = { ...baseState };
+
+    const stored = window.localStorage.getItem(`device-sections:${device.miner_key}`);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          initial = { ...initial, ...parsed };
+        }
+      } catch {
+        // noop
+      }
+    }
+
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      initial = {
+        ...initial,
+        rewards: false,
+        contact: false,
+        status: statusImportant ? true : false
+      };
+    }
+
+    if (statusImportant) {
+      initial = { ...initial, status: true };
+    }
+
+    return initial;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      `device-sections:${device.miner_key}`,
+      JSON.stringify(expandedSections)
+    );
+  }, [expandedSections, device.miner_key]);
+  useEffect(() => {
+    if (!statusImportant) return;
+    if (expandedSections.status) return;
+    setExpandedSections((prev) => ({ ...prev, status: true }));
+  }, [statusImportant, expandedSections.status]);
+
+
+  const toggleSection = useCallback((key: string) => {
+    setExpandedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const renderSection = (section: SectionConfig) => {
+    const isExpanded = expandedSections[section.key] ?? true;
+    const showAlertBadge = section.key === 'status' && section.important;
+    return (
+      <div
+        key={section.key}
+        className="rounded-xl border border-gray-800 bg-black/70"
+      >
+        <button
+          type="button"
+          className="w-full px-4 py-3 flex items-center justify-between text-left text-gray-200 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-red-400"
+          onClick={() => toggleSection(section.key)}
+        >
+          <span className="text-xs uppercase tracking-wide text-gray-400">
+            {section.title}
+          </span>
+          <div className="flex items-center gap-2">
+            {showAlertBadge && (
+              <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.6rem] uppercase tracking-wide text-red-200">
+                Attention
+              </span>
+            )}
+            <span className="text-xs text-gray-500">{isExpanded ? 'Hide' : 'Show'}</span>
+          </div>
+        </button>
+        {isExpanded && (
+          <div className="border-t border-gray-800 px-4 py-4 text-sm text-gray-100">
+            {section.content}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const detailContent = (
     <div className="space-y-6 pt-8 text-sm text-gray-100">
@@ -753,83 +1364,8 @@ export default function DeviceListItem({
           </div>
         </div>
         </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-800 bg-black/70 p-4 space-y-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Wallets & contact</div>
-          <div className="space-y-3">
-            <div>
-              <div className="text-gray-400">Owner wallet</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
-                {device.address ? (
-                  <>
-                    <span>{device.address}</span>
-                    <CopyAddress address={device.address} />
-                  </>
-                ) : (
-                  <span>—</span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-gray-400">Reward wallet</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
-                {device.reward_wallet ? (
-                  <>
-                    <span>{device.reward_wallet}</span>
-                    <CopyAddress address={device.reward_wallet} />
-                  </>
-                ) : (
-                  <span>—</span>
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="text-gray-400">Email</div>
-              <div className="mt-1 text-gray-200 break-words">{device.email ?? '—'}</div>
-            </div>
-            <div>
-              <div className="text-gray-400">Location</div>
-              <div className="mt-1 text-gray-200">
-                {device?.position?.lat && device?.position?.lng
-                  ? `${device.position.lat.toFixed(4)}°, ${device.position.lng.toFixed(4)}°`
-                  : '—'}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-gray-800 bg-black/70 p-4 space-y-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Status</div>
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-400">Verification</span>
-              <span className="font-semibold text-gray-100">{device.verified ? 'Verified' : 'Pending'}</span>
-            </div>
-            {verificationReason && (
-              <div className="text-xs text-amber-300">{verificationReason}</div>
-            )}
-            {hardwareStatus?.miner_mac && (
-              <div>
-                <div className="text-gray-400">Hardware MAC</div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-gray-200 break-all">
-                  <span>{hardwareStatus.miner_mac}</span>
-                  <CopyAddress address={hardwareStatus.miner_mac} />
-                </div>
-              </div>
-            )}
-            {Object.keys(deviceStatus).length > 0 && (
-              <div className="space-y-2">
-                {Object.entries(deviceStatus).map(([key, value]) => (
-                  <div
-                    key={key}
-                    className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-200"
-                  >
-                    {value}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        {collapsibleSections.map(renderSection)}
       </div>
       {!!timelineEntries.length && (
         <div className="rounded-xl border border-gray-800 bg-black/70 p-4">
@@ -870,7 +1406,7 @@ export default function DeviceListItem({
               <div className="font-semibold text-gray-100">{formatTokenAmount(claimedAmount)}</div>
             </div>
             <div>
-              <div className="text-gray-400">Weekly preview</div>
+              <div className="text-gray-400">Accruing (weekly preview)</div>
               <div className="font-semibold text-sky-300">{formatTokenAmount(rewardSummary?.accruing ?? 0)}</div>
             </div>
           </div>
@@ -948,14 +1484,13 @@ export default function DeviceListItem({
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
               !isProductStakeAvailable(product)
                 ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20 cursor-not-allowed'
-                : pendingAmount > 0
+                : pendingAmount > 0 && boostSupported
                   ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200'
-                  : isStaked()
-                    ? 'border-green-500 text-green-300 cursor-not-allowed'
-                    : 'border-gray-500 text-gray-500 cursor-not-allowed'
+                  : 'border-gray-500 text-gray-500 cursor-not-allowed'
             }`}
-            disabled={pendingAmount <= 0}
+            disabled={pendingAmount <= 0 || !boostSupported}
             onClick={() => handleBoostButton(device)}
+            title={!boostSupported ? 'Instant Claim is available only for fNODE and tFRY rewards.' : undefined}
           >
             Instant Claim (30% Fee)
           </Button>
@@ -1096,17 +1631,16 @@ export default function DeviceListItem({
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {summaryMetrics.map((metric) => (
-            <div
-              key={metric.key}
-              className="rounded-lg border border-gray-800/80 bg-black/60 px-3 py-2"
-            >
-              <div className="text-[0.65rem] uppercase tracking-widest text-gray-500">
-                {metric.label}
+            <Tooltip key={metric.key} text={metric.tooltip} className="flex w-full">
+              <div className="w-full rounded-lg border border-gray-800/80 bg-black/60 px-3 py-2">
+                <div className="text-[0.65rem] uppercase tracking-widest text-gray-500">
+                  {metric.label}
+                </div>
+                <div className={`mt-1 text-sm font-semibold tabular-nums ${metric.accent}`}>
+                  {metric.value}
+                </div>
               </div>
-              <div className={`mt-1 text-sm font-semibold tabular-nums ${metric.accent}`}>
-                {metric.value}
-              </div>
-            </div>
+            </Tooltip>
           ))}
         </div>
         <div className="mt-4 flex flex-col gap-1 text-xs text-gray-400">
