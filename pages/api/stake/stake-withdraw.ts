@@ -1,12 +1,11 @@
 'use server';
 import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import algosdk, { Indexer, waitForConfirmation } from 'algosdk';
 import 'dotenv/config';
 import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
+import type { UpdateFilter } from 'mongodb';
 import { Device, Product } from '../../../lib/types';
 import { confirmTransaction, VERIFY_RESULT } from '../../../lib/txn';
 import { verifyTransaction } from '../algorand/verify-txn';
@@ -100,11 +99,11 @@ export default async function handler(
     const check =
       devMode ||
       device.staked.asset_id !== product.reward.tokens?.stake ||
-      (type == 'one'
+      (device.staked.time && type == 'one'
         ? (Date.now() - new Date(device.staked.time).getTime()) /
             (1000 * 60 * 60 * 24) >
           1
-        : (Date.now() - new Date(device.staked.time).getTime()) /
+        : device.staked.time && (Date.now() - new Date(device.staked.time).getTime()) /
             (1000 * 60 * 60 * 24) >
           180);
     if (!check) {
@@ -143,20 +142,48 @@ export default async function handler(
       return;
     }
 
-    await collection.updateOne(
-      { miner_key },
-      {
-        $set: {
-          staked: {
-            amount: 0,
-            txId: result,
-            time: new Date(),
-            rewarded_time: new Date()
-          },
-          verified: false
-        }
+    const withdrawalRecord = {
+      amount,
+      txId: result,
+      time: new Date(),
+      asset_id: device.staked.asset_id,
+      type
+    };
+
+    const previousStakeRecord =
+      device.staked.time && device.staked.txId
+        ? {
+            amount,
+            txId: device.staked.txId,
+            time: new Date(device.staked.time),
+            asset_id: device.staked.asset_id,
+            type
+          }
+        : null;
+
+    const updateOps: UpdateFilter<Device> = {
+      $set: {
+        'staked.amount': null,
+        'staked.txId': null,
+        'staked.time': null,
+        'staked.type': null,
+        'staked.asset_id': null,
+        'staked.lastWithdrawal': withdrawalRecord,
+        verified: false
+      },
+      $push: {
+        'staked.withdrawals': withdrawalRecord
       }
-    );
+    };
+
+    if (previousStakeRecord) {
+      updateOps.$push = {
+        ...updateOps.$push,
+        'staked.history': previousStakeRecord
+      } as NonNullable<UpdateFilter<Device>['$push']>;
+    }
+
+    await collection.updateOne({ miner_key }, updateOps);
 
     lockSet.delete(miner_key);
     res.status(200).json({ message: 'ok', txId: result });

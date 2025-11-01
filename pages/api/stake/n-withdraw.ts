@@ -7,6 +7,7 @@ import algosdk, { Indexer, waitForConfirmation } from 'algosdk';
 import 'dotenv/config';
 import clientPromise from '../../../lib/mongoclient';
 import { getFRYPrice } from '../../../lib/price';
+import type { UpdateFilter } from 'mongodb';
 import { Device, Product } from '../../../lib/types';
 import { confirmTransaction, VERIFY_RESULT } from '../../../lib/txn';
 import { verifyTransaction } from '../algorand/verify-txn';
@@ -120,19 +121,44 @@ export default async function handler(
       return;
     }
 
-    await collection.updateOne(
-      { miner_key },
-      {
-        $set: {
-          node: {
-            amount: 0,
-            txId: result,
-            time: new Date(),
-            asset_id: asset_id
+    const withdrawalRecord = {
+      amount,
+      txId: result,
+      time: new Date(),
+      asset_id
+    };
+
+    const previousStakeRecord =
+      device.node.time && device.node.txId
+        ? {
+            amount,
+            txId: device.node.txId,
+            time: new Date(device.node.time),
+            asset_id: device.node.asset_id
           }
-        }
+        : null;
+
+    const updateOps: UpdateFilter<Device> = {
+      $set: {
+        'node.amount': null,
+        'node.txId': null,
+        'node.time': null,
+        'node.asset_id': null,
+        'node.lastWithdrawal': withdrawalRecord
+      },
+      $push: {
+        'node.withdrawals': withdrawalRecord
       }
-    );
+    };
+
+    if (previousStakeRecord) {
+      updateOps.$push = {
+        ...updateOps.$push,
+        'node.history': previousStakeRecord
+      } as NonNullable<UpdateFilter<Device>['$push']>;
+    }
+
+    await collection.updateOne({ miner_key }, updateOps);
 
     lockSet.delete(miner_key);
     res.status(200).json({ message: 'ok', txId: result });

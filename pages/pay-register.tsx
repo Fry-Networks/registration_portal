@@ -4,7 +4,7 @@ import bgImg from '../assets/background.png';
 import { useRouter } from 'next/router';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Device, Product } from '../lib/types';
 import { getFRYPrice } from '../lib/price';
 // Removed incorrect import from API route and unused algosdk
@@ -54,6 +54,14 @@ export default function PayRegister({ products }: { products: Product[] }) {
   const { activeAddress, signTransactions } = useWallet();
 
   const toast = useToastContext();
+
+  const registrationStakeUsd = useMemo(() => {
+    const baseUsd = product?.reward.stake?.register ?? 0;
+    if (!device?.byod) {
+      return baseUsd;
+    }
+    return Math.round((baseUsd / 2) * 100) / 100; // halve and keep two decimals
+  }, [product?.reward.stake?.register, device?.byod]);
 
   const fetchDeviceInfo = async (minerKey: string) => {
     console.log('Device Miner Key: ' + minerKey);
@@ -163,10 +171,16 @@ export default function PayRegister({ products }: { products: Product[] }) {
 
     try {
       const asset_id = product.reward.tokens?.register ?? 'none';
-      const USDAmount = product.reward.stake?.register ?? 0;
+      const USDAmount = registrationStakeUsd;
 
       const price = await getFRYPrice(asset_id);
       const amount = Math.floor(USDAmount / price);
+
+      if (amount <= 0) {
+        toast.error({ heading: 'Error', message: 'Stake amount could not be calculated. Please try again later.' });
+        setIsProcessing(false);
+        return;
+      }
 
       console.log('Registration Staking Amount: ' + amount);
 
@@ -515,7 +529,12 @@ export default function PayRegister({ products }: { products: Product[] }) {
               flexDirection="col"
               justifyContent="center"
             >
-              <Title className="text-white text-center text-xl sm:text-2xl">{`Stake $${product?.reward.stake?.register}USD in ${tokenName} here to complete device registration.`}</Title>
+              <Title className="text-white text-center text-xl sm:text-2xl">{`Stake $${registrationStakeUsd} USD in ${tokenName} here to complete device registration${device?.byod ? ' (BYOD rate)' : ''}.`}</Title>
+              {device?.byod && (
+                <p className="text-center text-sm text-amber-300">
+                  BYOD devices earn at 50% of the standard rate, so the registration stake is reduced accordingly.
+                </p>
+              )}
               <Button
                 className={`relative flex min-w-[150px] items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
                   isProcessing ? 'cursor-not-allowed' : 'cursor-default'

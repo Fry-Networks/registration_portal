@@ -10,7 +10,8 @@ import { loggers } from '../../../lib/logger';
 // ADDED: Import standardized error helpers for consistent API error responses
 import { CommonErrors, createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
 
-import { Product } from '../../../lib/types';
+import type { UpdateFilter } from 'mongodb';
+import { Device, Product } from '../../../lib/types';
 
 export default async function handler(
   req: NextApiRequest,
@@ -59,26 +60,47 @@ export default async function handler(
 
     // VALIDATION: Check if device is registered in the system
     // Error occurs when: Device with this miner_key doesn't exist in devices collection
-    const miner_data = await db
+    const miner_data = (await db
       .collection(testMode ? 'test-devices' : 'devices')
-      .findOne({ miner_key: miner });
+      .findOne({ miner_key: miner })) as Device | null;
     if (!miner_data) {
       res.status(404).json(CommonErrors.deviceNotFound());
       return;
     }
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
+    const existingWithdrawals = Array.isArray(miner_data?.staked?.withdrawals)
+      ? miner_data.staked.withdrawals
+      : [];
+
+    const updateOps: UpdateFilter<Device> = {
+      $set: {
+        verified: true,
+        'staked.type': type,
+        'staked.amount': amount,
+        'staked.txId': txId,
+        'staked.asset_id': asset_id,
+        'staked.time': new Date(Date.now()),
+        'staked.lastWithdrawal': null,
+        'staked.withdrawals': existingWithdrawals
+      }
+    };
+
+    if (miner_data?.staked?.time && miner_data?.staked?.txId) {
+      const previousStakeRecord = {
+        amount: miner_data.staked.amount ?? 0,
+        txId: miner_data.staked.txId,
+        time: new Date(miner_data.staked.time),
+        asset_id: miner_data.staked.asset_id,
+        type: miner_data.staked.type
+      };
+      updateOps.$push = {
+        'staked.history': previousStakeRecord
+      } as NonNullable<UpdateFilter<Device>['$push']>;
+    }
+
     const result = await collection.updateOne(
       { miner_key: miner },
-      {
-        $set: {
-          verified: true,
-          'staked.type': type,
-          'staked.amount': amount,
-          'staked.txId': txId,
-          'staked.asset_id': asset_id,
-          'staked.time': new Date(Date.now())
-        }
-      }
+      updateOps
     );
 
     // DATABASE UPDATE: Mark device as verified and record stake verification details

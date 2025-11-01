@@ -10,7 +10,8 @@ import { loggers } from '../../../lib/logger';
 // ADDED: Import standardized error helpers for consistent API error responses
 import { CommonErrors, createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
 
-import { Product } from '../../../lib/types';
+import type { UpdateFilter } from 'mongodb';
+import { Device, Product } from '../../../lib/types';
 
 export default async function handler(
   req: NextApiRequest,
@@ -58,24 +59,44 @@ export default async function handler(
 
     // VALIDATION: Check if device is registered in the system
     // Error occurs when: Device with this miner_key doesn't exist in devices collection
-    const miner_data = await db
+    const miner_data = (await db
       .collection(testMode ? 'test-devices' : 'devices')
-      .findOne({ miner_key: miner });
+      .findOne({ miner_key: miner })) as Device | null;
     if (!miner_data) {
       res.status(404).json(CommonErrors.deviceNotFound());
       return;
     }
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
+    const existingWithdrawals = Array.isArray(miner_data?.registration?.withdrawals)
+      ? miner_data.registration.withdrawals
+      : [];
+
+    const updateOps: UpdateFilter<Device> = {
+      $set: {
+        'registration.amount': amount,
+        'registration.txId': txId,
+        'registration.asset_id': asset_id,
+        'registration.time': new Date(Date.now()),
+        'registration.lastWithdrawal': null,
+        'registration.withdrawals': existingWithdrawals
+      }
+    };
+
+    if (miner_data?.registration?.time && miner_data?.registration?.txId) {
+      const previousStakeRecord = {
+        amount: miner_data.registration.amount ?? 0,
+        txId: miner_data.registration.txId,
+        time: new Date(miner_data.registration.time),
+        asset_id: miner_data.registration.asset_id
+      };
+      updateOps.$push = {
+        'registration.history': previousStakeRecord
+      } as NonNullable<UpdateFilter<Device>['$push']>;
+    }
+
     const result = await collection.updateOne(
       { miner_key: miner },
-      {
-        $set: {
-          'registration.amount': amount,
-          'registration.txId': txId,
-          'registration.asset_id': asset_id,
-          'registration.time': new Date(Date.now())
-        }
-      }
+      updateOps
     );
 
     // DATABASE UPDATE: Record the registration stake details on the device
