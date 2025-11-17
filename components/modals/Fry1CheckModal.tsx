@@ -23,14 +23,14 @@ export default function Fry1CheckModal({
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && session?.user?.address) {
       const fetchInitialStatus = async () => {
         setIsChecking(true);
         try {
           const response = await fetch('/api/conversion/check_avail_conversion', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ address: session?.user.address, isLoading: true })
+            body: JSON.stringify({ address: session.user.address, isLoading: true })
           });
 
           if (!response.ok) throw new Error('Failed to check availability');
@@ -57,7 +57,7 @@ export default function Fry1CheckModal({
       setNow(new Date());
 
     }
-  }, [isOpen]);
+  }, [isOpen, session?.user?.address]);
 
   const handleCheck = async () => {
     setIsChecking(true);

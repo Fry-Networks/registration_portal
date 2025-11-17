@@ -6,31 +6,32 @@ import { REWARD_STATUS_DESCRIPTIONS } from '../lib/utils';
 interface FloatingTotalsWidgetProps {
   totals: {
     totals: {
-      fry1: { pending: number; claimable: number; claimed: number; accruing: number };
       fnode: { pending: number; claimable: number; claimed: number; accruing: number };
       tfry: { pending: number; claimable: number; claimed: number; accruing: number };
     };
     nextUnlockAt?: string;
   } | null;
   countdown: string;
-  estimatedFry1: number;
   estimatedFnode: number;
   estimatedTfry: number;
+  legacyFryClaimedSnapshot?: number;
 }
 
 const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   totals,
   countdown,
-  estimatedFry1,
   estimatedFnode,
-  estimatedTfry
+  estimatedTfry,
+  legacyFryClaimedSnapshot
 }) => {
   const ACCRUING_LABEL = 'Accruing (weekly preview)';
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [scrollY, setScrollY] = useState(0);
-  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
   const [isRibbonExpanded, setIsRibbonExpanded] = useState(false);
+  const legacySnapshot = legacyFryClaimedSnapshot ?? 0;
+  const hasLegacySnapshot = legacySnapshot > 0;
 
   // Token amount formatting (2 decimals)
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -152,7 +153,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     }
   };
 
-  // Fetch current prices (FRY 2.0, fNode and tFry)
+  // Fetch current prices (FRY 2.0 and fNode)
   useEffect(() => {
     let active = true;
     const run = async () => {
@@ -160,15 +161,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0,
-          tfry: json?.prices?.['2681521901'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0
         });
       } catch {}
     };
@@ -186,12 +186,6 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
       return [] as Array<{ key: string; name: string; claimable: string; pending: string }>;
     }
     return [
-      {
-        key: 'fry1',
-        name: 'FRY 1.0',
-        claimable: fmt(totals.totals.fry1.claimable),
-        pending: fmt(totals.totals.fry1.pending)
-      },
       {
         key: 'fnode',
         name: 'fNode',
@@ -245,9 +239,9 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     transition={{ duration: 0.25 }}
                     className="mt-4 space-y-4"
                   >
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
-                        <div className="text-xs uppercase tracking-wide text-gray-400">FRY 1.0 Totals</div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
                           <div>
                             <div className="text-gray-500">
@@ -255,12 +249,21 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                                 <span>{ACCRUING_LABEL}</span>
                               </Tooltip>
                             </div>
-                            <div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.accruing)}</div>
+                            <div className="font-semibold tabular-nums">{fmt(totals.totals.tfry.accruing)}</div>
                           </div>
-                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.pending)}</div></div>
-                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.fry1.claimable)}</div></div>
-                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.fry1.claimed)}</div></div>
+                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry.pending)}</div></div>
+                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.tfry.claimable)}</div></div>
+                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry.claimed)}</div></div>
                         </div>
+                        {hasLegacySnapshot && (
+                          <div className="mt-4">
+                            <div className="rounded-2xl border border-amber-400/70 bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent px-4 py-3 text-sm text-amber-100 shadow-inner shadow-amber-900/40">
+                              <div className="text-xs uppercase tracking-[0.3em] text-amber-200/80">Legacy FRY 1.0</div>
+                              <div className="mt-1 text-xl font-semibold text-white tabular-nums">{fmt(legacySnapshot)} <span className="text-sm font-normal text-amber-200">claimed</span></div>
+                              <p className="mt-1 text-[0.7rem] text-amber-100/80">Conversion to tFRY tool coming soon.</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
                         <div className="text-xs uppercase tracking-wide text-gray-400">fNode Totals</div>
@@ -279,28 +282,11 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                         </div>
                       </div>
                       <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
-                        <div className="text-xs uppercase tracking-wide text-gray-400">tFry Totals</div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <div className="text-gray-500">
-                              <Tooltip text={REWARD_STATUS_DESCRIPTIONS.accruing}>
-                                <span>{ACCRUING_LABEL}</span>
-                              </Tooltip>
-                            </div>
-                            <div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.accruing || 0)}</div>
-                          </div>
-                          <div><div className="text-gray-500">Pending</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.pending || 0)}</div></div>
-                          <div><div className="text-gray-500">Claimable</div><div className="font-semibold tabular-nums text-green-300">{fmt(totals.totals.tfry?.claimable || 0)}</div></div>
-                          <div><div className="text-gray-500">Claimed</div><div className="font-semibold tabular-nums">{fmt(totals.totals.tfry?.claimed || 0)}</div></div>
-                        </div>
-                      </div>
-                      <div className="rounded-xl border border-gray-800/70 bg-black/70 p-3">
-                        <div className="text-xs uppercase tracking-wide text-gray-400">Next FRYday</div>
+                        <div className="text-xs uppercase tracking-wide text-gray-400">Next Unlock</div>
                         <div className="mt-2 text-xl font-semibold tabular-nums">{(() => { const dm = countdown.match(/(\d+)d/); if (dm && parseInt(dm[1]) === 0) return countdown.replace(/^0d\s*/, ''); return countdown || '--'; })()}</div>
                         <div className="mt-2 space-y-0.5 text-xs text-gray-300">
-                          <div><span className="text-gray-500">FRY 1.0:</span> <span className="font-semibold">{fmt(estimatedFry1)}</span></div>
-                          <div><span className="text-gray-500">fNode:</span> <span className="font-semibold">{fmt(estimatedFnode)}</span></div>
-                          <div><span className="text-gray-500">tFry:</span> <span className="font-semibold">{fmt(estimatedTfry)}</span></div>
+                          <div><span className="text-gray-500">Projected tFry:</span> <span className="font-semibold">{fmt(estimatedTfry)}</span></div>
+                          <div><span className="text-gray-500">Projected fNode:</span> <span className="font-semibold">{fmt(estimatedFnode)}</span></div>
                         </div>
                       </div>
                     </div>
@@ -439,35 +425,39 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                 </div>
                 {/* Prices */}
                 <div className="text-xs text-gray-300 mb-3 text-center">
-                  FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)} • tFry (2681521901): {fmtUSD(prices.tfry)}
+                  FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
                 </div>
 
                 {/* Expanded Totals */}
                 <div className="space-y-3 text-xs">
-                  {/* FRY 1.0 */}
                   <div>
-                    <div className="text-gray-400 mb-1">FRY 1.0 Totals (924268058)</div>
+                    <div className="text-gray-400 mb-1">tFry Totals (2681521901)</div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="flex justify-between">
                         <span className="text-gray-500" title={REWARD_STATUS_DESCRIPTIONS.accruing}>{ACCRUING_LABEL}:</span>
-                        <span className="font-semibold">{fmt(totals.totals.fry1.accruing)}</span>
+                        <span className="font-semibold">{fmt(totals.totals.tfry.accruing)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">Pending:</span>
-                        <span className="font-semibold">{fmt(totals.totals.fry1.pending)}</span>
+                        <span className="font-semibold">{fmt(totals.totals.tfry.pending)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">Claimable:</span>
-                        <span className="font-semibold text-green-400">{fmt(totals.totals.fry1.claimable)}</span>
+                        <span className="font-semibold text-green-400">{fmt(totals.totals.tfry.claimable)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">Claimed:</span>
-                        <span className="font-semibold">{fmt(totals.totals.fry1.claimed)}</span>
+                        <span className="font-semibold">{fmt(totals.totals.tfry.claimed)}</span>
                       </div>
                     </div>
+                    {hasLegacySnapshot && (
+                      <div className="mt-3 rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-600/20 via-amber-400/10 to-transparent px-3 py-2 text-[0.7rem] text-amber-100">
+                        <div className="font-semibold text-white">{fmt(legacySnapshot)} FRY 1.0 claimed</div>
+                        <div className="text-amber-200/80">Conversion to tFry tool coming soon.</div>
+                      </div>
+                    )}
                   </div>
 
-                  {/* fNode */}
                   <div>
                     <div className="text-gray-400 mb-1">fNode Totals (2485202024)</div>
                     <div className="grid grid-cols-2 gap-2">
@@ -490,37 +480,12 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                     </div>
                   </div>
 
-                  {/* tFry */}
-                  <div>
-                    <div className="text-gray-400 mb-1">tFry Totals 
-                      <span className="ml-2 px-1 py-0.5 text-xs bg-gray-700/50 text-gray-300 rounded">Soon</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500" title={REWARD_STATUS_DESCRIPTIONS.accruing}>{ACCRUING_LABEL}:</span>
-                        <span className="font-semibold">{fmt(totals.totals.tfry?.accruing || 0)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Pending:</span>
-                        <span className="font-semibold">{fmt(totals.totals.tfry?.pending || 0)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Claimable:</span>
-                        <span className="font-semibold text-green-400">{fmt(totals.totals.tfry?.claimable || 0)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Claimed:</span>
-                        <span className="font-semibold">{fmt(totals.totals.tfry?.claimed || 0)}</span>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Countdown */}
                   <div className="border-t border-gray-600 pt-2">
                     <div className="text-gray-400 mb-1">Next FRYday</div>
                     <div className="text-lg font-semibold text-red-400">{countdown}</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      Est. weekly: {fmt(estimatedFry1)} FRY 1.0, {fmt(estimatedFnode)} fNode, {fmt(estimatedTfry)} tFry
+                      Est. weekly: {fmt(estimatedTfry)} tFry, {fmt(estimatedFnode)} fNode
                     </div>
                     <div className="mt-2 text-[0.65rem] leading-relaxed text-gray-500">
                       Rewards accrue daily and unlock as a single weekly reward every Friday at 00:05 UTC. This countdown shows time remaining to the next weekly unlock. Estimates are projected from your current accrual pace for each asset.

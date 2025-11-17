@@ -1,12 +1,13 @@
 import { Button, Dialog, DialogPanel, Flex, Title, Card, Text } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device, Product } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
 import { isNodeStaked, isRegistrationStaked } from '../../lib/utils';
+import { secureFetch } from '../../lib/api/secureFetch';
 
 export default function WithdrawAllModal({
 	modalName,
@@ -26,35 +27,30 @@ export default function WithdrawAllModal({
 	const [selectedOption, setSelectedOption] = useState('');
 
 	// Options depend on product: AI Edge has no Node Staking
-	const options = (product?.name || '').toLowerCase().includes('edge')
-		? ['Registration Staking']
-		: ['Registration Staking', 'Node Staking'];
+const options = useMemo(() => {
+	const isEdge = (product?.name || '').toLowerCase().includes('edge');
+	return isEdge ? ['Registration Staking'] : ['Registration Staking', 'Node Staking'];
+}, [product?.name]);
 
-	useEffect(() => {
-		const defaultOption = options.find((option) => {
-			const isDisabled = !isRegistrationStaked(device) && option === options[0];
-			return !isDisabled;
-		});
+useEffect(() => {
+    const defaultOption = options.find((option) => {
+        const isDisabled = !isRegistrationStaked(device) && option === options[0];
+        return !isDisabled;
+    });
 
-		if (defaultOption) {
-			setSelectedOption(defaultOption);
-		}
-	}, [device]);
+    if (defaultOption) {
+        setSelectedOption(defaultOption);
+    }
+}, [device, options]);
 
 	const withdrawAll = async () => {
 		setIsProcessing(true);
 		try {
 			// if (isRegistrationStaked(device)) {
 			if (selectedOption === 'Registration Staking') {
-				const response = await fetch('/api/stake/r-withdraw', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({
-						address: session?.user.address,
-						miner_key: device.miner_key
-					})
+				const response = await secureFetch('/api/stake/r-withdraw', {
+					address: session?.user.address,
+					miner_key: device.miner_key
 				});
 
 				if (!response.ok) {
@@ -76,15 +72,9 @@ export default function WithdrawAllModal({
 
 			// if (isNodeStaked(device)) {
 			if (selectedOption === 'Node Staking') {
-				const response = await fetch('/api/stake/n-withdraw', {
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({
-						address: session?.user.address,
-						miner_key: device.miner_key
-					})
+				const response = await secureFetch('/api/stake/n-withdraw', {
+					address: session?.user.address,
+					miner_key: device.miner_key
 				});
 
 				if (!response.ok) {
@@ -135,7 +125,8 @@ export default function WithdrawAllModal({
 				static={true}
 				className="z-[100]"
 			>
-				<DialogPanel className="sm:max-w-xl">
+				{/* Mirror withdraw modal palette so registration/node unstake dialogs stay consistent. */}
+				<DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
 					<div className="absolute right-0 top-0 pr-3 pt-3">
 						<button
 							type="button"
@@ -152,7 +143,8 @@ export default function WithdrawAllModal({
 							<RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
 						</button>
 					</div>
-					<Title className="mb-5">Unstake</Title>
+					{/* Keep title styling aligned with the verification withdraw modal for readability. */}
+					<Title className="mb-5 text-gray-900 dark:text-gray-100">Unstake</Title>
 					{/* <Flex
 						flexDirection="col"
 						alignItems="stretch"
@@ -161,9 +153,10 @@ export default function WithdrawAllModal({
 					>
 						<p>Do you want to withdraw registration and node staking?</p>
 					</Flex> */}
-					<Card className="max-w-md mx-auto p-4">
-						<Title className='text-[16px]'>Registration or Node Staking?</Title>
-						<Text className="mb-4">Choose one of the following:</Text>
+					{/* Re-use the dark-mode friendly card palette so option selectors remain legible. */}
+					<Card className="max-w-md mx-auto p-4 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 border border-amber-500/30">
+						<Title className='text-[16px] text-gray-900 dark:text-gray-100'>Registration or Node Staking?</Title>
+						<Text className="mb-4 text-gray-700 dark:text-gray-200">Choose one of the following:</Text>
 
 						<div className="space-y-2">
 							{options.map((option) => {
@@ -172,9 +165,9 @@ export default function WithdrawAllModal({
 								return (
 									<label
 										key={option}
-										className={`flex items-center p-3 border rounded-lg transition-all ${ 
-											selectedOption === option && !isDisabled ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-										} ${isDisabled ? 'bg-gray-300 cursor-not-allowed' : 'cursor-pointer'}`}
+										className={`flex items-center p-3 border rounded-lg transition-all text-gray-900 dark:text-gray-100 ${ 
+											selectedOption === option && !isDisabled ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20' : 'border-gray-300 dark:border-gray-600'
+										} ${isDisabled ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed' : 'cursor-pointer'}`}
 									>
 										<input
 											type="radio"
@@ -196,8 +189,9 @@ export default function WithdrawAllModal({
 						justifyContent="center"
 						className="gap-3 w-full mt-5"
 					>
+						{/* Align action buttons with the withdraw modal colors for a unified experience. */}
 						<Button
-							className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+							className="bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600"
 							onClick={() => {
 									if(!isProcessing) {
 										// setSelectedOption(options[0])
@@ -209,7 +203,7 @@ export default function WithdrawAllModal({
 							Close
 						</Button>
 						<Button
-							className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
+							className={`relative flex items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
 								isProcessing ? 'cursor-not-allowed' : 'cursor-default'
 							}`}
 							onClick={() => withdrawAll()}

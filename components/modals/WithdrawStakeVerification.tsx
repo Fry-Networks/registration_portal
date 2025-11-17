@@ -5,16 +5,7 @@ import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { useRouter } from 'next/router';
-import algosdk from 'algosdk';
-
-const algodClient = new algosdk.Algodv2(
-    '',
-    'https://mainnet-api.algonode.cloud',
-    ''
-);
-
-const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
-const FRYIndex = 924268058;
+import { secureFetch } from '../../lib/api/secureFetch';
 
 interface WithdrawStakeProps {
     modalName: string;
@@ -29,21 +20,21 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
     const [updateSuccess, setUpdateSuccess] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [disabled, setDisabled] = useState<boolean>(false);
-    const [available, setAvailable] = useState<{ available: boolean; availableIn: number }>({
+    const [available, setAvailable] = useState<{ available: boolean; availableIn: number; legacy?: boolean }>({
         available: false,
         availableIn: 0,
+        legacy: false,
     });
+    const isLegacyUnlock = available.legacy === true;
+    const [acknowledged, setAcknowledged] = useState(false);
 
     // Fetch availability for withdrawal
     useEffect(() => {
         const fetchAvailable = async () => {
             try {
-                const response = await fetch('/api/stake-available', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ address: activeAccount?.address, miner_key: miner }),
+        const response = await secureFetch('/api/stake/withdrawable', {
+                    address: activeAccount?.address,
+                    miner_key: miner
                 });
 
                 if (response.ok) {
@@ -60,16 +51,42 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
         }
     }, [miner, activeAccount]);
 
+    useEffect(() => {
+        if (!modals[modalName]) {
+            setAcknowledged(false);
+        }
+    }, [modals, modalName]);
+
+    const getButtonLabel = () => {
+        if (isLegacyUnlock) {
+            return isLoading ? 'Processing...' : 'Withdraw legacy stake';
+        }
+
+        if (available.available) {
+            return isLoading ? 'Processing...' : 'Withdraw';
+        }
+
+        const remainingMs = Math.max(0, available.availableIn - Date.now());
+        const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
+        if (days > 0) {
+            return `${days} day${days === 1 ? '' : 's'}`;
+        }
+        const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+        if (hours > 0) {
+            return `${hours} hour${hours === 1 ? '' : 's'}`;
+        }
+        const minutes = Math.floor(remainingMs / (1000 * 60));
+        const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
+        return `${minutes}m ${seconds}s`;
+    };
+
     // Handle stake withdrawal
     const handleWithdrawal = async () => {
         setIsLoading(true);
         try {
-            const response = await fetch('/api/stake-withdraw', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ address: activeAccount?.address, miner_key: miner }),
+            const response = await secureFetch('/api/stake/stake-withdraw', {
+                address: activeAccount?.address,
+                miner_key: miner
             });
 
             if (response.ok) {
@@ -90,7 +107,7 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
 
     return (
         <Dialog open={modals[modalName]} onClose={() => closeModal(modalName)} static={true} className="z-[100]">
-            <DialogPanel className="max-w-xl">
+        <DialogPanel className="max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
                 <div className="absolute right-0 top-0 pr-3 pt-3">
                     <button
                         type="button"
@@ -116,32 +133,37 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                     </Callout>
                 )}
 
+                {isLegacyUnlock && (
+                    <Callout className="mt-4 mb-4" title="Legacy FRY 1.0 stake" icon={CheckCircleIcon} color="amber">
+                        This miner is still staked with the retired FRY 1.0 token. Withdraw below to reclaim the funds,
+                        then re-stake with FRY 2.0 to restore verification rewards.
+                    </Callout>
+                )}
+
                 <form onSubmit={(e) => e.preventDefault()}>
                     <h4 className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                         Withdraw your verification stake ({staked} $FRY)
                     </h4>
-                    <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                        Withdrawing your stake will remove your miner from the verification list. You will need to stake
-                        again to verify your miner.
+                    <p className="text-gray-900 dark:text-gray-100">
+                        Withdrawing your stake will remove your miner from the verification list. You will lose the verification multiplier and only earn base rewards until you re-stake with FRY 2.0.
                     </p>
 
+                    <label className="mt-3 flex items-center gap-2 text-sm text-[#3c1e00] dark:text-amber-100">
+                        <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-amber-700 text-amber-700 focus:ring-amber-500 dark:border-amber-200 dark:text-amber-200"
+                            checked={acknowledged}
+                            onChange={(event) => setAcknowledged(event.target.checked)}
+                        />
+                        <span>I understand withdrawing now removes my multiplier until I re-stake.</span>
+                    </label>
+
                     <Button
-                        className="mt-4"
-                        color="blue"
+                        className="mt-4 border-red-600 text-white bg-transparent hover:bg-red-600 hover:border-red-600"
                         onClick={handleWithdrawal}
-                        disabled={isLoading || !available.available || disabled}
-                        >
-                        {available.availableIn > 0
-                            ? available.availableIn * 24 > 24
-                            ? `${(available.availableIn / 1).toFixed(0)} days`
-                            : available.availableIn * 24 > 1
-                            ? `${(available.availableIn * 24).toFixed(0)} hours`
-                            : `${Math.floor(available.availableIn * 24 * 60)} minutes ${
-                                Math.floor((available.availableIn * 24 * 60 * 60) % 60)
-                                } seconds`
-                            : isLoading
-                            ? 'Processing...'
-                            : 'Withdraw'}
+                        disabled={isLoading || (!available.available && !isLegacyUnlock) || disabled || !acknowledged}
+                    >
+                        {getButtonLabel()}
                     </Button>
                 </form>
             </DialogPanel>

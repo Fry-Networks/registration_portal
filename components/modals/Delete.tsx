@@ -6,6 +6,8 @@ import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
+// Align with other device actions by routing unregister through secureFetch (POST) so the API accepts it.
+import { secureFetch } from '../../lib/api/secureFetch';
 
 export default function DeleteModal({
   modalName,
@@ -25,15 +27,10 @@ export default function DeleteModal({
     console.log('Deleting');
     setIsProcessing(true);
     try {
-      const response = await fetch(`/api/devices/delete`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          miner_key: miner_key,
-          address: session?.user.address
-        })
+      // The delete API only accepts POST, so secureFetch keeps the method + auth headers consistent.
+      const response = await secureFetch('/api/devices/delete', {
+        miner_key: miner_key,
+        address: session?.user.address
       });
 
       const data = await response.json();

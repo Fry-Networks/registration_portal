@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import algosdk from 'algosdk';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -13,10 +12,8 @@ import { FryConversion } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
-import { useWallet } from '@txnlab/use-wallet-react';
 import { useToastContext } from '../../hooks/ToastContext';
 import {
-  algodClient,
   BURN_WALLET,
   FRY_1,
   FRY_2,
@@ -25,10 +22,12 @@ import {
   MODS_RELEASE_DATE
 } from '../../lib/utils';
 import ProgressMonthBar from '../ProgressMonthBar';
+import { useWalletActions } from '../../lib/wallet/useWalletActions';
+import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
+import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
+import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 export default function FryConversionModal({
   modalName,
@@ -39,7 +38,7 @@ export default function FryConversionModal({
   address: string | undefined;
   onClose: () => void;
 }) {
-  const { activeAddress, signTransactions } = useWallet();
+  const { activeAddress, signAndSubmit } = useWalletActions();
   const { modals, closeModal } = useModal();
   const [account, setAccount] = useState<FryConversion | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,6 +51,7 @@ export default function FryConversionModal({
 
   const { data: session } = useSession();
   const toast = useToastContext();
+  const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
 
 
   type BurnResult =
@@ -68,7 +68,6 @@ export default function FryConversionModal({
         return { status: 'error', reason: 'Missing sender address' };
       }
 
-      const suggestedParams = await algodClient.getTransactionParams().do();
       const to = BURN_WALLET;
 
       toast.info({
@@ -76,31 +75,26 @@ export default function FryConversionModal({
         message: 'Approve the burn transaction in your wallet to continue.'
       });
 
-      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+      const encodedTxn = await buildAssetTransferTxn({
         sender: from.toString(),
         receiver: to.toString(),
-        amount: testMode
-          ? 0
-          : BigInt(Math.floor(amount * Math.pow(10, FRY_1.decimals || 0))), // Amount in microAlgos
-        assetIndex: Number(FRY_1.id),
-        suggestedParams: suggestedParams
+        amount: testMode ? 0 : amount,
+        assetId: Number(FRY_1.id),
+        useRawAmount: testMode
       });
 
-      const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
-      const signedTransactions = await signTransactions([encodedTxn]);
-
-      // Filter out null values and ensure we have valid signed transactions
-      const validSignedTxns = signedTransactions.filter(
-        (txn): txn is Uint8Array => txn !== null
+      const txId = await executeWalletRetry(
+        async () => {
+          const [signedTxId] = await signAndSubmit([encodedTxn], {
+            message: 'Authorize FRY burn transfer'
+          });
+          if (!signedTxId) {
+            throw new Error('Transaction id missing');
+          }
+          return signedTxId;
+        },
+        { operationType: 'FRY burn', amount }
       );
-
-      if (validSignedTxns.length === 0) {
-        return { status: 'cancelled' };
-      }
-
-      // Send using algodClient directly
-      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
-      const txId = response.txid;
 
       console.log('Burn Transfer TxId: ', txId);
 
@@ -109,6 +103,14 @@ export default function FryConversionModal({
       }
       return { status: 'error', reason: 'Transaction broadcast returned no txId' };
     } catch (error) {
+      if (error instanceof WalletRequestInFlightError) {
+        // Inform the user rather than failing silently when another wallet prompt is active.
+        toast.info({
+          heading: 'Wallet Request In Progress',
+          message: 'Finish the current wallet prompt, then retry the conversion.'
+        });
+        return { status: 'error', reason: 'Wallet request already in progress' };
+      }
       console.error('Burn Transfer Error: ', error);
       const message =
         error && typeof error === 'object' && 'message' in error
@@ -124,7 +126,7 @@ export default function FryConversionModal({
   };
 
   // Remove fetchConversionStatus and related logic from here. Instead, expect a prop like `availabilityChecked` and `csvData` to be passed in, and only show conversion UI if availabilityChecked is true. The modal should not fetch or check availability itself anymore.
-  const fetchConversionStatus = async () => {
+  const fetchConversionStatus = useCallback(async () => {
     if (modals[modalName] === false) {
       return;
     }
@@ -158,13 +160,13 @@ export default function FryConversionModal({
       setIsConverted(result.user.status === 'pending' ? true : false);
       setAccount(result.user);
     } catch (error) {}
-  };
+  }, [modalName, modals, selectedTokenType, session, toast]);
 
   useEffect(() => {
     // This useEffect is no longer needed as availability is passed as a prop.
     // Keeping it for now, but it will be removed if not used elsewhere.
     fetchConversionStatus();
-  }, [address, modals, selectedTokenType]);
+  }, [fetchConversionStatus]);
 
   const handleConvert = async () => {
     setIsProcessing(true);

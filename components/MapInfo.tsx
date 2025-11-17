@@ -1,43 +1,63 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/router';
-import mapboxgl, { LngLat, Map } from 'mapbox-gl';
+import mapboxgl, { LngLat } from 'mapbox-gl';
+import type { MapMouseEvent } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useSession } from 'next-auth/react';
-import MessageUpdate from './messageUpdate';
-import { LatLng } from 'leaflet';
-const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {
-  ssr: false
-});
+import type { SearchBoxRetrieveResponse } from '@mapbox/search-js-core';
+
+const MapboxAutocomplete = dynamic(
+  () => import('@mapbox/search-js-react').then((mod) => ({ default: mod.SearchBox })),
+  { ssr: false }
+);
+
 
 mapboxgl.accessToken =
   'REDACTED_ROTATE_ME';
 
-const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) => {
-  const router = useRouter();
+interface MapInfoData {
+  latitude: number;
+  longitude: number;
+  [key: string]: unknown;
+}
+
+interface MapInfoProps {
+  status?: string;
+  minerKey?: string;
+  data: MapInfoData;
+  setData: (next: MapInfoData) => void;
+  onNext: () => void;
+  onSkip: () => void;
+  onCancel: () => void;
+}
+
+const MapInfo = ({ status: _status, minerKey: _minerKey, data, setData, onNext, onSkip, onCancel }: MapInfoProps) => {
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const marker = useRef<mapboxgl.Marker | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [isComplete, setIsComplete] = useState(false);
-  const [lng, setLng] = useState(0.0);
-  const [lat, setLat] = useState(0.0);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const { data: session } = useSession();
+
+  const initialCenterRef = useRef<[number, number]>([data.longitude, data.latitude]);
+  const setDataRef = useRef(setData);
+
+  useEffect(() => {
+    setDataRef.current = setData;
+  }, [setData]);
 
   useEffect(() => {
     const initializedMap = new mapboxgl.Map({
       container: 'map',
       style: 'mapbox://styles/mapbox/streets-v11',
-      center: [data.longitude, data.latitude],
+      center: initialCenterRef.current,
       zoom: 3
     });
 
     mapRef.current = initializedMap;
 
-    mapRef.current?.on('click', (e: any) => {
-      const lngLat = e.lngLat;
+    const handleMapClick = (event: MapMouseEvent) => {
+      const lngLat = event.lngLat;
 
-      setData({ latitude: lngLat.lat, longitude: lngLat.lng });
+      setDataRef.current({ latitude: lngLat.lat, longitude: lngLat.lng });
 
       mapRef.current?.flyTo({
         center: [lngLat.lng, lngLat.lat],
@@ -55,9 +75,14 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
         // Marker exists, move it to the new location
         marker.current.setLngLat(lngLat);
       }
-    });
+    };
 
-    return () => mapRef.current?.remove();
+    initializedMap.on('click', handleMapClick);
+
+    return () => {
+      initializedMap.off('click', handleMapClick);
+      initializedMap.remove();
+    };
   }, []);
 
   useEffect(() => {
@@ -79,7 +104,17 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
     }
   }, [data]);
 
-  const handleLocationSearch = (_result: string, lat: string, lng: string) => {
+  const handleLocationRetrieve = (result: SearchBoxRetrieveResponse) => {
+    const feature = result.features?.[0];
+    const coordinates = Array.isArray(feature?.geometry?.coordinates)
+      ? feature.geometry.coordinates
+      : null;
+
+    if (!coordinates || coordinates.length < 2) {
+      return;
+    }
+
+    const [lng, lat] = coordinates;
     const parsedLat = Number(lat);
     const parsedLng = Number(lng);
     if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
@@ -110,16 +145,15 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
 
   const handleNext = async () => {
     if (validateForm()) {
-      const latitude = lat;
-      const longitude = lng;
+      const { latitude, longitude } = data;
       mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 8 });
-      setData({ latitude: latitude, longitude: longitude });
+      setData({ latitude, longitude });
 
       // const saveData = {
-      //   miner_key: minerKey,
+      //   miner_key: _minerKey,
       //   position: {
-      //     lat: lat,
-      //     lng: lng
+      //     lat: latitude,
+      //     lng: longitude
       //   },
       //   address: session?.user.address
       // };
@@ -139,20 +173,17 @@ const MapInfo = ({ status, minerKey, data, setData, onNext, onSkip, onCancel }) 
     }
   };
 
-  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
-
   return (
     <div className="flex h-full">
       <div className="flex flex-col w-full p-4">
         <div className="flex flex-row flex-wrap md:flex-nowrap items-center md:gap-4 mt-2 justify-between">
-          <MapboxAutocomplete
-            //@ts-ignore
-            publicKey={mapboxgl.accessToken!}
-            inputClass="w-full rounded-lg border border-red-600 bg-white text-gray-900 placeholder:text-gray-600 p-2 mb-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-            onSuggestionSelect={handleLocationSearch}
-            resetSearch={true}
-            placeholder="Search location..."
-          />
+          <div className="w-full mb-1">
+            <MapboxAutocomplete
+              accessToken={mapboxgl.accessToken!}
+              onRetrieve={handleLocationRetrieve}
+              placeholder="Search location..."
+            />
+          </div>
           <div className="w-full md:w-1/4 mb-1 flex flex-wrap md:flex-nowrap md:justify-center items-center">
             <label className="mr-2 text-white">Latitude</label>
             <input

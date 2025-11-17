@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { Device, FryToken, Product } from '../../lib/types';
+import { getFRYPrice } from '../../lib/price';
+import { verifyTransactionRequest, VERIFY_RESULT } from '../../lib/algorand/verification';
 import { useModal } from '../../app/modalcontext';
 import {
   Dialog,
@@ -11,21 +13,16 @@ import {
   Button
 } from '@tremor/react';
 import { RiCloseLine } from '@remixicon/react';
-import algosdk from 'algosdk';
-import {
-  getAssetBalance as getStakeAssetBalance,
-  getAlgoBalance
-} from '../../lib/algorand/balances';
+import { getAssetBalance as getStakeAssetBalance, getAlgoBalance } from '../../lib/algorand/balances';
 import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
-import { useWallet } from '@txnlab/use-wallet-react';
-import {
-  confirmTransaction,
-  SEND_TXN_RESULT,
-  sendAlgoTransaction,
-  VERIFY_RESULT
-} from '../../lib/txn';
+import { useWalletActions } from '../../lib/wallet/useWalletActions';
+import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
+import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useToastContext } from '../../hooks/ToastContext';
+import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+// Added secure fetch helper so API calls automatically include security headers.
+import { secureFetch } from '../../lib/api/secureFetch';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -47,26 +44,124 @@ const StakeModal = ({
   modalName,
   device,
   product,
-  handleStakingUpdate
+  handleStakingUpdate,
+  stakeContext = 'verification'
 }: {
   modalName: string;
   device: Device;
   product: Product;
   handleStakingUpdate: (device: Device) => void;
+  stakeContext?: 'verification' | 'registration' | 'node';
 }) => {
-  const { activeAddress, signTransactions } = useWallet();
+  const { activeAddress, signAndSubmit } = useWalletActions();
   const { modals, openModal, closeModal } = useModal();
-  const [stakeType, setStateType] = useState('one');
+  const [stakeType, setStateType] = useState<string>('one');
   const [tokenName, setTokenName] = useState('');
   const [stakeAmount, setStakeAmount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const { data: session } = useSession();
   const toast = useToastContext();
+  const effectiveContext = stakeContext ?? 'verification';
+  const registrationStakeUsd = useMemo(() => {
+    const baseUsd = product?.reward?.stake?.register ?? 0;
+    if (!device?.byod) return baseUsd;
+    return Math.round((baseUsd / 2) * 100) / 100;
+  }, [product?.reward?.stake?.register, device?.byod]);
+  const nodeStakeUsd = useMemo(() => product?.reward?.stake?.node ?? 0, [product?.reward?.stake?.node]);
+  const formatUsdDisplay = useCallback((value?: number) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  }, []);
+  const requirementDescription = useMemo(() => {
+    if (effectiveContext === 'registration') {
+      const usdLabel = formatUsdDisplay(registrationStakeUsd);
+      const suffix = device?.byod ? ' (BYOD rate)' : '';
+      return usdLabel
+        ? `Stake $${usdLabel} USD in ${tokenName || 'the staking asset'} to complete device registration${suffix}.`
+        : null;
+    }
+    if (effectiveContext === 'node') {
+      const usdLabel = formatUsdDisplay(nodeStakeUsd);
+      return usdLabel
+        ? `Stake $${usdLabel} USD in ${tokenName || 'the staking asset'} to power your node operations.`
+        : null;
+    }
+    return null;
+  }, [effectiveContext, formatUsdDisplay, registrationStakeUsd, nodeStakeUsd, tokenName, device?.byod]);
+  const modalTitle = useMemo(() => {
+    if (effectiveContext === 'registration') return 'Stake Registration';
+    if (effectiveContext === 'node') return 'Stake Node Operation';
+    return 'Stake';
+  }, [effectiveContext]);
+  
+  // Single-flight operation state to prevent concurrent wallet operations
+  const operationInProgress = useRef(false);
+  
+  // Retry state management for resilient operations
+  const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
 
   const MINIMUM_ALGO_BUFFER = 0.01; // Require a tiny Algo reserve to cover network fees
 
-  const fetchTokenInformation = async (asset_id: string | undefined) => {
-    console.log(asset_id);
+  // Added reusable opt-in helper so staking modals can automatically submit the ASA opt-in
+  // transaction (0 amount transfer to self) when the wallet has not opted into the stake asset yet.
+  const requestAssetOptIn = useCallback(
+    async (assetId: string, assetLabel: string): Promise<boolean> => {
+      if (!session?.user?.address) {
+        return false;
+      }
+      if (!assetId || assetId === 'none') {
+        return true;
+      }
+
+      try {
+        toast.info({
+          heading: 'Opt-in required',
+          message: `Approving an opt-in transaction for ${assetLabel}.`
+        });
+
+        const optInTxn = await buildAssetTransferTxn({
+          sender: session.user.address,
+          receiver: session.user.address,
+          assetId: Number(assetId),
+          amount: 0,
+          useRawAmount: true
+        });
+
+        await executeWalletRetry(
+          async () => {
+            const txIds = await signAndSubmit([optInTxn], {
+              message: `Opt-in to ${assetLabel}`
+            });
+            if (!txIds[0]) {
+              throw new Error('Opt-in transaction cancelled.');
+            }
+            return txIds[0];
+          },
+          { operationType: 'asset opt-in' }
+        );
+
+        toast.success({
+          heading: 'Opt-in complete',
+          message: `Wallet is now opted into ${assetLabel}.`
+        });
+        return true;
+      } catch (error) {
+        const friendly =
+          error instanceof Error ? error.message : 'Opt-in transaction failed.';
+        toast.error({
+          heading: 'Opt-in failed',
+          message: friendly
+        });
+        return false;
+      }
+    },
+    [executeWalletRetry, session?.user?.address, signAndSubmit, toast]
+  );
+
+  const fetchTokenInformation = useCallback(async (asset_id: string | undefined) => {
     if (!asset_id) {
       return;
     }
@@ -77,19 +172,20 @@ const StakeModal = ({
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ asset_id: asset_id })
+        body: JSON.stringify({ asset_id })
       });
 
       if (!response.ok) {
         setTokenName('Unknown');
+        return;
       }
 
       const result = await response.json();
-      setTokenName(result.token.name);
+      setTokenName(result.token?.name || 'Unknown');
     } catch (error) {
       console.error(error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!device) {
@@ -100,259 +196,433 @@ const StakeModal = ({
       return;
     }
 
-    console.log('set stake type');
-    setStateType(device.staked.type);
+    if (device.staked.type) {
+      setStateType(device.staked.type);
+    }
   }, [device]);
 
   useEffect(() => {
-    if (product === undefined) {
+    if (!product) {
       return;
     }
 
-    console.log('Stake Amount initialize');
-
-    let stakeAmount = 0;
-    if (stakeType === 'one') {
-      stakeAmount = product.reward.stake!.stake_one;
-    } else {
-      stakeAmount = product.reward.stake!.stake_two;
+    if (effectiveContext === 'verification') {
+      let nextAmount = 0;
+      if (stakeType === 'one') {
+        nextAmount = product.reward.stake?.stake_one ?? 0;
+      } else {
+        nextAmount = product.reward.stake?.stake_two ?? 0;
+      }
+      if (device.byod && device.byod.length > 0) {
+        nextAmount = Math.round((nextAmount * 100) / 2) / 100;
+      }
+      setStakeAmount(nextAmount);
+      return;
     }
 
-    if (device.byod && device.byod.length > 0) {
-      stakeAmount = Math.round((stakeAmount * 100) / 2) / 100;
+    let cancelled = false;
+    const computeRequirementAmount = async () => {
+      const usdAmount = effectiveContext === 'registration' ? registrationStakeUsd : nodeStakeUsd;
+      const assetId =
+        effectiveContext === 'registration'
+          ? product.reward.tokens?.register
+          : product.reward.tokens?.node;
+      if (!assetId || usdAmount <= 0) {
+        if (!cancelled) setStakeAmount(0);
+        return;
+      }
+      try {
+        const price = await getFRYPrice(assetId);
+        if (!price || !Number.isFinite(price) || price <= 0) {
+          if (!cancelled) setStakeAmount(0);
+          return;
+        }
+        const amount = Math.floor(usdAmount / price);
+        if (!cancelled) {
+          setStakeAmount(amount);
+        }
+      } catch (error) {
+        console.error('[stake-modal] failed to compute stake requirement', error);
+        if (!cancelled) {
+          setStakeAmount(0);
+        }
+      }
+    };
+    computeRequirementAmount();
+    return () => {
+      cancelled = true;
+    };
+  }, [product, stakeType, device?.byod, effectiveContext, registrationStakeUsd, nodeStakeUsd]);
+  useEffect(() => {
+    if (!product) {
+      return;
     }
+    const assetId =
+      effectiveContext === 'registration'
+        ? product.reward.tokens?.register
+        : effectiveContext === 'node'
+          ? product.reward.tokens?.node
+          : product.reward.tokens?.stake;
+    fetchTokenInformation(assetId);
+  }, [
+    product,
+    effectiveContext,
+    product?.reward?.tokens?.register,
+    product?.reward?.tokens?.node,
+    product?.reward?.tokens?.stake,
+    fetchTokenInformation
+  ]);
 
-    fetchTokenInformation(product.reward.tokens?.stake);
-    setStakeAmount(stakeAmount);
-  }, [product, stakeType]);
+  /**
+   * Modern transaction sending with comprehensive error handling and retry logic.
+   * 
+   * This replaces the legacy sendAlgoTransaction calls with our modern wallet infrastructure:
+   * - Uses signAndSubmit for reliable wallet interaction
+   * - Handles wallet cancellation gracefully
+   * - Provides detailed error context for debugging
+   * - Includes operation context in transaction notes for audit trails
+   */
+  const sendTransaction = useCallback(
+    async ({
+      from,
+      to,
+      amount,
+      assetIdRaw,
+      notePayload,
+      walletMessage
+    }: {
+      from: string;
+      to: string;
+      amount: number;
+      assetIdRaw?: string | null;
+      notePayload: Record<string, unknown>;
+      walletMessage: string;
+    }) => {
+      try {
+        const enc = new TextEncoder();
+        const note = enc.encode(JSON.stringify(notePayload));
+        let assetId = 0;
+        if (assetIdRaw && assetIdRaw !== 'none') {
+          const numeric = Number(assetIdRaw);
+          if (!Number.isFinite(numeric)) {
+            throw new Error('Stake asset id is not configured in product settings');
+          }
+          assetId = numeric;
+        }
 
-  const sendTransaction = async (from: string, to: string, amount: number) => {
-    try {
-      const algodClient = new algosdk.Algodv2(
-        '',
-        'https://mainnet-api.algonode.cloud',
-        ''
-      );
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const noteInfo = {
-        miner_key:
-          device.miner_key.split('-')[0] +
-          '-' +
-          device.miner_key.split('-')[1].slice(0, 6),
-        asset_id: product.reward.tokens!.stake ?? 'none',
-        type: stakeType,
-        from: from,
-        to: to,
-        amount: amount,
-        date: new Date(Date.now())
-      };
+        if (session?.user?.address && assetIdRaw && assetIdRaw !== 'none') {
+          const stakeBalance = await getStakeAssetBalance(session.user.address, assetIdRaw);
+          if (stakeBalance === null) {
+            const optedIn = await requestAssetOptIn(assetIdRaw, tokenName || 'staking asset');
+            if (!optedIn) {
+              throw new Error(`Opt into ${tokenName || 'this staking asset'} before staking.`);
+            }
+          }
+        }
 
-      const enc = new TextEncoder();
-      const note = enc.encode(JSON.stringify(noteInfo));
-
-      const transaction =
-        algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        const encodedTransaction = await buildAssetTransferTxn({
           sender: from,
           receiver: to,
-          amount: testMode ? 0 : amount * 1_000_000, // Amount in microAlgos
-          note: note,
-          assetIndex: Number(product.reward.tokens!.stake ?? 'none'),
-          suggestedParams
+          assetId,
+          amount: testMode ? 0 : amount,
+          note,
+          useRawAmount: testMode ? true : undefined,
+          decimals: 6
         });
 
-      const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
-      const signedTransactions = await signTransactions([encodedTransaction]);
-      
-      // Filter out null values and ensure we have valid signed transactions
-      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
-      
-      if (validSignedTxns.length === 0) {
-        throw new Error('No valid signed transactions');
+        const [txId] = await signAndSubmit([encodedTransaction], {
+          message: walletMessage
+        });
+
+        if (!txId) {
+          throw new Error('No transaction id returned from wallet - transaction may have been cancelled');
+        }
+
+        return txId;
+      } catch (error) {
+        if (error instanceof WalletRequestInFlightError) {
+          throw new Error('A wallet request is already in progress. Complete the pending prompt before retrying.');
+        }
+        if (error instanceof Error) {
+          if (error.message.includes('Request Pending')) {
+            throw new Error('Another wallet request is pending. Please complete or cancel the existing request first.');
+          }
+          if (error.message.includes('cancelled')) {
+            throw new Error('Transaction was cancelled by user.');
+          }
+          if (error.message.includes('insufficient')) {
+            throw new Error('Insufficient balance to complete the staking transaction.');
+          }
+        }
+
+        console.error('Modern transaction failed:', error);
+        throw error;
       }
+    },
+    [requestAssetOptIn, session?.user?.address, signAndSubmit, tokenName]
+  );
 
-      // Send using algodClient directly
-      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
-      const txId = response.txid;
-
-      console.log('Successfully sent transaction. Transaction ID:', txId);
-      return txId;
-    } catch (error) {
-      console.error('Transaction failed:', error);
-      return null;
+  /**
+   * Modern, reliable staking submission with comprehensive error handling and retry logic.
+   * 
+   * This implements the reliability improvements from the wallet-reliability-plan.md:
+   * - Single-flight operations to prevent double submissions
+   * - Comprehensive balance checking before wallet interaction
+   * - Modern transaction sending with proper error handling
+   * - Retry logic for failed operations
+   * - Direct server-side API calls (no legacy transaction confirmation)
+   * - Progressive user feedback throughout the operation
+   */
+  const handleSubmit = useCallback(async () => {
+    if (operationInProgress.current) {
+      toast.warning({
+        heading: 'Operation in Progress',
+        message: 'A staking operation is already in progress. Please wait for it to complete.'
+      });
+      return;
     }
-  };
 
-  const handleSubmit = async () => {
+    operationInProgress.current = true;
     setIsProcessing(true);
-    console.log('Staking');
+    const context = effectiveContext;
+
     try {
       if (!session || !session.user) {
-        toast.error({ heading: 'Verification Error', message: 'Unauthorized' });
-        setIsProcessing(false);
+        toast.error({
+          heading: 'Authorization Error',
+          message: 'Please sign in to your wallet to continue.'
+        });
         return;
       }
 
-      const asset_id = product.reward.tokens?.stake ?? 'none';
+      if (!activeAddress || activeAddress !== session.user.address) {
+        toast.error({
+          heading: 'Wallet Mismatch',
+          message: 'Please connect the wallet you used to sign in.'
+        });
+        return;
+      }
+
+      const asset_id =
+        context === 'registration'
+          ? product.reward.tokens?.register ?? 'none'
+          : context === 'node'
+            ? product.reward.tokens?.node ?? 'none'
+            : product.reward.tokens?.stake ?? 'none';
+
+      if (!stakeAmount || stakeAmount <= 0) {
+        toast.error({
+          heading: 'Stake Unavailable',
+          message: 'Stake amount could not be determined. Please try again shortly.'
+        });
+        return;
+      }
+
+      toast.info({
+        heading: 'Checking balances',
+        message:
+          context === 'verification'
+            ? 'Verifying your wallet has sufficient staking tokens...'
+            : 'Verifying your wallet has sufficient tokens for this requirement...'
+      });
 
       const [stakeTokenBalance, algoBalance] = await Promise.all([
-        getStakeAssetBalance(session?.user.address!, asset_id), // Pull the stake asset balance before building the transaction
-        getAlgoBalance(session?.user.address!) // Ensure the wallet still has Algo to pay the fee
+        getStakeAssetBalance(session.user.address, asset_id),
+        getAlgoBalance(session.user.address)
       ]);
 
       if (stakeTokenBalance === null || stakeTokenBalance < stakeAmount) {
         toast.error({
-          heading: 'Verification Error',
-          message: 'Insufficient staking balance in your wallet'
+          heading: 'Insufficient Balance',
+          message: `You need at least ${stakeAmount} ${tokenName || 'tokens'} to stake. Current balance: ${stakeTokenBalance ?? 0}`
         });
-        setIsProcessing(false);
         return;
       }
 
       if (algoBalance === null || algoBalance < MINIMUM_ALGO_BUFFER) {
         toast.error({
-          heading: 'Verification Error',
-          message: 'Not enough ALGO to cover network fees'
+          heading: 'Insufficient ALGO',
+          message: `You need at least ${MINIMUM_ALGO_BUFFER} ALGO to cover network fees. Current balance: ${algoBalance ?? 0}`
         });
-        setIsProcessing(false);
         return;
       }
 
-      const note = {
-        action: 'Verify Staking',
-        miner_key:
-          device.miner_key.split('-')[0] +
-          '-' +
-          device.miner_key.split('-')[1].slice(0, 6),
-        from: session?.user.address,
-        to: STAKE_ADDRESS,
-        asset_id: asset_id,
-        amount: stakeAmount,
-        created_at: new Date(Date.now())
-      };
+      // Guard against triggering an on-chain stake when the API rate limit will reject the update.
+      const precheckResponse = await secureFetch('/api/stake/precheck', {
+        miner_key: device.miner_key,
+        address: session.user.address,
+        context
+      });
+      if (!precheckResponse.ok) {
+        const details = await precheckResponse.json().catch(() => null);
+        toast.error({
+          heading: 'Staking Unavailable',
+          message: details?.message ?? 'Too many staking requests right now. Please wait before trying again.'
+        });
+        return;
+      }
 
       toast.info({
-        heading: 'Signature required',
-        message: 'Please approve the staking transaction in your wallet.'
+        heading: 'Signature Required',
+        message:
+          context === 'verification'
+            ? `Please approve the ${stakeType === 'one' ? '24-hour' : '6-month'} staking transaction in your wallet.`
+            : `Please approve the ${context === 'registration' ? 'registration' : 'node'} staking transaction in your wallet.`
       });
 
-      const sendResult = devMode
-        ? await sendAlgoTransaction(
-            session?.user.address!,
-            STAKE_ADDRESS,
-            asset_id,
-            stakeAmount,
-            JSON.stringify(note),
-            null,
-            null,
-            true
-          )
-        : await sendAlgoTransaction(
-            session?.user.address!,
-            STAKE_ADDRESS,
-            asset_id,
-            stakeAmount,
-            JSON.stringify(note),
-            signTransactions,
-            null,
-            false
-          );
+      const shortMinerKey = `${device.miner_key.split('-')[0]}-${device.miner_key.split('-')[1].slice(0, 6)}`;
+      const notePayload: Record<string, unknown> = {
+        action:
+          context === 'registration'
+            ? 'Registration Staking'
+            : context === 'node'
+              ? 'Node Staking'
+              : 'Verification Staking',
+        miner_key: shortMinerKey,
+        asset_id,
+        type: context === 'verification' ? stakeType : undefined,
+        from: session.user.address,
+        to: STAKE_ADDRESS,
+        amount: stakeAmount,
+        operation:
+          context === 'registration'
+            ? 'registration_staking'
+            : context === 'node'
+              ? 'node_staking'
+              : 'verification_staking',
+        timestamp: new Date().toISOString()
+      };
 
-      if (sendResult.result != SEND_TXN_RESULT.OK) {
-        let message = '';
-        switch (sendResult.result) {
-          case SEND_TXN_RESULT.INVALID_PARAM:
-            {
-              message = 'Invalid transaction parameters.';
-            }
-            break;
-          case SEND_TXN_RESULT.NO_ASSET:
-            {
-              message = 'No asset is opted-in in your wallet';
-            }
-            break;
-          case SEND_TXN_RESULT.INSUFFICIENT_AMOUNT:
-            {
-              message = 'Insufficient amount in your wallet';
-            }
-            break;
-          case SEND_TXN_RESULT.INTERNAL_ERROR:
-            {
-              message = 'Error occured during sending transaction.';
-            }
-            break;
-        }
-        toast.error({ heading: 'Verification Error', message: message });
-        setIsProcessing(false);
-        return;
-      }
+      const walletMessage =
+        context === 'verification'
+          ? `Authorize ${stakeType === 'one' ? '24-hour' : '6-month'} staking of ${stakeAmount} ${tokenName || ''}`
+          : `Authorize ${context === 'registration' ? 'registration' : 'node'} staking of ${stakeAmount} ${tokenName || ''}`;
 
-      const txId = sendResult.txId!;
-      const verifyResult = await confirmTransaction(
-        session?.user.address!,
-        txId
+      const txId = await executeWalletRetry(
+        () =>
+          sendTransaction({
+            from: session.user.address!,
+            to: STAKE_ADDRESS,
+            amount: stakeAmount,
+            assetIdRaw: asset_id,
+            notePayload,
+            walletMessage
+          }),
+        { operationType: 'stake tokens', amount: stakeAmount }
       );
 
-      if (verifyResult != VERIFY_RESULT.OK) {
-        toast.error({
-          heading: 'Verification Error',
-          message: `Confirm ${txId} failed`
+      if (context !== 'verification') {
+        const verifyResult = await verifyTransactionRequest({
+          address: session.user.address!,
+          txId
         });
-        setIsProcessing(false);
-        return;
+        if (verifyResult !== VERIFY_RESULT.OK) {
+          toast.error({ heading: 'Error', message: `Confirm ${txId} failed` });
+          return;
+        }
       }
 
-      const dataResponse = await fetch('api/stake/verification', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          miner_key: device.miner_key,
-          address: session?.user.address,
-          txId: txId,
-          amount: stakeAmount,
-          type: stakeType,
-          asset_id: asset_id
-        })
+      toast.info({
+        heading: 'Processing',
+        message: 'Confirming transaction on blockchain...'
       });
 
+      const endpoint =
+        context === 'registration'
+          ? '/api/stake/registration'
+          : context === 'node'
+            ? '/api/stake/node-staking'
+            : '/api/stake/verification';
+
+      const payload =
+        context === 'verification'
+          ? {
+              miner_key: device.miner_key,
+              address: session.user.address,
+              txId,
+              amount: stakeAmount,
+              type: stakeType,
+              asset_id
+            }
+          : {
+              miner_key: device.miner_key,
+              address: session.user.address,
+              txId,
+              amount: stakeAmount,
+              asset_id
+            };
+
+      const dataResponse = await secureFetch(endpoint, payload);
       const dataResult = await dataResponse.json();
-      if (!dataResponse.ok) {
-        toast.error({
-          heading: 'Verification Error',
-          message: dataResult.message
-        });
-        setIsProcessing(false);
-        return;
+      if (!dataResponse.ok || !dataResult?.success) {
+        throw new Error(dataResult?.message || 'Server processing failed');
       }
 
-      if (dataResult.success) {
-        toast.success({
-          heading: 'Verification Success',
-          message: `Tx: ${txId}`
+      const successHeading =
+        context === 'registration'
+          ? 'Registration Staking Successful'
+          : context === 'node'
+            ? 'Node Staking Successful'
+            : 'Staking Successful';
+
+      toast.success({
+        heading: successHeading,
+        message:
+          context === 'verification'
+            ? `${stakeType === 'one' ? '24-hour' : '6-month'} staking completed! Transaction: ${txId}`
+            : `Transaction: ${txId}`
+      });
+
+      closeModal(modalName);
+      handleStakingUpdate(device);
+    } catch (error) {
+      console.error('Staking operation failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+
+      if (errorMessage.includes('cancelled')) {
+        toast.warning({
+          heading: 'Transaction Cancelled',
+          message: 'The staking transaction was cancelled. You can try again when ready.'
+        });
+      } else if (errorMessage.includes('Request Pending')) {
+        toast.warning({
+          heading: 'Wallet Busy',
+          message: 'Your wallet has a pending request. Please complete or cancel it first, then try again.'
         });
       } else {
+        const failureLabel =
+          context === 'registration'
+            ? 'registration staking'
+            : context === 'node'
+              ? 'node staking'
+              : 'staking';
         toast.error({
-          heading: 'Verification Error',
-          message: 'Failed to verify'
+          heading: 'Staking Failed',
+          message: `Failed to complete ${failureLabel}: ${errorMessage}`
         });
-        setIsProcessing(false);
-        return;
       }
-    } catch (error) {
-      console.error(error);
-      toast.error({
-        heading: 'Verification Error',
-        message: 'Unknown error occured during staking'
-      });
+    } finally {
+      operationInProgress.current = false;
       setIsProcessing(false);
-      return;
     }
-
-    closeModal(modalName);
-    handleStakingUpdate(device);
-    setIsProcessing(false);
-  };
+  }, [
+    activeAddress,
+    closeModal,
+    device,
+    effectiveContext,
+    executeWalletRetry,
+    handleStakingUpdate,
+    modalName,
+    product.reward.tokens?.node,
+    product.reward.tokens?.register,
+    product.reward.tokens?.stake,
+    sendTransaction,
+    session,
+    stakeAmount,
+    stakeType,
+    toast,
+    tokenName
+  ]);
 
   return (
     <div>
@@ -364,7 +634,8 @@ const StakeModal = ({
         static={true}
         className="z-[100]"
       >
-        <DialogPanel className="sm:max-w-xl">
+        {/* Mirror withdraw modal palette so staking dialogs stay legible in both themes. */}
+        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -375,46 +646,59 @@ const StakeModal = ({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5">{`Stake (${tokenName})`}</Title>
+          {/* Keep headings consistent with the withdraw modal styling for contrast. */}
+          <Title className="mb-5 text-gray-900 dark:text-gray-100">{`${modalTitle}${tokenName ? ` (${tokenName})` : ''}`}</Title>
+          {/* Use explicit text colors so staking controls stay readable on dark/light backgrounds. */}
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5 text-slate-900"
+            className="gap-3 w-full mt-5 text-gray-900 dark:text-gray-100"
           >
-            <div className="flex gap-2">
-              <p>BYOD:</p>
-              <p>{device?.byod ? 'Yes' : 'No'}</p>
-            </div>
+            {effectiveContext === 'verification' ? (
+              <>
+                <div className="flex gap-2">
+                  <p>BYOD:</p>
+                  <p>{device?.byod ? 'Yes' : 'No'}</p>
+                </div>
 
-            <div className="flex items-center space-x-2 gap-16">
-              <label className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  name="stakeOption"
-                  value="one"
-                  checked={stakeType === 'one'}
-                  onChange={() => setStateType('one')}
-                  className="border border-red-600 text-red-600"
-                />
-                <span>24-Hour Staking(1.5x)</span>
-              </label>
-              <label className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  name="stakeOption"
-                  value="two"
-                  checked={stakeType === 'two'}
-                  onChange={() => setStateType('two')}
-                  className="border border-red-600 text-red-600"
-                />
-                <span>6-months Staking(3x)</span>
-              </label>
-            </div>
+                <div className="flex items-center space-x-2 gap-16">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="stakeOption"
+                      value="one"
+                      checked={stakeType === 'one'}
+                      onChange={() => setStateType('one')}
+                      className="border border-red-600 text-red-600"
+                    />
+                    <span>24-Hour Staking(1.5x)</span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      name="stakeOption"
+                      value="two"
+                      checked={stakeType === 'two'}
+                      onChange={() => setStateType('two')}
+                      className="border border-red-600 text-red-600"
+                    />
+                    <span>6-months Staking(3x)</span>
+                  </label>
+                </div>
+              </>
+            ) : (
+              // Match callout styling from withdraw modal for clarity on staking requirements.
+              requirementDescription && (
+                <div className="rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-amber-500/40 dark:bg-gray-800 dark:text-gray-100">
+                  {requirementDescription}
+                </div>
+              )
+            )}
             <div className="flex items-center w-full space-x-2">
               <label
                 htmlFor="stakeAmount"
-                className="text-sm font-medium text-gray-700 text-nowrap"
+                className="text-sm font-medium text-gray-700 dark:text-gray-100 text-nowrap"
               >
                 Amount to Stake:
               </label>
@@ -422,60 +706,56 @@ const StakeModal = ({
                 id="stakeAmount"
                 type="number"
                 min="0"
-                className="p-2 w-full border ml-2 text-black border-gray-500 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50"
+                className="p-2 w-full border ml-2 text-gray-900 dark:text-gray-100 border-gray-500 dark:border-gray-400 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50 bg-white dark:bg-gray-800"
                 disabled={true}
                 value={stakeAmount}
                 readOnly
               />
             </div>
           </Flex>
+          {/* Align staking action buttons with withdraw modal button colors for uniformity. */}
           <Flex
             flexDirection="row"
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
             <Button
-              className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+              className="bg-transparent border-red-600 text-white hover:bg-red-600 hover:border-red-600"
               onClick={() => !isProcessing && closeModal(modalName)}
             >
               Close
             </Button>
             <Button
-              className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
-                isProcessing ? 'cursor-not-allowed' : 'cursor-default'
+              className={`relative flex items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
+                isProcessing ? 'cursor-not-allowed opacity-75' : 'cursor-default'
               }`}
               onClick={handleSubmit}
+              disabled={isProcessing || stakeAmount <= 0}
             >
               {isProcessing ? (
-                <svg
-                  className="animate-spin h-6 w-6 text-red-500"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <defs>
-                    <linearGradient
-                      id="redGradient"
-                      x1="0%"
-                      y1="0%"
-                      x2="100%"
-                      y2="0%"
-                    >
-                      <stop offset="0%" stopColor="#ff0000" />
-                      <stop offset="50%" stopColor="#ff4d4d" />
-                      <stop offset="100%" stopColor="#ff9999" />
-                    </linearGradient>
-                  </defs>
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="url(#redGradient)"
-                    strokeWidth="4"
+                <div className="flex items-center gap-2">
+                  <svg
+                    className="animate-spin h-5 w-5 text-red-500"
+                    xmlns="http://www.w3.org/2000/svg"
                     fill="none"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      className="opacity-25"
+                    />
+                    <path
+                      fill="currentColor"
+                      d="m4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      className="opacity-75"
+                    />
+                  </svg>
+                  <span>Processing...</span>
+                </div>
               ) : (
                 'Stake'
               )}

@@ -3,11 +3,14 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { Button, Flex, TextInput, Title } from '@tremor/react';
 import { signOut, useSession } from 'next-auth/react';
 import algosdk from 'algosdk';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useToastContext } from '../hooks/ToastContext';
+import { useWalletActions } from '../lib/wallet/useWalletActions';
+import { buildPaymentTxn } from '../lib/wallet/transactions';
+import { WalletRequestInFlightError, isWalletRequestActive } from '../lib/wallet/requestCoordinator.client';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
 interface SignInProps {
@@ -21,8 +24,9 @@ const devMode =
 export default function SignIn({ signed }: SignInProps) {
   const router = useRouter();
   const { devConnect, devAccount, algodClient: devAlgodClient } = useDevWallet();
-  const { activeAccount, algodClient, wallets, signTransactions } = useWallet();
-  const activeWallet = wallets.find(w => w.isActive);
+  const { activeAccount, wallets } = useWallet();
+  const { activeAddress: walletAddress, signTransactions } = useWalletActions();
+  const activeWallet = wallets.find((wallet) => wallet.isActive);
   const { data: session, status } = useSession();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNew, setIsNew] = useState(false);
@@ -107,7 +111,7 @@ export default function SignIn({ signed }: SignInProps) {
         setIsAuthenticating(false);
       }
     } else {
-      if (!activeAccount) {
+      if (!walletAddress) {
         toast.error({
           heading: 'Wallet Not Connected',
           message: 'Connect your wallet before signing in.'
@@ -122,17 +126,14 @@ export default function SignIn({ signed }: SignInProps) {
         console.log('Signing message:', message);
 
         // Create a transaction to sign
-        const suggestedParams = await algodClient.getTransactionParams().do();
-        const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-          sender: activeAccount.address,
-          receiver: activeAccount.address,
+        const noteBytes = new TextEncoder().encode(message);
+        const unsignedTxn = await buildPaymentTxn({
+          sender: walletAddress,
+          receiver: walletAddress,
           amount: 0,
-          note: new Uint8Array(Buffer.from(message)),
-          suggestedParams
+          useMicroAlgos: true,
+          note: noteBytes
         });
-
-        // Sign the transaction
-        const unsignedTxn = algosdk.encodeUnsignedTransaction(txn);
 
         const coerceToBytes = (value: unknown): Uint8Array | null => {
           if (!value) return null;
@@ -173,6 +174,13 @@ export default function SignIn({ signed }: SignInProps) {
             }
             return null;
           } catch (error) {
+            if (error instanceof WalletRequestInFlightError) {
+              toast.info({
+                heading: 'Wallet Request In Progress',
+                message: 'Finish or cancel the active wallet prompt before starting another.'
+              });
+              return null;
+            }
             console.error(
               '[SignIn] signTransactions failed',
               includeMessage ? 'with message' : 'default',
@@ -196,25 +204,28 @@ export default function SignIn({ signed }: SignInProps) {
         }
 
         if (!signedBytes) {
-          toast.error({
-            heading: 'Signature Required',
-            message:
-              'We did not receive a signature. Reopen Pera/WalletConnect and try again.'
-          });
+          // Skip the generic failure toast if another wallet request is already active.
+          if (!isWalletRequestActive()) {
+            toast.error({
+              heading: 'Signature Required',
+              message:
+                'We did not receive a signature. Reopen Pera/Defly and try again.'
+            });
+          }
           setIsAuthenticating(false);
           return;
         }
 
         const signedTxnBase64 = Buffer.from(signedBytes).toString('base64');
         console.log('Sending to server:', {
-          address: activeAccount.address,
+          address: walletAddress,
           signedTxn: signedTxnBase64,
           nonce
         });
 
         const callbackUrl = (router.query.callbackUrl as string) || '/';
         const res = await signIn('wallet', {
-          address: activeAccount.address,
+          address: walletAddress,
           email: isNew ? email : undefined,
           first_name: isNew ? first_name : undefined,
           last_name: isNew ? last_name : undefined,
@@ -248,8 +259,8 @@ export default function SignIn({ signed }: SignInProps) {
   }
 
   const connectedWalletAddress = useMemo(
-    () => (devMode ? devAccount?.addr : activeAccount?.address) || null,
-    [devAccount?.addr, activeAccount?.address]
+    () => (devMode ? devAccount?.addr : walletAddress) || null,
+    [devAccount?.addr, walletAddress]
   );
 
   const isSessionWallet = Boolean(
@@ -265,7 +276,7 @@ export default function SignIn({ signed }: SignInProps) {
     setErrors({});
   }, [connectedWalletAddress]);
 
-  const checkUser = async () => {
+  const checkUser = useCallback(async () => {
     if (!connectedWalletAddress) {
       return;
     }
@@ -283,13 +294,13 @@ export default function SignIn({ signed }: SignInProps) {
     const { isNew } = await result.json();
     console.log('Is New: ' + isNew);
     setIsNew(isNew);
-  };
+  }, [connectedWalletAddress]);
 
   // PoC wallet removed; no wallet generation needed
 
   useEffect(() => {
     checkUser();
-  }, [connectedWalletAddress]);
+  }, [checkUser]);
 
   useEffect(() => {
     if (session && session.user && !session.user.email) {
@@ -305,7 +316,7 @@ export default function SignIn({ signed }: SignInProps) {
     }
   }, [status, session?.user?.address, connectedWalletAddress]);
 
-  return !devConnect && !activeAccount ? (
+  return !devConnect && !walletAddress ? (
     <></>
   ) : (
     <div className="w-full">

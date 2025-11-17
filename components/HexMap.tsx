@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMap } from 'react-leaflet';
+import type { LatLngBoundsExpression } from 'leaflet';
 import dynamic from 'next/dynamic';
 
 // MapClickCatcher must be in its own file and dynamically imported:
@@ -46,6 +47,11 @@ interface HexMapProps {
   onDisplayCellChange?: (cell: string | null, resolution: number) => void;
 }
 
+const WORLD_BOUNDS: LatLngBoundsExpression = [
+  [-85, -180],
+  [85, 180],
+];
+
 export default function HexMap({
   resolution,
   center,
@@ -77,6 +83,11 @@ export default function HexMap({
     },
     [onDisplayCellChange]
   );
+
+  const notifyRef = useRef<typeof notifyDisplayCellChange>();
+  useEffect(() => {
+    notifyRef.current = notifyDisplayCellChange;
+  }, [notifyDisplayCellChange]);
 
   // Zoom-to-resolution mapping helpers (tweak values to taste)
   const resToZoom = useCallback((res: number) => {
@@ -150,6 +161,11 @@ export default function HexMap({
     const map = useMap();
     useEffect(() => {
       mapRef.current = map;
+      const minZoomForWorld = map.getBoundsZoom(WORLD_BOUNDS, true);
+      map.setMinZoom(minZoomForWorld);
+      if (map.getZoom() < minZoomForWorld) {
+        map.setZoom(minZoomForWorld, { animate: false });
+      }
       return () => {
         // optional cleanup
         mapRef.current = null;
@@ -228,7 +244,7 @@ export default function HexMap({
       // update internal resolution and displayed cells
       setInternalResolution(targetRes);
       setCells(Array.from(gridDisk(selectedCell, neighborsK)));
-      notifyDisplayCellChange(selectedCell, targetRes);
+      notifyRef.current?.(selectedCell, targetRes);
       // fit bounds to the cell boundary
       try {
         map.fitBounds(boundary as any, { padding: [40, 40], maxZoom: 16, animate: true });
@@ -240,7 +256,7 @@ export default function HexMap({
     } catch (err) {
       // ignore fit errors
     }
-  }, [selectedCell]);
+  }, [selectedCell, neighborsK, resToZoom]);
 
   // handle a user click: drill progressively from current displayed resolution down to 7
   const handleClick = async (latlng: LatLng) => {
@@ -271,7 +287,7 @@ export default function HexMap({
       const boundary = cellToBoundary(cell) as LatLng[];
       setInternalResolution(nextRes);
       setCells(Array.from(gridDisk(cell, neighborsK)));
-      notifyDisplayCellChange(cell, nextRes);
+      notifyRef.current?.(cell, nextRes);
 
       try {
         map.fitBounds(boundary as any, { padding: [40, 40], maxZoom: 16, animate: true });
@@ -287,7 +303,7 @@ export default function HexMap({
       // fallback if the next resolution can't be computed
       const fallbackCell = latLngToCell(latlng[0], latlng[1], startRes);
       const [cLat, cLng] = cellToLatLng(fallbackCell);
-      notifyDisplayCellChange(fallbackCell, startRes);
+      notifyRef.current?.(fallbackCell, startRes);
       onSelect(fallbackCell, cLat, cLng);
     }
   };
@@ -315,6 +331,8 @@ export default function HexMap({
           center={center}
           zoom={initialLeafletZoom}
           scrollWheelZoom
+          maxBounds={WORLD_BOUNDS}
+          maxBoundsViscosity={1}
           style={{ height: '100%', width: '100%', borderRadius: '0.75rem' }}
         >
           {/* Set mapRef via a child component instead of whenCreated (avoids type issues across react-leaflet versions) */}
@@ -324,6 +342,7 @@ export default function HexMap({
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution="&copy; OpenStreetMap contributors"
+            noWrap
           />
 
           {polygons.map(({ cell, boundary }) => (

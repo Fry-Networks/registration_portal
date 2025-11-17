@@ -10,33 +10,86 @@ import {
     Divider,
     TextInput
 } from '@tremor/react';
-import { useEffect, useState } from 'react';
-import algosdk from 'algosdk';
+import { useCallback, useEffect, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
-import { useWallet } from '@txnlab/use-wallet-react';
 import { CheckCircleIcon } from '@heroicons/react/outline';
 import { useModal } from '../../app/modalcontext';
 import { getFRYPrice } from '../../lib/price';
 import { useRouter } from 'next/router';
 import { useToastContext } from '../../hooks/ToastContext';
+import { useWalletActions } from '../../lib/wallet/useWalletActions';
+import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
+import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
+import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import { FRY_2 } from '../../lib/utils';
+import { secureFetch } from '../../lib/api/secureFetch';
+import { getAssetBalance as getStakeAssetBalance } from '../../lib/algorand/balances';
 
-const algodClient = new algosdk.Algodv2(
-    "",
-    "https://mainnet-api.algonode.cloud",
-    ""
-);
 const STAKE_ADDRESS = 'UKVAN7ORIUX7Y6QJFYQ4YGQAZD3RAC7QTDB73S2E5MSILUWAA7FJ6N7WLU';
-const FRYIndex = 924268058;
+const FRY_VERIFICATION_ASSET_ID = FRY_2.id;
 
 export default function StakeVerification({ modalName, miner, byod }: { modalName: string, miner?: string, byod: boolean }) {
     const router = useRouter();
     const { modals, closeModal } = useModal();
-    const { activeAddress, signTransactions } = useWallet();
+    const { activeAddress, signAndSubmit } = useWalletActions();
     const toast = useToastContext();
+    const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
     const [updateSuccess, setUpdateSuccess] = useState<string>("");
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [paid, setPaid] = useState<boolean>(false);
     const [FRYamount, setFRYAmount] = useState<{ stake_one: number, stake_two: number }>({ stake_one: 0, stake_two: 0 });
+
+    // Added helper so the legacy stake modal can automatically opt the connected wallet
+    // into FRY 2.0 when the staking asset has not been added yet.
+    const requestAssetOptIn = useCallback(
+        async (): Promise<boolean> => {
+            if (!activeAddress) {
+                return false;
+            }
+
+            try {
+                toast.info({
+                    heading: 'Opt-in required',
+                    message: 'Approve the FRY 2.0 opt-in transaction to continue.'
+                });
+
+                const encodedTransaction = await buildAssetTransferTxn({
+                    sender: activeAddress,
+                    receiver: activeAddress,
+                    assetId: Number(FRY_VERIFICATION_ASSET_ID),
+                    amount: 0,
+                    useRawAmount: true
+                });
+
+                await executeWalletRetry(
+                    async () => {
+                        const [txId] = await signAndSubmit([encodedTransaction], {
+                            message: 'Opt-in to FRY 2.0'
+                        });
+                        if (!txId) {
+                            throw new Error('Opt-in transaction cancelled.');
+                        }
+                        return txId;
+                    },
+                    { operationType: 'asset opt-in' }
+                );
+
+                toast.success({
+                    heading: 'Opt-in complete',
+                    message: 'Wallet is now opted into FRY 2.0.'
+                });
+                return true;
+            } catch (error) {
+                const friendly = error instanceof Error ? error.message : 'Opt-in transaction failed.';
+                toast.error({
+                    heading: 'Opt-in failed',
+                    message: friendly
+                });
+                return false;
+            }
+        },
+        [activeAddress, executeWalletRetry, signAndSubmit, toast]
+    );
 
     useEffect(() => {
         const fetchMinerTypes = async () => {
@@ -78,48 +131,65 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
 
     const sendTransaction = async (from: string, to: string, amount: number) => {
         try {
-            const suggestedParams = await algodClient.getTransactionParams().do();
-            const transaction = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-                sender: from,
-                receiver: to,
-                amount: amount * 1_000_000, // Amount in microAlgos
-                note: new Uint8Array(Buffer.from("Verification stake" + (Math.floor(Math.random() * 1000)))),
-                assetIndex: FRYIndex,
-                suggestedParams,
-            });
-
-            const encodedTransaction = algosdk.encodeUnsignedTransaction(transaction);
+            const note = new Uint8Array(Buffer.from(`Verification stake${Math.floor(Math.random() * 1000)}`));
             toast.info({
                 heading: 'Signature required',
                 message: 'Approve the verification stake in your wallet to continue.'
             });
 
-            const signedTransactions = await signTransactions([encodedTransaction]);
-            
-            // Filter out null values and ensure we have valid signed transactions
-            const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
-            
-            if (validSignedTxns.length === 0) {
-                throw new Error('No valid signed transactions');
+            // Guard: automatically opt the wallet into FRY 2.0 when the asset is missing.
+            if (activeAddress) {
+                const stakeBalance = await getStakeAssetBalance(activeAddress, String(FRY_VERIFICATION_ASSET_ID));
+                if (stakeBalance === null) {
+                    const optedIn = await requestAssetOptIn();
+                    if (!optedIn) {
+                        throw new Error('Opt-in is required before staking.');
+                    }
+                }
             }
 
-            // Send using algodClient directly
-            const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
-            const txId = response.txid;
+            const encodedTransaction = await buildAssetTransferTxn({
+                sender: from,
+                receiver: to,
+                amount,
+                assetId: Number(FRY_VERIFICATION_ASSET_ID),
+                note
+            });
 
-            console.log('Successfully sent transaction. Transaction ID:', txId);
-            return txId;
-        } catch (error) {
-            console.error("Transaction failed:", error);
+        const txId = await executeWalletRetry(
+            async () => {
+                const [signedTxId] = await signAndSubmit([encodedTransaction], {
+                    message: 'Authorize verification stake transfer'
+                });
+                if (!signedTxId) {
+                    throw new Error('Transaction id missing');
+                }
+                return signedTxId;
+            },
+            { operationType: 'verification stake', amount }
+        );
+
+        console.log('Successfully sent transaction. Transaction ID:', txId);
+        return txId;
+    } catch (error) {
+        if (error instanceof WalletRequestInFlightError) {
+            // Wallet already has a pending request; surface guidance instead of rethrowing a generic error.
+            toast.info({
+                heading: 'Wallet Request In Progress',
+                message: 'Finish the current wallet prompt, then retry the verification stake.'
+            });
             return null;
         }
-    };
+        console.error("Transaction failed:", error);
+        return null;
+    }
+};
 
     const handleStake = async (type: "one" | "two") => {
         setIsLoading(true);
 
         try {
-            const FRYPrice = await getFRYPrice('924268058');
+            const FRYPrice = await getFRYPrice(FRY_VERIFICATION_ASSET_ID);
 
             if (!FRYPrice || !miner || !activeAddress) {
                 setUpdateSuccess('error');
@@ -134,12 +204,13 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                 setUpdateSuccess('Successfully sent transaction. Your miner will be verified soon.');
                 setTimeout(() => setUpdateSuccess(""), 15000);
 
-                const response = await fetch('/api/verify-stake', {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ txId, address: activeAddress, miner, type }),
+                const response = await secureFetch('/api/stake/verification', {
+                    txId,
+                    address: activeAddress,
+                    miner_key: miner,
+                    type,
+                    amount: amountToStake,
+                    asset_id: String(FRY_VERIFICATION_ASSET_ID)
                 });
 
                 if (response.ok) {
@@ -196,7 +267,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                     Stake for verification
                 </h4>
                 <p className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                    All $FRY sent will be locked for 24h OR 6 months before you can withdraw them again.
+                    All FRY 2.0 sent will be locked for 24h OR 6 months before you can withdraw them again.
                 </p>
 
                 <div className="flex flex-col md:flex-row gap-4 mt-4">
@@ -209,7 +280,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                     }}
                     disabled={isLoading || paid || FRYamount.stake_one === 0}
                     >
-                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_one} $FRY) 24h Lock`}
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_one} FRY 2.0) 24h Lock`}
                     </Button>
 
                     <Button
@@ -221,7 +292,7 @@ export default function StakeVerification({ modalName, miner, byod }: { modalNam
                     }}
                     disabled={isLoading || paid || FRYamount.stake_two === 0}
                     >
-                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_two} $FRY) 6 months Lock`}
+                    {isLoading ? 'Processing...' : `Stake (${FRYamount.stake_two} FRY 2.0) 6 months Lock`}
                     </Button>
                 </div>
                 </form>

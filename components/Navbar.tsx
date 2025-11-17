@@ -13,13 +13,14 @@ import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
-import { normalizeAssetId } from '../lib/utils';
+import { normalizeAssetId, tFRY } from '../lib/utils';
 import { BellIcon, HomeIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
 import BugReportModal, { BugReportPayload } from './BugReportModal';
 import { useToastContext } from '../hooks/ToastContext';
+import { runWithWalletRequest, WalletRequestInFlightError } from '../lib/wallet/requestCoordinator.client';
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -216,7 +217,7 @@ export default function Navbar() {
           amount?: number | bigint | string;
         }>;
         const fryAsset = assets.find(
-          (asset) => normalizeAssetId(asset['asset-id']) === 924268058
+          (asset) => normalizeAssetId(asset['asset-id']) === normalizeAssetId(tFRY.id)
         );
         setFryBalance(
           fryAsset ? ((Number((fryAsset as any).amount ?? 0) / 1e6) || 0).toFixed(2) : '0.00'
@@ -229,7 +230,7 @@ export default function Navbar() {
     };
 
     fetchBalances();
-  }, [activeAccount, algodClient, devMode]);
+  }, [activeAccount, algodClient]);
 
   const walletStateSignature = useMemo(() => {
     return wallets
@@ -265,18 +266,13 @@ export default function Navbar() {
         connected.setActiveAccount(first.address);
       }
     }
-  }, [
-    devMode,
-    activeAccount,
-    walletStateSignature,
-    wallets
-  ]);
+  }, [activeAccount, walletStateSignature, wallets]);
 
   useEffect(() => {
     if ((router.pathname !== '/' && !session) || !session?.user) {
       router.push('/');
     }
-  }, [router.pathname, session, activeAccount]);
+  }, [router.pathname, session, activeAccount, router]);
 
   useEffect(() => {
     if (!showNotifications) {
@@ -322,7 +318,7 @@ export default function Navbar() {
     } else {
       setAddress('');
     }
-  }, [activeAccount, activeWallet, devAccount, devConnect, devMode]);
+  }, [activeAccount, activeWallet, devAccount, devConnect]);
 
   useEffect(() => {
     console.log('[Wallet] address state updated', address);
@@ -509,71 +505,87 @@ export default function Navbar() {
                         setIsWalletModalOpen(false);
                         return;
                       }
-                      if (wallet.id === 'pera') {
-                        try {
-                          console.log('[Wallet] attempting pre-disconnect for Pera');
-                          await wallet.disconnect();
-                        } catch (discError) {
-                          console.warn('[Wallet] pre-disconnect failed', discError);
+
+                      await runWithWalletRequest(async () => {
+                        if (wallet.id === 'pera') {
+                          try {
+                            console.log('[Wallet] attempting pre-disconnect for Pera');
+                            await wallet.disconnect();
+                          } catch (discError) {
+                            console.warn('[Wallet] pre-disconnect failed', discError);
+                          }
                         }
-                      }
-                      const accounts = await wallet.connect();
-                      console.log('[Wallet] connect result', wallet.id, accounts);
-                      if (wallet.setActive) {
-                        wallet.setActive();
-                      }
-                      const firstAccount =
-                        accounts?.[0] ?? wallet.accounts?.[0];
-                      if (firstAccount?.address) {
-                        wallet.setActiveAccount(firstAccount.address);
-                      }
+                        const accounts = await wallet.connect();
+                        console.log('[Wallet] connect result', wallet.id, accounts);
+                        if (wallet.setActive) {
+                          wallet.setActive();
+                        }
+                        const firstAccount =
+                          accounts?.[0] ?? wallet.accounts?.[0];
+                        if (firstAccount?.address) {
+                          wallet.setActiveAccount(firstAccount.address);
+                        }
+                      });
+
                       setIsWalletModalOpen(false);
                     } catch (error) {
-                  const typedError = error as {
-                    name?: string;
-                    data?: { type?: string };
-                    cancelled?: boolean;
-                  } | undefined;
-
-                    const isPeraSessionConflict =
-                      typedError?.name === 'PeraWalletConnectError' &&
-                      typedError?.data?.type === 'SESSION_CONNECT';
-
-                    if (isPeraSessionConflict) {
-                      console.warn('Detected existing Pera session. Resetting before retry.');
-                      try {
-                        await wallet.disconnect();
-                      } catch (disconnectError) {
-                        console.error('Failed to clear stale wallet session', disconnectError);
+                      // Prevent overlapping wallet prompts from confusing the user.
+                      if (error instanceof WalletRequestInFlightError) {
+                        showToastInfo({
+                          heading: 'Wallet Request In Progress',
+                          message: 'Finish or cancel the active wallet prompt before connecting another wallet.'
+                        });
+                        return;
                       }
-                      showToastInfo({
-                        heading: 'Wallet session reset',
-                        message: 'We cleared an existing wallet session. Please reconnect.',
-                        duration: 5000
-                      });
-                      return;
-                    }
+                      const typedError = error as {
+                        name?: string;
+                        data?: { type?: string };
+                        cancelled?: boolean;
+                      } | undefined;
 
-                    if (typedError?.cancelled) {
-                      showToastInfo({
-                        heading: 'Wallet request cancelled',
-                        message: 'No changes were made to your connection.',
-                        duration: 4000
-                      });
-                      return;
-                    }
+                      const isPeraSessionConflict =
+                        typedError?.name === 'PeraWalletConnectError' &&
+                        typedError?.data?.type === 'SESSION_CONNECT';
+                      const isWalletModalClosed =
+                        ((typedError?.name === 'PeraWalletConnectError' ||
+                          typedError?.name === 'DeflyWalletConnectError') &&
+                          typedError?.data?.type === 'CONNECT_MODAL_CLOSED') ||
+                        typedError?.cancelled;
 
-                    console.error('Failed to connect wallet:', error);
-                    showToastError({
-                      heading: 'Wallet connection failed',
-                      message: 'We could not connect to your wallet. Please try again.',
-                      duration: 6000,
-                      issueType: 'WALLET_CONNECTION_ERROR',
-                      part: 'navbar.wallet.connect'
-                    });
-                  }
-                }}
-              >
+                      if (isPeraSessionConflict) {
+                        console.warn('Detected existing Pera session. Resetting before retry.');
+                        try {
+                          await wallet.disconnect();
+                        } catch (disconnectError) {
+                          console.error('Failed to clear stale wallet session', disconnectError);
+                        }
+                        showToastInfo({
+                          heading: 'Wallet session reset',
+                          message: 'We cleared an existing wallet session. Please reconnect.',
+                          duration: 5000
+                        });
+                        return;
+                      }
+
+                      if (isWalletModalClosed) {
+                        showToastInfo({
+                          heading: 'Wallet request cancelled',
+                          duration: 4000
+                        });
+                        return;
+                      }
+
+                      console.error('Failed to connect wallet:', error);
+                      showToastError({
+                        heading: 'Wallet connection failed',
+                        message: 'We could not connect to your wallet. Please try again.',
+                        duration: 6000,
+                        issueType: 'WALLET_CONNECTION_ERROR',
+                        part: 'navbar.wallet.connect'
+                      });
+                    }
+                  }}
+                >
                 <Image
                   src={wallet.metadata.icon}
                   alt={`${wallet.metadata.name} logo`}

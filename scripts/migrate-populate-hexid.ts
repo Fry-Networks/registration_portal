@@ -1,4 +1,4 @@
-import { collectionFor } from '../pages/api/credentials/utils';
+import { collectionFor } from '../lib/credentials-utils';
 import { latLngToCell } from 'h3-js';
 import 'dotenv/config';
 

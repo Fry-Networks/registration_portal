@@ -60,13 +60,16 @@ export default function BoostModal({
         const code = result?.code as string | undefined;
         const friendly =
           code === 'NO_REWARDS'
-            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead.'
+            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead or refresh the page if you believe this is not right.'
           : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
           : code === 'SWAP_FAILED'
             ? 'Swap failed while converting fee to FRY 2.0. Please try again later.'
           : code === 'INSUFFICIENT_SWAP_AMOUNT'
             ? 'Amount too small to swap for FRY 2.0. Try a different reward or claim normally.'
+          : code === 'WALLET_ASSET_NOT_OPTED_IN'
+            ? result?.action ||
+              `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before using Instant Claim.`
           : result?.message || 'Server error';
         toast.error({
           heading: 'Instant Claim Error',
@@ -136,13 +139,16 @@ export default function BoostModal({
         const code = result?.code as string | undefined;
         const friendly =
           code === 'NO_REWARDS'
-            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead.'
+            ? 'No pending rewards to boost. If this reward is already claimable, use Claim instead or refresh the page if you believe this is not right.'
           : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
           : code === 'SWAP_FAILED'
             ? 'Swap failed while converting fee to FRY 2.0. Please try again later.'
           : code === 'INSUFFICIENT_SWAP_AMOUNT'
             ? 'Amount too small to swap for FRY 2.0. Try a different reward or claim normally.'
+          : code === 'WALLET_ASSET_NOT_OPTED_IN'
+            ? result?.action ||
+              `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before using Instant Claim.`
           : result?.message || 'Unknown error';
         toast.error({
           heading: 'Instant Claim Error',

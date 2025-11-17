@@ -1,5 +1,4 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
-import algosdk from 'algosdk';
 import { useModal } from '../../app/modalcontext';
 import { useRef, useState } from 'react';
 import { getSession, useSession } from 'next-auth/react';
@@ -7,15 +6,24 @@ import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
-import { algodClient, REWALD_WALLET } from '../../lib/utils';
+import { REWARD_WALLET } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
-import { useWallet } from '@txnlab/use-wallet-react';
 import { getClientToken } from '../../lib/clientToken';
 import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
+import { buildPaymentTxn } from '../../lib/wallet/transactions';
+import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
+import { useWalletActions } from '../../lib/wallet/useWalletActions';
+import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+
+type ClaimContext = {
+  minerKey?: string;
+  rewardNumbers?: number[];
+  txId?: string;
+};
 
 export default function ClaimModal({
   modalName,
@@ -26,9 +34,9 @@ export default function ClaimModal({
   modalName: string;
   miner_key: string;
   no?: number;
-  handleClaim: (ret: boolean, message: string) => Promise<void>;
+  handleClaim: (ret: boolean, message: string, context?: ClaimContext) => Promise<void>;
 }) {
-  const { activeAddress, signTransactions } = useWallet();
+  const { activeAddress, signAndSubmit } = useWalletActions();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const [stage, setStage] = useState<'idle'|'paying-fee'|'submitting'|'submitted'|'error'>('idle');
@@ -38,53 +46,51 @@ export default function ClaimModal({
   const intervalRef = useRef<any>(null);
   const { data: session } = useSession();
   const toast = useToastContext();
+  const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
 
   const requestGasFee = async (from: string | undefined): Promise<boolean> => {
     try {
-  
-      if (from === undefined)
+      if (!from) {
         return false;
-
+      }
       toast.info({
         heading: 'Signature required',
         message: 'Approve the fee transaction in your wallet to continue.'
       });
-  
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const to = REWALD_WALLET;
-  
-      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        sender: from.toString(),
-        receiver: to.toString(),
-        amount: Number(1000), // Amount in microAlgos
-        suggestedParams: suggestedParams,
+
+      const encodedTxn = await buildPaymentTxn({
+        sender: from,
+        receiver: REWARD_WALLET,
+        amount: 1000,
+        useMicroAlgos: true
       });
-  
-      const encodedTxn = algosdk.encodeUnsignedTransaction(txn);
-      const signedTransactions = await signTransactions([encodedTxn]);
-      
-      // Filter out null values and ensure we have valid signed transactions
-      const validSignedTxns = signedTransactions.filter((txn): txn is Uint8Array => txn !== null);
-      
-      if (validSignedTxns.length === 0) {
-        throw new Error('No valid signed transactions');
+
+      await executeWalletRetry(
+        async () => {
+          const txIds = await signAndSubmit([encodedTxn], {
+            message: 'Authorize network fee payment for reward claim'
+          });
+          if (!txIds.length) {
+            throw new Error('Wallet did not provide a transaction id');
+          }
+          console.debug('[Claim] Fee payment txId', txIds[0]);
+        },
+        { operationType: 'pay claim fee' }
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof WalletRequestInFlightError) {
+        // Let the user know they must resolve the existing wallet dialog first.
+        toast.info({
+          heading: 'Wallet Request In Progress',
+          message: 'Finish or cancel the pending wallet prompt before paying the fee again.'
+        });
+        return false;
       }
-  
-      // Send using algodClient directly
-      const response = await algodClient.sendRawTransaction(validSignedTxns[0]).do();
-      const txId = response.txid;
-  
-      console.log('Fee payment txId: ', txId);
-  
-      if (txId) {
-        return true;
-      }
-      return false;
-    } catch(error) {
       console.error ("getGasFee : ", error);
       return false;
     }
-  }
+  };
 
   const claimRewards = async () => {
     setIsProcessing(true);
@@ -148,6 +154,7 @@ export default function ClaimModal({
       const previewResult = await previewResponse.json().catch(() => ({}));
       if (!previewResponse.ok || previewResult?.success === false) {
         const code = previewResult?.code as string | undefined;
+        // Provide targeted messaging for opt-in failures so users know how to unblock the claim.
         const friendly =
           code === 'NO_REWARDS'
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
@@ -155,6 +162,9 @@ export default function ClaimModal({
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
             : code === 'DEVICE_MISMATCH'
             ? 'This request came from a different device. Disconnect and sign back in on the original browser.'
+            : code === 'WALLET_ASSET_NOT_OPTED_IN'
+            ? previewResult?.action ||
+              `Your reward wallet must opt into ${previewResult?.assetId ?? 'this asset'} before claiming.`
             : previewResult?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -196,17 +206,7 @@ export default function ClaimModal({
       const result = await response.json();
       if (!response.ok) {
         const code = result?.code as string | undefined;
-        if (code === 'FRY1_RETIRED') {
-          toast.info({
-            heading: 'FRY 1.0 Claims Retired',
-            message:
-              'FRY 1.0 miner rewards are no longer claimable. Miner payouts are transitioning to tFry claiming (rolling out from Oct 9, 2025). No action is required—watch for updates.'
-          });
-          setStage('error');
-          setStatusText('FRY 1.0 miner rewards cannot be claimed while we move to tFry.');
-          setIsProcessing(false);
-          return;
-        }
+        // Provide targeted messaging for opt-in failures so users know how to unblock the claim.
         const friendly =
           code === 'NO_REWARDS'
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
@@ -214,6 +214,9 @@ export default function ClaimModal({
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
             : code === 'DEVICE_MISMATCH'
             ? 'This request came from a different device. Disconnect and sign back in on the original browser.'
+            : code === 'WALLET_ASSET_NOT_OPTED_IN'
+            ? result?.action ||
+              `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before claiming.`
             : result?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -222,8 +225,16 @@ export default function ClaimModal({
         return;
       }
 
-      const txId = result.result;
+      const txId = result?.txId ?? result?.result;
+      if (!txId) {
+        toast.error({ heading: 'Claim Error', message: 'The claim response did not include a transaction id. Please try again.' });
+        setStage('error');
+        setStatusText('Missing transaction id in server response.');
+        setIsProcessing(false);
+        return;
+      }
       const theMsg = `Claim submitted. TxId: ${txId}`;
+      const rewardNumbers = typeof no === 'number' ? [no] : undefined;
 
       if (result.success) {
         setStage('submitted');
@@ -231,7 +242,7 @@ export default function ClaimModal({
         setTxIdState(txId);
         // Keep modal open to show countdown; optimistically refresh device totals
         setIsProcessing(true);
-        await handleClaim(true, theMsg);
+        await handleClaim(true, theMsg, { minerKey: miner_key, rewardNumbers, txId });
 
         // Background confirm and soft refresh
         try {
@@ -248,7 +259,7 @@ export default function ClaimModal({
                   </div>
                 )
               });
-              await handleClaim(true, 'Claim confirmed');
+              await handleClaim(true, 'Claim confirmed', { minerKey: miner_key, rewardNumbers, txId });
               setIsProcessing(false);
               setStage('idle');
               setTxIdState(null);

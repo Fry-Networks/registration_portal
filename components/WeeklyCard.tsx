@@ -47,7 +47,7 @@ export default function WeeklyCard({
             Unlock: {unlockStr}
           </div>
           <div className="text-[0.65rem] text-gray-500 mt-0.5 italic">
-            Unlock moves this reward into the 30-day pending window; it becomes claimable once the bar reaches 30/30 days.
+            Unlock moves this reward into the 30-day pending window; it becomes claimable one day after the bar reaches 30/30 days.
           </div>
         </div>
         <div className="text-right">

@@ -18,6 +18,7 @@ import {
   REWARD_STATUS_DESCRIPTIONS,
   isBoostAssetSupported
 } from '../lib/utils';
+import { getLegacyForceTimestamp, isLegacyVerificationStake } from '../lib/legacyStake';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
 // import WithdrawIcon from './WithdrawIcon';
@@ -40,6 +41,8 @@ function parseCredentialsNeeded(): Set<string> {
   return new Set(v.split(',').map(s => s.trim()).filter(Boolean));
 }
 const CREDENTIALS_NEEDED = parseCredentialsNeeded();
+const LEGACY_FORCE_TIMESTAMP = getLegacyForceTimestamp();
+const LEGACY_FORCE_DATE = LEGACY_FORCE_TIMESTAMP ? new Date(LEGACY_FORCE_TIMESTAMP) : null;
 
 function isLinkRequiredForPrefix(prefix: string) {
   if (!CREDENTIALS_NEEDED || CREDENTIALS_NEEDED.size === 0) return false;
@@ -68,13 +71,18 @@ type TokenMetadataEntry = {
 
 type TokenMetadataMap = Record<string, TokenMetadataEntry>;
 
+type IssueBadgeInfo = {
+  label: string;
+  info?: string;
+};
+
 export default function DeviceListItem({
   initialDevice,
   product,
   tokenMetadata = {},
   stakeable,
   handleDeleteButton,
-  handleStaking,
+  handleStakeRequirement,
   handleChange,
   handleSetting,
   handleBoostButton,
@@ -89,7 +97,7 @@ export default function DeviceListItem({
   product: Product;
   stakeable: boolean;
   handleDeleteButton: (device: Device) => void;
-  handleStaking: (miner_key: string) => Promise<void>;
+  handleStakeRequirement: (device: Device, requirement: 'registration' | 'node') => void;
   handleChange: (miner_key: string) => Promise<void>;
   handleSetting: (miner_key: string) => Promise<void>;
   handleBoostButton: (device: Device) => Promise<void>;
@@ -118,6 +126,11 @@ export default function DeviceListItem({
   );
   const [device, setDevice] = useState<Device>(initialDevice);
   const { data: session } = useSession();
+  const isLegacyStake = useMemo(() => isLegacyVerificationStake(device), [device]);
+  const legacyDeadlineLabel = useMemo(() => {
+    if (!LEGACY_FORCE_DATE) return null;
+    return LEGACY_FORCE_DATE.toUTCString();
+  }, []);
   const [expanded, setExpanded] = useState(false);
   const [isPortalReady, setIsPortalReady] = useState(false);
 
@@ -151,64 +164,92 @@ export default function DeviceListItem({
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
   // Track whether computeDeviceStatus flagged any blocking profile/setup issues.
   const hasDeviceStatusIssues = alertShow && Object.keys(deviceStatus).length > 0;
+  const hasVerificationStake = Boolean(device?.verified);
 
-  const issueMessages = useMemo(() => {
+  const issueMessages = useMemo<IssueBadgeInfo[]>(() => {
     if (!alertShow) return [];
+    const editInfoHint = 'Click the Edit info (pencil) button to update this detail.';
+    const rewardHint = 'Use Edit info to set the reward wallet that should receive payouts.';
+    const locationHint = 'Open Edit info and drop the correct pin on the map.';
+    const stakeHint = 'Use the Stake icon to complete this staking step before verification.';
+
+    const makeIssue = (label: string, info?: string): IssueBadgeInfo => ({ label, info });
+
     return Object.entries(deviceStatus)
       .filter(([key]) => key !== 'hardware')
       .map(([key, value]) => {
         const trimmed = typeof value === 'string' ? value.trim() : '';
         const containsNotSet = /not\s+set/i.test(trimmed);
         switch (key) {
-          case 'position':
-            if (!trimmed) return 'Position not set';
-            if (/^position\b/i.test(trimmed)) {
-              return containsNotSet ? 'Position not set' : trimmed;
+          case 'position': {
+            let label: string;
+            if (!trimmed) {
+              label = 'Position not set';
+            } else if (/^position\b/i.test(trimmed)) {
+              label = containsNotSet ? 'Position not set' : trimmed;
+            } else if (containsNotSet) {
+              label = 'Position not set';
+            } else {
+              label = `Position ${trimmed}`;
             }
-            if (containsNotSet) return 'Position not set';
-            return `Position ${trimmed}`;
-          case 'reward_wallet':
-            if (!trimmed) return 'Reward wallet not set';
-            if (/^reward\s+wallet\b/i.test(trimmed)) {
-              return containsNotSet ? 'Reward wallet not set' : trimmed;
+            return makeIssue(label, locationHint);
+          }
+          case 'reward_wallet': {
+            let label: string;
+            if (!trimmed) {
+              label = 'Reward wallet not set';
+            } else if (/^reward\s+wallet\b/i.test(trimmed)) {
+              label = containsNotSet ? 'Reward wallet not set' : trimmed;
+            } else if (containsNotSet) {
+              label = 'Reward wallet not set';
+            } else {
+              label = `Reward wallet ${trimmed}`;
             }
-            if (containsNotSet) return 'Reward wallet not set';
-            return `Reward wallet ${trimmed}`;
+            return makeIssue(label, rewardHint);
+          }
           case 'email':
-            return trimmed || 'Email not set';
+            return makeIssue(trimmed || 'Email not set', editInfoHint);
           case 'first_name':
-            return trimmed || 'First name not set';
+            return makeIssue(trimmed || 'First name not set', editInfoHint);
           case 'last_name':
-            return trimmed || 'Last name not set';
+            return makeIssue(trimmed || 'Last name not set', editInfoHint);
           case 'registration':
-            return trimmed || 'Registration staking required';
+            return makeIssue(trimmed || 'Registration staking required', stakeHint);
           case 'node':
-            return trimmed || 'Node operation staking required';
+            return makeIssue(trimmed || 'Node operation staking required', stakeHint);
           default:
-            return trimmed || key;
+            return makeIssue(trimmed || key, editInfoHint);
         }
-      });
+      })
+      .filter((issue): issue is IssueBadgeInfo => Boolean(issue?.label));
   }, [alertShow, deviceStatus]);
 
   const summaryBadges = useMemo(() => {
-    type Badge = { label: string; className: string; severity: 'red' | 'yellow' | 'green' | 'default' };
+    type Badge = { label: string; className: string; severity: 'red' | 'yellow' | 'green' | 'default'; info?: string };
     const badges: Array<Badge> = [];
+    const portalHelp =
+      'Open the gear icon (Portal settings) and complete the Fry portal link so rewards keep flowing.';
     if (!device.registered_portal_model) {
       if (isLinkRequiredForPrefix(minerPrefix)) {
         badges.push({
           label: 'Portal link needed',
           className: 'bg-red-500/20 text-red-200 border border-red-400/40',
-          severity: 'red'
+          severity: 'red',
+          info: portalHelp
         });
       }
     }
 
     if (isHardwareCheckRequiredForPrefix(minerPrefix) && hardwareWarning) {
       const label = hardwareStatus?.linked ? 'MAC invalid' : 'MAC link needed';
+      const macInfo = hardwareStatus?.linked
+        ? 'Open the gear icon and update the MAC address to match the sticker on your hardware.'
+        : 'Use the gear icon to link this miner and add its MAC address so ops can validate it.';
       badges.push({
         label,
         className: 'bg-red-500/20 text-red-200 border border-red-400/40',
-        severity: 'red'
+        severity: 'red',
+        info: macInfo
       });
     }
 
@@ -218,14 +259,24 @@ export default function DeviceListItem({
         : { label: 'Unverified', className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40', severity: 'yellow' }
     );
 
+    if (isLegacyStake) {
+      badges.push({
+        label: 'Legacy FRY 1.0 stake',
+        className: 'bg-amber-500/20 text-amber-100 border border-amber-400/40',
+        severity: 'yellow',
+        info: 'Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.'
+      });
+    }
+
     issueMessages
       .filter(Boolean)
       .forEach((message) => {
-        if (!badges.some((b) => b.label === message)) {
+        if (!badges.some((b) => b.label === message.label)) {
           badges.push({
-            label: message,
+            label: message.label,
             className: 'bg-red-500/20 text-red-200 border border-red-400/40',
-            severity: 'red'
+            severity: 'red',
+            info: message.info
           });
         }
       });
@@ -238,7 +289,15 @@ export default function DeviceListItem({
     };
 
     return badges.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
-  }, [device.registered_portal_model, device.verified, issueMessages, minerPrefix]);
+  }, [
+    device.registered_portal_model,
+    device.verified,
+    isLegacyStake,
+    issueMessages,
+    minerPrefix,
+    hardwareStatus?.linked,
+    hardwareWarning
+  ]);
 
   // Determine verification prerequisites based on product config and current device state
   const needsRegistration = isRegistrationNeeded(product);
@@ -259,6 +318,21 @@ export default function DeviceListItem({
             : 'node operation staking'
       } before verification`
     : undefined;
+  const handleRequirementClick = useCallback(
+    (requirement: 'registration' | 'node') => {
+      handleStakeRequirement(device, requirement);
+    },
+    [device, handleStakeRequirement]
+  );
+  const handlePrimaryStakeRequirement = useCallback(() => {
+    if (needsRegistration && !hasRegistration) {
+      handleRequirementClick('registration');
+      return;
+    }
+    if (needsNodeStake && !hasNode) {
+      handleRequirementClick('node');
+    }
+  }, [handleRequirementClick, needsNodeStake, needsRegistration, hasNode, hasRegistration]);
 
   const { borderClass, hoverRingClass } = useMemo(() => {
     if (stakeable === false && !device.verified) {
@@ -364,6 +438,33 @@ export default function DeviceListItem({
         })
       : '0.00';
 
+  const formatUsdAmount = useCallback((value?: number | null) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+    return `$${value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+  }, []);
+
+  const StakeRequirementCTA = ({
+    requirement,
+    label,
+    compact = false
+  }: {
+    requirement: 'registration' | 'node';
+    label: string;
+    compact?: boolean;
+  }) => (
+    <Button
+      className={`bg-transparent ${
+        compact ? 'min-w-[105px] py-1 text-[0.6rem]' : 'min-w-[130px] py-1.5 text-xs'
+      } border-red-500 text-red-100 hover:bg-red-500 hover:border-red-500`}
+      onClick={() => handleRequirementClick(requirement)}
+    >
+      {label}
+    </Button>
+  );
+
   const truncateAddress = (value?: string) => {
     if (!value) return '—';
     return value.length > 14 ? `${value.slice(0, 6)}…${value.slice(-6)}` : value;
@@ -383,6 +484,31 @@ export default function DeviceListItem({
     () => resolveTokenDetail(product?.reward?.tokens?.stake, 'stake'),
     [resolveTokenDetail, product?.reward?.tokens?.stake]
   );
+  const registrationTokenDetail = useMemo(
+    () => resolveTokenDetail(product?.reward?.tokens?.register, 'register'),
+    [resolveTokenDetail, product?.reward?.tokens?.register]
+  );
+  const nodeTokenDetail = useMemo(
+    () => resolveTokenDetail(product?.reward?.tokens?.node, 'node'),
+    [resolveTokenDetail, product?.reward?.tokens?.node]
+  );
+  const registrationStakeUsd = useMemo(() => {
+    const baseUsd = product?.reward?.stake?.register ?? 0;
+    if (!device?.byod) return baseUsd;
+    return Math.round((baseUsd / 2) * 100) / 100;
+  }, [product?.reward?.stake?.register, device?.byod]);
+  const nodeStakeUsd = useMemo(() => product?.reward?.stake?.node ?? 0, [product?.reward?.stake?.node]);
+  const registrationRequirementHint = useMemo(() => {
+    const usdLabel = formatUsdAmount(registrationStakeUsd);
+    if (!usdLabel) return `Stake ${registrationTokenDetail.label}`;
+    return `${usdLabel} USD in ${registrationTokenDetail.label}`;
+  }, [formatUsdAmount, registrationStakeUsd, registrationTokenDetail.label]);
+  const nodeRequirementHint = useMemo(() => {
+    const usdLabel = formatUsdAmount(nodeStakeUsd);
+    if (!usdLabel) return `Stake ${nodeTokenDetail.label}`;
+    return `${usdLabel} USD in ${nodeTokenDetail.label}`;
+  }, [formatUsdAmount, nodeStakeUsd, nodeTokenDetail.label]);
+
 
   const baseDailyReward =
     typeof product?.reward?.unverified === 'number' ? product.reward.unverified : null;
@@ -563,7 +689,23 @@ export default function DeviceListItem({
   );
 
   useEffect(() => {
-    setDevice(initialDevice);
+    setDevice((prev) => {
+      if (!prev) {
+        return initialDevice;
+      }
+
+      const prototype = Object.getPrototypeOf(prev) ?? Object.prototype;
+      const merged = Object.assign(Object.create(prototype), prev);
+      Object.assign(merged, initialDevice);
+
+      const preserveKeys: Array<keyof Device> = ['registration', 'node', 'staked'];
+      for (const key of preserveKeys) {
+        if (!Object.prototype.hasOwnProperty.call(initialDevice, key)) {
+          (merged as any)[key] = prev[key];
+        }
+      }
+      return merged;
+    });
   }, [initialDevice]);
 
   useEffect(() => {
@@ -630,6 +772,24 @@ export default function DeviceListItem({
     const id = window.setInterval(update, 1000);
     return () => window.clearInterval(id);
   }, [verificationUnlockTime]);
+
+  const verificationLocked = useMemo(() => {
+    if (!hasVerificationStake) return false;
+    if (isLegacyStake) return false;
+    if (!verificationUnlockTime) return false;
+    return verificationUnlockTime.getTime() > Date.now();
+  }, [hasVerificationStake, isLegacyStake, verificationUnlockTime]);
+
+  const verificationLockTooltip = useMemo(() => {
+    if (!verificationLocked) return undefined;
+    if (verificationCountdown && verificationCountdown.length > 0) {
+      return `Verification stake is locked. ${verificationCountdown}`;
+    }
+    if (verificationUnlockTime) {
+      return `Verification stake unlocks at ${verificationUnlockTime.toUTCString()}`;
+    }
+    return 'Verification stake is locked.';
+  }, [verificationLocked, verificationCountdown, verificationUnlockTime]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -789,7 +949,10 @@ export default function DeviceListItem({
 
     const registrationDetail = device?.registration;
     if (registrationDetail) {
-      const registrationWithdrawal = registrationDetail.lastWithdrawal;
+      const registrationActive =
+        Boolean(registrationDetail.amount && registrationDetail.amount > 0) &&
+        Boolean(registrationDetail.time);
+      const registrationWithdrawal = registrationDetail.lastWithdrawal ?? null;
       const registrationHistory = Array.isArray(registrationDetail.history)
         ? registrationDetail.history
         : [];
@@ -798,30 +961,20 @@ export default function DeviceListItem({
           ? registrationHistory[registrationHistory.length - 1]
           : null;
       const stakeSource =
-        registrationDetail.time && registrationDetail.txId
+        registrationActive && registrationDetail.time && registrationDetail.txId
           ? {
               amount: registrationDetail.amount,
               asset_id: registrationDetail.asset_id,
               time: registrationDetail.time,
               txId: registrationDetail.txId
             }
-          : latestHistoryEntry ?? registrationWithdrawal ?? null;
+          : latestHistoryEntry ?? null;
 
-      const stakeTime = stakeSource?.time ?? registrationWithdrawal?.time ?? null;
-      if (stakeTime) {
-        const displayedRegistrationAmount =
-          registrationWithdrawal?.amount ?? stakeSource?.amount ?? null;
-        const registrationAssetId =
-          stakeSource?.asset_id ??
-          registrationWithdrawal?.asset_id ??
-          registrationDetail.asset_id;
-        const registrationTx =
-          stakeSource?.txId ?? registrationDetail.txId ?? registrationWithdrawal?.txId;
-
+      if (registrationActive && stakeSource?.time) {
         entries.push({
           key: 'registration',
           label: 'Registration staked on',
-          date: formatDateTime(stakeTime),
+          date: formatDateTime(stakeSource.time),
           color: 'border-purple-500/60 bg-purple-500/10',
           tooltip: (
             <div className="min-w-[250px] space-y-2">
@@ -831,30 +984,49 @@ export default function DeviceListItem({
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-gray-400">Amount:</span>
                 <span className="font-semibold text-purple-300">
-                  {formatAmount(displayedRegistrationAmount)}
-                  {registrationWithdrawal && (
-                    <span className="ml-2 text-[0.6rem] text-gray-400">(withdrawn)</span>
-                  )}
+                  {formatAmount(stakeSource.amount)}
                 </span>
 
                 <span className="text-gray-400">Asset ID:</span>
                 <span className="font-mono text-[0.65rem]">
-                  {formatAssetId(registrationAssetId, 'register')}
+                  {formatAssetId(stakeSource.asset_id ?? registrationDetail.asset_id, 'register')}
                 </span>
 
                 <span className="text-gray-400">Transaction:</span>
                 <span className="font-mono text-[0.65rem]">
-                  {formatTx(registrationTx)}
+                  {formatTx(stakeSource.txId ?? registrationDetail.txId)}
+                </span>
+              </div>
+            </div>
+          )
+        });
+      } else if (registrationWithdrawal || latestHistoryEntry) {
+        const withdrawalSource = registrationWithdrawal ?? latestHistoryEntry!;
+        entries.push({
+          key: 'registration-withdrawn',
+          label: 'Registration stake withdrew on',
+          date: formatDateTime(withdrawalSource.time ?? registrationDetail.time),
+          color: 'border-amber-500/60 bg-amber-500/10',
+          tooltip: (
+            <div className="min-w-[250px] space-y-2">
+              <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                Registration Withdrawal
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                <span className="text-gray-400">Amount:</span>
+                <span className="font-semibold text-amber-200">
+                  {formatAmount(withdrawalSource.amount)}
                 </span>
 
-                {registrationWithdrawal && registrationWithdrawal.txId && (
-                  <>
-                    <span className="text-gray-400">Withdrawal Tx:</span>
-                    <span className="font-mono text-[0.65rem]">
-                      {formatTx(registrationWithdrawal.txId)}
-                    </span>
-                  </>
-                )}
+                <span className="text-gray-400">Asset ID:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatAssetId(withdrawalSource.asset_id ?? registrationDetail.asset_id, 'register')}
+                </span>
+
+                <span className="text-gray-400">Withdrawal Tx:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatTx(withdrawalSource.txId ?? registrationWithdrawal?.txId)}
+                </span>
               </div>
             </div>
           )
@@ -864,33 +1036,28 @@ export default function DeviceListItem({
 
     const nodeDetail = device?.node;
     if (isNodeProduct(product) && nodeDetail) {
-      const nodeWithdrawal = nodeDetail.lastWithdrawal;
+      const nodeActive =
+        Boolean(nodeDetail.amount && nodeDetail.amount > 0) &&
+        Boolean(nodeDetail.time);
+      const nodeWithdrawal = nodeDetail.lastWithdrawal ?? null;
       const nodeHistory = Array.isArray(nodeDetail.history) ? nodeDetail.history : [];
       const latestNodeHistory =
         nodeHistory.length > 0 ? nodeHistory[nodeHistory.length - 1] : null;
       const nodeStakeSource =
-        nodeDetail.time && nodeDetail.txId
+        nodeActive && nodeDetail.time && nodeDetail.txId
           ? {
               amount: nodeDetail.amount,
               asset_id: nodeDetail.asset_id,
               time: nodeDetail.time,
               txId: nodeDetail.txId
             }
-          : latestNodeHistory ?? nodeWithdrawal ?? null;
+          : latestNodeHistory ?? null;
 
-      const nodeStakeTime = nodeStakeSource?.time ?? nodeWithdrawal?.time ?? null;
-      if (nodeStakeTime) {
-        const displayedNodeAmount =
-          nodeWithdrawal?.amount ?? nodeStakeSource?.amount ?? null;
-        const nodeAssetId =
-          nodeStakeSource?.asset_id ?? nodeWithdrawal?.asset_id ?? nodeDetail.asset_id;
-        const nodeTx =
-          nodeStakeSource?.txId ?? nodeDetail.txId ?? nodeWithdrawal?.txId;
-
+      if (nodeActive && nodeStakeSource?.time) {
         entries.push({
           key: 'node',
           label: 'Node operation staked on',
-          date: formatDateTime(nodeStakeTime),
+          date: formatDateTime(nodeStakeSource.time),
           color: 'border-orange-500/60 bg-orange-500/10',
           tooltip: (
             <div className="min-w-[250px] space-y-2">
@@ -900,28 +1067,49 @@ export default function DeviceListItem({
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-gray-400">Amount:</span>
                 <span className="font-semibold text-orange-300">
-                  {formatAmount(displayedNodeAmount)}
-                  {nodeWithdrawal && (
-                    <span className="ml-2 text-[0.6rem] text-gray-400">(withdrawn)</span>
-                  )}
+                  {formatAmount(nodeStakeSource.amount)}
                 </span>
 
                 <span className="text-gray-400">Asset ID:</span>
                 <span className="font-mono text-[0.65rem]">
-                  {formatAssetId(nodeAssetId, 'node')}
+                  {formatAssetId(nodeStakeSource.asset_id ?? nodeDetail.asset_id, 'node')}
                 </span>
 
                 <span className="text-gray-400">Transaction:</span>
-                <span className="font-mono text-[0.65rem]">{formatTx(nodeTx)}</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatTx(nodeStakeSource.txId ?? nodeDetail.txId)}
+                </span>
+              </div>
+            </div>
+          )
+        });
+      } else if (nodeWithdrawal || latestNodeHistory) {
+        const nodeWithdrawalSource = nodeWithdrawal ?? latestNodeHistory!;
+        entries.push({
+          key: 'node-withdrawn',
+          label: 'Node stake withdrew on',
+          date: formatDateTime(nodeWithdrawalSource.time ?? nodeDetail.time),
+          color: 'border-amber-500/60 bg-amber-500/10',
+          tooltip: (
+            <div className="min-w-[250px] space-y-2">
+              <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                Node Stake Withdrawal
+              </div>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+                <span className="text-gray-400">Amount:</span>
+                <span className="font-semibold text-amber-200">
+                  {formatAmount(nodeWithdrawalSource.amount)}
+                </span>
 
-                {nodeWithdrawal && nodeWithdrawal.txId && (
-                  <>
-                    <span className="text-gray-400">Withdrawal Tx:</span>
-                    <span className="font-mono text-[0.65rem]">
-                      {formatTx(nodeWithdrawal.txId)}
-                    </span>
-                  </>
-                )}
+                <span className="text-gray-400">Asset ID:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatAssetId(nodeWithdrawalSource.asset_id ?? nodeDetail.asset_id, 'node')}
+                </span>
+
+                <span className="text-gray-400">Withdrawal Tx:</span>
+                <span className="font-mono text-[0.65rem]">
+                  {formatTx(nodeWithdrawalSource.txId ?? nodeWithdrawal?.txId)}
+                </span>
               </div>
             </div>
           )
@@ -1065,6 +1253,57 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 )}
               </div>
             )}
+            {(needsRegistration || needsNodeStake) && (
+              <div className="space-y-3">
+                <div className="text-xs uppercase tracking-wide text-gray-500">
+                  Operational staking requirements
+                </div>
+                {needsRegistration && (
+                  <div className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3">
+                    <div className="flex items-center justify-between text-sm text-gray-200">
+                      <span className="font-semibold">Registration stake</span>
+                      <span className={`text-xs ${hasRegistration ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {hasRegistration ? 'Completed' : 'Required'}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[0.85rem] text-gray-300">
+                      {registrationRequirementHint ?? 'Stake not required'}
+                    </div>
+                    {registrationTokenDetail.id && (
+                      <div className="mt-1 text-[0.65rem] text-gray-500">
+                        Asset:{' '}
+                        <span className="font-semibold text-gray-300" title={registrationTokenDetail.name}>
+                          {registrationTokenDetail.label}
+                        </span>{' '}
+                        <span className="font-mono text-gray-400">#{registrationTokenDetail.id}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {needsNodeStake && (
+                  <div className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3">
+                    <div className="flex items-center justify-between text-sm text-gray-200">
+                      <span className="font-semibold">Node operation stake</span>
+                      <span className={`text-xs ${hasNode ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {hasNode ? 'Completed' : 'Required'}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[0.85rem] text-gray-300">
+                      {nodeRequirementHint ?? 'Stake not required'}
+                    </div>
+                    {nodeTokenDetail.id && (
+                      <div className="mt-1 text-[0.65rem] text-gray-500">
+                        Asset:{' '}
+                        <span className="font-semibold text-gray-300" title={nodeTokenDetail.name}>
+                          {nodeTokenDetail.label}
+                        </span>{' '}
+                        <span className="font-mono text-gray-400">#{nodeTokenDetail.id}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )
       },
@@ -1146,6 +1385,16 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 ))}
               </div>
             )}
+            {isLegacyStake && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.
+                {legacyDeadlineLabel && (
+                  <div className="mt-1 text-[0.65rem] text-amber-200">
+                    Verification benefits end after {legacyDeadlineLabel} unless you restake with FRY 2.0.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )
       }
@@ -1171,7 +1420,21 @@ const collapsibleSections: SectionConfig[] = useMemo(
       stakeTokenDetail.label,
       stakeTokenDetail.name,
       device.verified,
-      formatDailyValue
+      formatDailyValue,
+      isLegacyStake,
+      legacyDeadlineLabel,
+      needsRegistration,
+      needsNodeStake,
+      hasRegistration,
+      hasNode,
+      registrationRequirementHint,
+      nodeRequirementHint,
+      registrationTokenDetail.id,
+      registrationTokenDetail.label,
+      registrationTokenDetail.name,
+      nodeTokenDetail.id,
+      nodeTokenDetail.label,
+      nodeTokenDetail.name
     ]
   );
 
@@ -1263,6 +1526,68 @@ const collapsibleSections: SectionConfig[] = useMemo(
     );
   };
 
+  const renderVerificationActionButton = useCallback(
+    (variant: 'default' | 'compact' = 'default') => {
+      if (!isProductStakeAvailable(product) && !device.verified) {
+        return null;
+      }
+
+      const baseClass =
+        variant === 'default'
+          ? `min-w-[150px] bg-transparent ${
+              verificationLocked
+                ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                : isStaked()
+                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  : verificationBlocked
+                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+            }`
+          : `min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+              verificationLocked
+                ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                : isStaked()
+                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  : verificationBlocked
+                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+            }`;
+
+      const button = (
+        <span>
+          <Button
+            className={baseClass}
+            disabled={verificationLocked || (!isStaked() && verificationBlocked)}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (verificationLocked) return;
+              if (!isStaked() && verificationBlocked) return;
+              handleWithdrawStake(device);
+            }}
+          >
+            {isStaked() ? 'Verification Withdraw' : 'Verification Stake'}
+          </Button>
+        </span>
+      );
+
+      const tooltipText = verificationLocked
+        ? verificationLockTooltip
+        : verificationReason || null;
+
+      return tooltipText ? <Tooltip text={tooltipText}>{button}</Tooltip> : button;
+    },
+    [
+      device,
+      handleWithdrawStake,
+      product,
+      verificationBlocked,
+      verificationLockTooltip,
+      verificationLocked,
+      verificationReason,
+      isStaked
+    ]
+  );
+
   const detailContent = (
     <div className="space-y-6 pt-8 text-sm text-gray-100">
       {!device.registered_portal_model && isLinkRequiredForPrefix(minerPrefix) && (
@@ -1284,9 +1609,17 @@ const collapsibleSections: SectionConfig[] = useMemo(
             {summaryBadges.map((badge, index) => (
               <span
                 key={`${badge.label}-${index}`}
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
               >
-                {badge.label}
+                <span>{badge.label}</span>
+                {badge.info ? (
+                  <Tooltip text={badge.info}>
+                    <InformationCircleIcon
+                      className="h-3.5 w-3.5 text-inherit/80"
+                      aria-hidden="true"
+                    />
+                  </Tooltip>
+                ) : null}
               </span>
             ))}
           </div>
@@ -1303,13 +1636,13 @@ const collapsibleSections: SectionConfig[] = useMemo(
         </div>
         <div className="flex items-center gap-3 self-end pr-12 md:self-auto md:gap-4">
           <div className="flex items-center gap-2 md:gap-3">
-            {device && product && isNodeProduct(product) && (
-              <Tooltip text="Stake actions">
+            {(needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode) ? (
+              <Tooltip text="Stake requirements">
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    handleStaking(device.miner_key);
+                    handlePrimaryStakeRequirement();
                   }}
                   className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
                 >
@@ -1318,7 +1651,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   </span>
                 </button>
               </Tooltip>
-            )}
+            ) : null}
             <Tooltip text="Edit info">
               <button
                 type="button"
@@ -1440,37 +1773,28 @@ const collapsibleSections: SectionConfig[] = useMemo(
       <div className="rounded-xl border border-gray-800 bg-black/70 p-4">
         <div className="text-xs uppercase tracking-wide text-gray-500">Actions</div>
         <div className="mt-3 flex flex-wrap gap-3">
-          {(isProductStakeAvailable(product) || device.verified) && (
+          {isLegacyStake && (
             <Button
-              className={`min-w-[150px] bg-transparent ${
-                isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
-                  : verificationBlocked
-                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
-                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
-              }`}
-              disabled={!isStaked() && verificationBlocked}
-              onClick={() => {
-                if (!isStaked() && verificationBlocked) return;
+              className="min-w-[150px] border-amber-500 text-amber-900 bg-transparent hover:bg-amber-500 hover:border-amber-500 hover:text-black dark:text-amber-200"
+              onClick={(event) => {
+                event.stopPropagation();
                 handleWithdrawStake(device);
               }}
-              title={verificationReason}
             >
-              {isStaked() ? 'V-Withdraw' : 'V-Stake'}
+              Withdraw Legacy Stake
             </Button>
           )}
-          {verificationBlocked && (
-            <Button
-              className="min-w-[150px] bg-transparent border-red-500 hover:bg-red-500 hover:border-red-500"
-              onClick={() => handleStaking(device.miner_key)}
-            >
-              Stake
-            </Button>
+          {renderVerificationActionButton()}
+          {needsRegistration && !hasRegistration && (
+            <StakeRequirementCTA requirement="registration" label="Stake Registration" />
+          )}
+          {needsNodeStake && !hasNode && (
+            <StakeRequirementCTA requirement="node" label="Stake Node Operation" />
           )}
           <Button
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
-              !isProductStakeAvailable(product)
-                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20'
+              !isProductStakeAvailable(product) || claimableAmount <= 0
+                ? 'border-gray-600 text-gray-500 cursor-not-allowed'
                 : isStaked()
                   ? 'border-green-500 text-green-300 hover:bg-green-600/10'
                   : 'border-red-500 text-red-300 hover:bg-red-600/10'
@@ -1561,21 +1885,29 @@ const collapsibleSections: SectionConfig[] = useMemo(
               {summaryBadges.map((badge, index) => (
                 <span
                   key={`${badge.label}-${index}`}
-                  className={`rounded-full bg-black/50 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide ${badge.className}`}
+                  className={`inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide ${badge.className}`}
                 >
-                  {badge.label}
+                  <span>{badge.label}</span>
+                  {badge.info ? (
+                    <Tooltip text={badge.info}>
+                      <InformationCircleIcon
+                        className="h-3 w-3 text-inherit/80"
+                        aria-hidden="true"
+                      />
+                    </Tooltip>
+                  ) : null}
                 </span>
               ))}
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 pr-1 sm:pr-2">
-            {device && product && isNodeProduct(product) && (
-              <Tooltip text="Stake actions">
+            {(needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode) ? (
+              <Tooltip text="Stake requirements">
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    handleStaking(device.miner_key);
+                    handlePrimaryStakeRequirement();
                   }}
                   className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
                 >
@@ -1584,7 +1916,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   </span>
                 </button>
               </Tooltip>
-            )}
+            ) : null}
             <Tooltip text="Edit info">
               <button
                 type="button"
@@ -1656,37 +1988,28 @@ const collapsibleSections: SectionConfig[] = useMemo(
           className="mt-4 flex flex-wrap items-center gap-2"
           onClick={(event) => event.stopPropagation()}
         >
-          {(isProductStakeAvailable(product) || device.verified) && (
+          {isLegacyStake && (
             <Button
-              className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
-                isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
-                  : verificationBlocked
-                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
-                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
-              }`}
-              disabled={!isStaked() && verificationBlocked}
-              onClick={() => {
-                if (!isStaked() && verificationBlocked) return;
+              className="min-w-[110px] bg-transparent text-[0.6rem] py-1 border-amber-500 text-amber-900 hover:bg-amber-500 hover:border-amber-500 hover:text-black dark:text-amber-200"
+              onClick={(event) => {
+                event.stopPropagation();
                 handleWithdrawStake(device);
               }}
-              title={verificationReason}
             >
-              {isStaked() ? 'Verification Withdraw' : 'Verification Stake'}
+              Withdraw Legacy Stake
             </Button>
           )}
-          {verificationBlocked && (
-            <Button
-              className="min-w-[110px] bg-transparent text-[0.6rem] py-1 border-red-500 hover:bg-red-500 hover:border-red-500"
-              onClick={() => handleStaking(device.miner_key)}
-            >
-              Stake
-            </Button>
+          {renderVerificationActionButton('compact')}
+          {needsRegistration && !hasRegistration && (
+            <StakeRequirementCTA requirement="registration" label="Stake Registration" compact />
+          )}
+          {needsNodeStake && !hasNode && (
+            <StakeRequirementCTA requirement="node" label="Stake Node Operation" compact />
           )}
           <Button
             className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 transition-colors duration-150 ${
-              !isProductStakeAvailable(product)
-                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20'
+              !isProductStakeAvailable(product) || claimableAmount <= 0
+                ? 'border-gray-600 text-gray-500 cursor-not-allowed'
                 : isStaked()
                   ? 'border-green-500 text-green-300 hover:bg-green-600/10'
                   : 'border-red-500 text-red-300 hover:bg-red-600/10'
