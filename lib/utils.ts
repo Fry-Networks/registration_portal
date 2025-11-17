@@ -1,29 +1,21 @@
 import { Device, Product, Asset } from './types';
-import algosdk, { Indexer, Account } from 'algosdk';
+import algosdk, { Account } from 'algosdk';
 // Use Tinyman's bundled algosdk for Tinyman operations to avoid API/type drift
 import * as TinymanAlgo from '@tinymanorg/tinyman-js-sdk/node_modules/algosdk';
-import {
-  poolUtils,
-  SupportedNetwork,
-  Swap,
-  SwapType,
-  SignerTransaction
-} from '@tinymanorg/tinyman-js-sdk';
+import { poolUtils, SupportedNetwork, Swap, SwapType, SignerTransaction } from '@tinymanorg/tinyman-js-sdk';
 // Mainnet API endpoints for production
 const DEFAULT_NODE_BASEURL = 'https://mainnet-api.algonode.cloud';
 const DEFAULT_NODE_TOKEN = '';
 const DEFAULT_NODE_PORT = 443;
 import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
+import { getAlgodClient, getIndexerClient } from './wallet/clients';
+import { MnemonicAccount, signDecodedTransaction } from './algorand/admin';
 
 const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud';
 const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io';
 const API_TOKEN = 'REDACTED_ROTATE_ME';
 
-export const algodClient = new algosdk.Algodv2(
-  DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_BASEURL,
-  DEFAULT_NODE_PORT
-);
+export const algodClient = getAlgodClient();
 // Dedicated client instance using Tinyman's bundled algosdk (supports setIntDecoding at runtime & types)
 const tinymanAlgodClient = new TinymanAlgo.Algodv2(
   DEFAULT_NODE_TOKEN,
@@ -31,11 +23,7 @@ const tinymanAlgodClient = new TinymanAlgo.Algodv2(
   DEFAULT_NODE_PORT
 );
 
-export const indexerClient = new Indexer(
-  DEFAULT_NODE_TOKEN,
-  DEFAULT_INDEX_BASEURL,
-  DEFAULT_NODE_PORT
-);
+export const indexerClient = getIndexerClient();
 
 // Normalize Algorand asset identifiers so bigint responses compare correctly across the app.
 export const normalizeAssetId = (value: unknown): number => {
@@ -70,10 +58,10 @@ export const tFRY = { id: '2681521901', decimals: 6 } as Asset;
 export const fVPN = { id: '2485198745', decimals: 6 } as Asset;
 export const ALGO = { id: '0', decimals: 6 } as Asset;
 
-export const REWALD_WALLET =
+export const REWARD_WALLET =
   'HXWYLLZDPTM5OXS3DPARMTG52RSBMMCQNKT4L2LZRRXYPNAWJBT6VIW6WU';
 export const FRYALGO_WALLET =
-  'ATPVJYGEGP5H6GCZ4T6CG4PK7LH5OMWXHLXZHDPGO7RO6T3EHWTF6UUY6E';
+  'E2F2LT2INE75DBOYHQXTCTOP2PAP5MHAXQRXTTCCXFKHQTVG36DJONBQZE';
 export const BURN_WALLET =
   'MO3FUXGKGZRTVYOSCXR3FXMPZQCZHR2BGGT2B5SINVBA3W6YCZNO25GGLM';
 
@@ -287,7 +275,7 @@ export const getRewardsVaultAddress = (): string => {
   } catch (e) {
     // ignore and fall back
   }
-  return REWALD_WALLET;
+  return REWARD_WALLET;
 };
 
 export const getAssetDecimals = async (
@@ -497,16 +485,21 @@ export const computeDeviceStatus = (
     }
   }
 
-  if (!device.verified) {
+  const isVerified = device.verified === true;
+  if (!isVerified) {
     deviceStatus.verification = 'Unverified';
-    isError = true;
   }
 
   if (isError) {
     return deviceStatus;
-  } else {
+  }
+
+  // Verification staking is optional; don't treat it as an error on its own
+  if (!isVerified) {
     return undefined;
   }
+
+  return undefined;
 };
 
 export const getTransactionTime = async (
@@ -578,7 +571,7 @@ export const getTransactionTime = async (
  * @param account account data that will sign the transactions
  * @returns a function that will sign the transactions, can be used as `initiatorSigner`
  */
-export const signerWithSecretKey = (account: Account, rekey: Account) => {
+export const signerWithSecretKey = (account: Account, signer: MnemonicAccount) => {
   return function (txGroups: SignerTransaction[][]): Promise<Uint8Array[]> {
     // Filter out transactions that don't need to be signed by the account
     const signerAddr = account.addr.toString();
@@ -587,7 +580,7 @@ export const signerWithSecretKey = (account: Account, rekey: Account) => {
     );
     // Sign all transactions that need to be signed by the account
     const signedTxns: Uint8Array[] = txnsToBeSigned.map(({ txn }) =>
-      txn.signTxn(rekey.sk)
+      txn.signTxn(signer.sk)
     );
 
     // We wrap this with a Promise since SDK's initiatorSigner expects a Promise
@@ -615,7 +608,7 @@ export const fixedInputSwap = async ({
   asset_1: Asset;
   asset_2: Asset;
   amount: number;
-  rekey: Account;
+  rekey: MnemonicAccount;
 }) => {
   try {
     const initiatorAddr = account.addr.toString();

@@ -10,23 +10,89 @@
  * to prevent automated attacks.
  */
 
-const CLIENT_TOKEN_KEY = 'clientToken';
+const LEGACY_CLIENT_TOKEN_KEY = 'clientToken';
+const CLIENT_TOKEN_STATE_KEY = 'clientToken.state.v1';
 const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
+const TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // rotate daily to avoid stale bindings
+
+type StoredClientToken = {
+  token: string;
+  userAgent: string;
+  createdAt: number;
+};
+
+const getNavigatorUA = (): string => {
+  if (typeof navigator === 'undefined') {
+    return '';
+  }
+  return navigator.userAgent || '';
+};
+
+function readState(): StoredClientToken | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(CLIENT_TOKEN_STATE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as StoredClientToken;
+      if (parsed?.token && parsed?.userAgent) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore parse/storage issues
+  }
+
+  // Fallback to legacy plain string storage so we can migrate seamlessly.
+  try {
+    const legacy = window.localStorage.getItem(LEGACY_CLIENT_TOKEN_KEY);
+    if (legacy) {
+      return {
+        token: legacy,
+        userAgent: '__legacy__',
+        createdAt: 0
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function persistState(state: StoredClientToken): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      CLIENT_TOKEN_STATE_KEY,
+      JSON.stringify(state)
+    );
+    // Keep writing the legacy key so logged-in tabs that still expect it can read.
+    window.localStorage.setItem(LEGACY_CLIENT_TOKEN_KEY, state.token);
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+let inflightTokenPromise: Promise<string> | null = null;
 
 /**
  * Generate a SHA-256 client token based on user agent.
  * This runs in the browser where navigator.userAgent is available.
  */
-export async function generateClientToken(): Promise<string> {
+export async function generateClientToken(userAgentOverride?: string): Promise<string> {
+  const userAgent = userAgentOverride ?? getNavigatorUA();
+  if (!userAgent) {
+    throw new Error('Token generation failed: missing user agent');
+  }
+
   try {
-    // Combine secret + user agent
-    const data = new TextEncoder().encode(TOKEN_GENERATION_SECRET + navigator.userAgent);
-    
+    const data = new TextEncoder().encode(TOKEN_GENERATION_SECRET + userAgent);
+
     // Use WebCrypto API (browser only, not available in Node.js scripts)
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const token = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    
+    const token = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+
     return token;
   } catch (err) {
     console.error('Failed to generate client token:', err);
@@ -38,25 +104,70 @@ export async function generateClientToken(): Promise<string> {
  * Get the stored client token from localStorage.
  * If not present, generate and store a new one.
  */
-export async function getClientToken(): Promise<string> {
-  try {
-    let token = localStorage.getItem(CLIENT_TOKEN_KEY);
-    
-    if (!token) {
-      token = await generateClientToken();
-      localStorage.setItem(CLIENT_TOKEN_KEY, token);
-    }
-    
-    return token;
-  } catch (err) {
-    console.error('Failed to get client token:', err);
+export async function getClientToken(options: { forceRefresh?: boolean } = {}): Promise<string> {
+  if (typeof window === 'undefined') {
+    console.warn('[ClientToken] getClientToken called on server');
     return '';
   }
+
+  const forceRefresh = options.forceRefresh ?? false;
+  if (inflightTokenPromise && !forceRefresh) {
+    return inflightTokenPromise;
+  }
+
+  const rawPromise = (async () => {
+    const userAgent = getNavigatorUA();
+    if (!userAgent) {
+      throw new Error('User agent unavailable');
+    }
+
+    const existing = readState();
+    const now = Date.now();
+    const age = existing ? now - existing.createdAt : Number.POSITIVE_INFINITY;
+    const canReuseExisting =
+      !forceRefresh &&
+      existing?.token &&
+      existing.userAgent === userAgent &&
+      age < TOKEN_MAX_AGE_MS;
+
+    if (canReuseExisting) {
+      return existing.token;
+    }
+
+    const token = await generateClientToken(userAgent);
+    persistState({ token, userAgent, createdAt: now });
+    return token;
+  })();
+
+  const wrappedPromise = rawPromise
+    .catch((error) => {
+      console.error('[ClientToken] Failed to resolve token', error);
+      return '';
+    })
+    .finally(() => {
+      if (inflightTokenPromise === wrappedPromise) {
+        inflightTokenPromise = null;
+      }
+    });
+
+  inflightTokenPromise = wrappedPromise;
+  return wrappedPromise;
+}
+
+export async function refreshClientToken(): Promise<string> {
+  clearClientToken();
+  return getClientToken({ forceRefresh: true });
 }
 
 /**
  * Clear the stored token (useful for testing or logout)
  */
 export function clearClientToken(): void {
-  localStorage.removeItem(CLIENT_TOKEN_KEY);
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LEGACY_CLIENT_TOKEN_KEY);
+    window.localStorage.removeItem(CLIENT_TOKEN_STATE_KEY);
+  } catch {
+    // ignore
+  }
 }

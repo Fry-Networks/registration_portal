@@ -10,6 +10,7 @@
 
 import { NextApiRequest } from 'next';
 import clientPromise from './mongoclient';
+import { Document } from 'mongodb';
 
 export interface SecurityEventSummary {
   walletAddress: string;
@@ -132,7 +133,7 @@ export async function logSecurityEventAggregated(
     
     const result = await collection.updateOne(
       { walletAddress },
-      updateDoc,
+      updateDoc as Document,
       { upsert: true }
     );
     
