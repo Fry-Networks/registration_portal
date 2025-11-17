@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { getMinerType, collectionFor } from './utils';
+import { getMinerType, collectionFor } from '../../../lib/credentials-utils';
 import { deviceValidatorRegistry } from '../../../lib/validators';
 import { loggers } from '../../../lib/logger';
 import {

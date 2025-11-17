@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { collectionFor, portalKeyFromMiner, getMinerType } from '../credentials/utils';
+import { collectionFor, portalKeyFromMiner, getMinerType } from '../../../lib/credentials-utils';
 import { ensureHardwareCredentialIndexes } from '../../../lib/hardwareCredentialIndexes';
 import {
   CommonErrors,

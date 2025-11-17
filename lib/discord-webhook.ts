@@ -1,3 +1,5 @@
+export type DiscordSeverity = 'error' | 'warning' | 'info' | 'success';
+
 export interface DiscordErrorDetails {
   minerKey: string;
   walletAddress: string;
@@ -7,6 +9,7 @@ export interface DiscordErrorDetails {
   endpoint?: string;
   metadata?: Record<string, unknown>;
   timestamp?: string;
+  severity?: DiscordSeverity;
 }
 
 type WebhookPayload = {
@@ -67,6 +70,13 @@ const tryConsumeRateBudget = (now: number): boolean => {
   return true;
 };
 
+const SEVERITY_STYLES: Record<DiscordSeverity, { title: string; color: number }> = {
+  error: { title: 'Dashboard Error Alert', color: 0xff4d4f },
+  warning: { title: 'Dashboard Warning', color: 0xfaad14 },
+  info: { title: 'Dashboard Event', color: 0x1890ff },
+  success: { title: 'Dashboard Success', color: 0x52c41a }
+};
+
 function buildEmbed(details: DiscordErrorDetails) {
   const timestamp = details.timestamp ?? new Date().toISOString();
   const {
@@ -77,7 +87,10 @@ function buildEmbed(details: DiscordErrorDetails) {
     errorMessage,
     endpoint,
     metadata,
+    severity = 'error',
   } = details;
+
+  const style = SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.error;
 
   const fields = [
     {
@@ -118,8 +131,8 @@ function buildEmbed(details: DiscordErrorDetails) {
   }
 
   return {
-    title: 'Dashboard Error Alert',
-    color: 0xff4d4f,
+    title: style.title,
+    color: style.color,
     description:
       errorMessage.length > 1024
         ? `${errorMessage.slice(0, 1000)}…`

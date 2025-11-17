@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+// Using native fetch available in Node.js 18+
 
 export type DeviceSummary = { mac: string; name: string };
 
@@ -166,6 +166,44 @@ export async function listActiveDevicesByType(appKey: string, apiKey: string, mi
   }
 
   return out;
+}
+
+import { NextApiRequest, NextApiResponse } from 'next';
+
+// API endpoint for discovering Ecowitt devices
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { appKey, apiKey, minerType, maxAgeSeconds } = req.body;
+
+  if (!appKey || !apiKey || !minerType) {
+    return res.status(400).json({ 
+      error: 'Missing required parameters: appKey, apiKey, minerType' 
+    });
+  }
+
+  try {
+    const devices = await listActiveDevicesByType(
+      appKey, 
+      apiKey, 
+      minerType, 
+      maxAgeSeconds || DEFAULT_MAX_AGE_SECONDS
+    );
+    
+    res.status(200).json({ 
+      success: true, 
+      devices,
+      count: devices.length 
+    });
+  } catch (error) {
+    console.error('Ecowitt device discovery failed:', error);
+    res.status(500).json({ 
+      error: 'Failed to discover devices',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 }
 
 // Simple CLI if run directly

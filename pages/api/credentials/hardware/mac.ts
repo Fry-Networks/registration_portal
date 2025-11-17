@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../auth/[...nextauth]';
 import clientPromise from '../../../../lib/mongoclient';
-import { LINKED_MINER_TYPES, getMinerType, collectionFor } from '../utils';
+import { LINKED_MINER_TYPES, getMinerType, collectionFor } from '../../../../lib/credentials-utils';
 import { loggers } from '../../../../lib/logger';
 import {
   CommonErrors,

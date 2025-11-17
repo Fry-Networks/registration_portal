@@ -12,7 +12,9 @@ import {
   handleApiError
 } from '../../../lib/api-errors';
 import { indexerClient } from '../../../lib/utils';
-import type { Collection, Document, UpdateFilter } from 'mongodb';
+import type { Collection, Document, UpdateFilter, ObjectId } from 'mongodb';
+import type { Device } from '../../../lib/types';
+import { shouldForceLegacyUnverified } from '../../../lib/legacyStake';
 
 export default async function handler(
   req: NextApiRequest,
@@ -50,7 +52,7 @@ export default async function handler(
       testMode ? 'test-devices' : 'devices'
     );
 
-    const device = await collection.findOne({ miner_key });
+    const device = (await collection.findOne<{ _id: ObjectId } & Device>({ miner_key })) || null;
 
     if (!device) {
       return res.status(404).json(
@@ -60,6 +62,14 @@ export default async function handler(
           'Please verify the miner key and try again.'
         )
       );
+    }
+
+    if (device && shouldForceLegacyUnverified(device) && device.verified) {
+        await collection.updateOne(
+          { _id: device._id },
+          { $set: { verified: false } }
+        );
+        device.verified = false;
     }
 
     const hydratedDevice = await hydrateDeviceWithPosition(client, device as any);

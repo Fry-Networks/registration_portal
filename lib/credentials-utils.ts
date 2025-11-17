@@ -1,4 +1,4 @@
-// pages/api/credentials/utils.ts
+// lib/credentials-utils.ts
 // Shared constants and utilities for credential validation
 
 // Coupled miner types

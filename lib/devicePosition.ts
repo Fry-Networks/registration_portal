@@ -1,5 +1,5 @@
 import type { MongoClient } from 'mongodb';
-import { collectionFor } from '../pages/api/credentials/utils';
+import { collectionFor } from './credentials-utils';
 
 type PositionRecord = {
   lat?: number | string;

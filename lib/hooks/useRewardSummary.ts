@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import useSWR from 'swr';
-import { getClientToken } from '../clientToken';
+import { getClientToken, refreshClientToken } from '../clientToken';
 import { generateRequestSignatureAsync } from '../requestSignature.client';
 import { useFingerprintReady } from '../../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../api/fetchWithFingerprintRetry';
@@ -12,17 +12,29 @@ export type Summary = {
   accruing?: number;
   nextUnlockAt?: string | null;
   firstRewardAt?: string | null;
+  legacyFryClaimedSnapshot?: number;
 };
 
 const createFetcher = (refreshFingerprint: () => Promise<boolean>) => async (key: string): Promise<Summary> => {
   const [, miner_key] = key.split(':');
   
-  const clientToken = await getClientToken();
-  const timestamp = Math.floor(Date.now() / 1000);
-  const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-reward-summary', { miner_key }, timestamp);
+  const refreshClientTokenOnce = async () => {
+    try {
+      await refreshClientToken();
+      return true;
+    } catch (error) {
+      console.error('[ClientToken] Failed to refresh token for summary fetch', error);
+      return false;
+    }
+  };
 
-  const makeRequest = () =>
-    fetch('api/rewards/get-reward-summary', {
+  const makeRequest = async () => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = { miner_key };
+    const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-reward-summary', payload, timestamp);
+    const clientToken = await getClientToken();
+
+    return fetch('api/rewards/get-reward-summary', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -30,10 +42,13 @@ const createFetcher = (refreshFingerprint: () => Promise<boolean>) => async (key
         'x-request-signature': signature,
         'x-request-timestamp': timestamp.toString()
       },
-      body: JSON.stringify({ miner_key })
+      body: JSON.stringify(payload)
     });
+  };
 
-  const res = await fetchWithFingerprintRetry(makeRequest, refreshFingerprint);
+  const res = await fetchWithFingerprintRetry(makeRequest, refreshFingerprint, {
+    refreshClientToken: refreshClientTokenOnce
+  });
   if (!res.ok) throw new Error('Failed to fetch summary');
   const json = await res.json();
   return json?.summary ?? { pending: 0, claimable: 0, firstRewardAt: null };

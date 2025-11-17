@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+// Using native fetch available in Node.js 18+
 
 export type ShellyAllDevicesResponse = {
   success?: boolean;

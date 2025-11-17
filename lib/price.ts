@@ -4,6 +4,7 @@ import { tFRY } from './utils';
 
 // Basic in-process caching to avoid rate limits and noisy logs
 const PRICE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PRICE_REQUEST_TIMEOUT_MS = 4000; // fail fast so API callers do not hang
 let algoCache: { lastFetched: number; price: number } = { lastFetched: 0, price: 0 };
 let lastAlgoErrorAt = 0;
 
@@ -15,7 +16,8 @@ export const getAlgoUsdPrice = async (): Promise<number> => {
   }
   try {
     const response = await axios.get(
-      'https://api.coingecko.com/api/v3/simple/price?ids=algorand&vs_currencies=usd'
+      'https://api.coingecko.com/api/v3/simple/price?ids=algorand&vs_currencies=usd',
+      { timeout: PRICE_REQUEST_TIMEOUT_MS }
     );
     const price = response.data?.algorand?.usd;
     if (typeof price === 'number') {
@@ -53,7 +55,7 @@ export const getFRYPrice = async (asset_id: string): Promise<number> => {
   }
   try {
     const fryURL = `https://api.vestigelabs.org/assets/price?asset_ids=${asset_id}`;
-    const response = await axios.get(fryURL);
+    const response = await axios.get(fryURL, { timeout: PRICE_REQUEST_TIMEOUT_MS });
     if (!response.data || response.data.length === 0) {
       console.error(`No data found for asset ID: ${asset_id}`);
       return cached?.price || 0.0;
@@ -69,4 +71,4 @@ export const getFRYPrice = async (asset_id: string): Promise<number> => {
     console.error(`Error fetching price for ${asset_id}:`, error);
     return cached?.price || 0.0;
   }
-}
+};

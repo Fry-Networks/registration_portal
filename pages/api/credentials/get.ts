@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { NAMED_COLLECTIONS } from './utils';
+import { NAMED_COLLECTIONS } from '../../../lib/credentials-utils';
 import {
   CommonErrors,
   createApiError,

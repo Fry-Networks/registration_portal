@@ -1,7 +1,7 @@
 import { BaseValidator } from './BaseValidator';
 import { DeviceValidationResult, ValidationContext, DeviceInfo } from './types';
 import { listActiveDevicesByType } from '../../pages/api/credentials/ecowitt/ecowitt_discover';
-import { getEcowittDeviceType } from '../../pages/api/credentials/utils';
+import { getEcowittDeviceType } from '../credentials-utils';
 
 /**
  * Validator for Ecowitt devices using the autonomous discovery system

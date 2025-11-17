@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { collectionFor, NAMED_COLLECTIONS } from './utils';
+import { collectionFor, NAMED_COLLECTIONS } from '../../../lib/credentials-utils';
 import {
   CommonErrors,
   createApiError,
@@ -49,13 +49,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     : defaultCollections;
 
   try {
+    const unsetFields: Record<string, ''> = {
+      credentials: '',
+      credentials_saved_at: '',
+      api_type: '',
+      miner_mac: '',
+    };
+
     for (const name of candidateCollections) {
-      const result = await db.collection(name).deleteOne({
+      const collection = db.collection(name);
+      const filter = {
         miner_key,
         address: session.user.address,
+      };
+
+      const result = await collection.updateOne(filter, {
+        $unset: unsetFields,
       });
 
-      if (result.deletedCount && result.deletedCount > 0) {
+      if (result.modifiedCount && result.modifiedCount > 0) {
         return res.status(200).json({ message: 'Credentials unlinked', collection: name });
       }
     }

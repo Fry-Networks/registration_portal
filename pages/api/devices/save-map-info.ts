@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { latLngToCell } from 'h3-js';
-import { collectionFor } from '../credentials/utils';
+import { collectionFor } from '../../../lib/credentials-utils';
 import clientPromise from '../../../lib/mongoclient';
 import { loggers } from '../../../lib/logger';
 import {
@@ -62,6 +62,29 @@ export default async function handler(
     const client = await clientPromise;
     const CREDS_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 
+    const mainDb = client.db('main');
+    const devicesCollection = mainDb.collection(
+      testMode ? 'test-devices' : 'devices'
+    );
+    const deviceRecord = await devicesCollection.findOne({ miner_key });
+
+    if (!deviceRecord) {
+      return res.status(404).json(
+        createApiError(
+          ErrorCodes.DEVICE_NOT_FOUND,
+          'Device not found',
+          'Please verify the miner key and try again.'
+        )
+      );
+    }
+
+    if (
+      deviceRecord.address &&
+      deviceRecord.address !== session.user.address
+    ) {
+      return res.status(401).json(CommonErrors.walletMismatch());
+    }
+
     const db = client.db(CREDS_DB_NAME);
     const collectionName = collectionFor({ miner_key });
     const collection = db.collection(collectionName);
@@ -71,10 +94,24 @@ export default async function handler(
     const lngNum = Number(position.lng);
     const res7 = latLngToCell(latNum, lngNum, 7);
 
+    const existingDocs = await collection.find({ miner_key }).toArray();
+    const matchingDoc = existingDocs.find(
+      (doc) => doc.address === session.user.address
+    );
+    const conflictingDoc = existingDocs.find(
+      (doc) => doc.address && doc.address !== session.user.address
+    );
+
+    if (!matchingDoc && conflictingDoc) {
+      return res.status(401).json(CommonErrors.walletMismatch());
+    }
+
     // Upsert a credential doc keyed by miner_key + address so map info lives
     // in the same collection as credentials. This mirrors save-credentials which
     // upserts by miner_key + address.
-    const filter = { miner_key, address: session.user.address };
+    const filter = matchingDoc
+      ? { _id: matchingDoc._id }
+      : { miner_key, address: session.user.address };
     const update = {
       $set: {
         miner_key,
@@ -88,21 +125,6 @@ export default async function handler(
         position_saved_at: new Date(),
       },
     };
-    const exists = await collection.findOne({ miner_key });
-    if (!exists) {
-      return res.status(404).json(
-        createApiError(
-          ErrorCodes.DEVICE_NOT_FOUND,
-          'Device not found',
-          'Please verify the miner key and try again.'
-        )
-      );
-    }
-
-    if (exists.address && exists.address !== session.user.address) {
-      return res.status(401).json(CommonErrors.walletMismatch());
-    }
-
     await collection.updateOne(filter, update, { upsert: true });
 
     res.status(200).json({ message: 'ok' });

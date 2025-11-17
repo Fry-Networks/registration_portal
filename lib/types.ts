@@ -18,6 +18,7 @@ export interface Device extends mongoose.Document {
   note?: string;
   is_registered: boolean;
   registered_portal_model?: string;
+  legacy_stake_unlocked?: boolean;
   staked?: {
     type: string | null;
     amount: number | null;
