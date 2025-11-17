@@ -1,13 +1,32 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['avatars.githubusercontent.com', 'avatar.vercel.sh', 'static.wixstatic.com']
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'avatars.githubusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'avatar.vercel.sh',
+      },
+      {
+        protocol: 'https',
+        hostname: 'static.wixstatic.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'assets.perawallet.app',
+      },
+      {
+        protocol: 'https',
+        hostname: 'defly.app',
+      }
+    ]
   },
-  experimental: {
-    // Server actions are stable in Next 13.4+, no longer experimental
-    // Only keep serverComponentsExternalPackages for specific packages
-    serverComponentsExternalPackages: ['@tremor/react']
-  }
+  // Next.js 15 configurations
+  transpilePackages: ['@tremor/react'],
+  turbopack: {}
 };
 
 module.exports = nextConfig;

@@ -49,3 +49,8 @@ docker-compose.dev.yml
 docker-compose.dev-inplace.yml
 /backups
 build.sh
+/dbrewards
+audit-report.json
+dependency-audit.js
+pages/history.tsx.txt
+tempdashboardlogs.txt
