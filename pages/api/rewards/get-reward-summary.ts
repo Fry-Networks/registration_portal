@@ -12,10 +12,17 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import { tFRY, fNODE, FRY_1, normalizeAssetId } from '../../../lib/utils';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
 const CUTOFF_DATE = new Date(CUTOFF_ISO);
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const TFryAssetId = String(normalizeAssetId(tFRY.id));
+const fNodeAssetId = String(normalizeAssetId(fNODE.id));
+const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
+const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+const AEM_PREFIX = 'AEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -144,13 +151,22 @@ export default async function handler(
     // Device-rewards is the single source of truth
     const devRewardsCol = db.collection('device-rewards');
     const doc = await devRewardsCol.findOne({ miner_key });
-    let pending = 0;
-    let claimable = 0;
-    let claimed = 0;
-    let accruing = 0;
+    const totals = {
+      pending: round2(doc?.total_pending ?? 0),
+      claimable: round2(doc?.total_claimable ?? 0),
+      claimed: round2(doc?.total_claimed ?? 0),
+      accruing: 0
+    };
     let nextUnlockAt: string | null = null;
     let firstRewardAt: string | null = null;
     let firstRewardMs = Number.POSITIVE_INFINITY;
+    let legacyFryClaimedSnapshot = round2(doc?.legacy_fry_claimed_snapshot ?? 0);
+
+    const devicePrefix = (device?.miner_key || '').split('-')[0] || '';
+    const isNodeDevice = NODE_PREFIXES.has(devicePrefix);
+    const isAemDevice = devicePrefix === AEM_PREFIX;
+    const isMinerDevice = !(isNodeDevice || isAemDevice);
+    const allowedAssets = isMinerDevice ? new Set([TFryAssetId, FRY1AssetId]) : new Set([fNodeAssetId]);
 
     const considerDate = (raw?: string | Date | null) => {
       if (!raw) return;
@@ -164,43 +180,28 @@ export default async function handler(
     };
 
     if (doc) {
-      // Sum weekly (post-cutoff)
       if (Array.isArray(doc.weekly_rewards)) {
         for (const wr of doc.weekly_rewards) {
           considerDate(wr?.unlock_at);
-
-          if (wr.unlock_at) {
-            const unlockDate = new Date(wr.unlock_at);
-            if (unlockDate >= CUTOFF_DATE) {
-              if (wr.status === 'pending') pending = Math.round((pending + (wr.amount || 0)) * 100) / 100;
-              if (wr.status === 'claimable') claimable = Math.round((claimable + (wr.amount || 0)) * 100) / 100;
-              if (wr.status === 'claimed') claimed = Math.round((claimed + (wr.amount || 0)) * 100) / 100;
-            }
-          }
         }
       }
 
-      // Include pre-cutoff daily totals (historical daily behavior)
       if (Array.isArray(doc.daily_rewards)) {
         for (const dr of doc.daily_rewards) {
           considerDate(dr?.created_at);
-
-          const created = new Date(dr.created_at);
-          if (created < CUTOFF_DATE) {
-            if (dr.status === 'pending') pending = Math.round((pending + (dr.amount || 0)) * 100) / 100;
-            if (dr.status === 'claimable') claimable = Math.round((claimable + (dr.amount || 0)) * 100) / 100;
-            if (dr.status === 'claimed') claimed = Math.round((claimed + (dr.amount || 0)) * 100) / 100;
-          }
         }
       }
 
-      // Sum daily accruals within this week for preview (always from device-rewards)
       const { dateStrings, nextUnlockAt: nua } = getCurrentWeekWindow(new Date());
       nextUnlockAt = nua.toISOString();
       if (Array.isArray(doc.daily_rewards)) {
         for (const dr of doc.daily_rewards) {
+          const assetKey = String(normalizeAssetId(dr.asset_id));
+          if (!allowedAssets.has(assetKey)) {
+            continue;
+          }
           if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
-            accruing = Math.round((accruing + (dr.amount || 0)) * 100) / 100;
+            totals.accruing = round2(totals.accruing + (dr.amount || 0));
           }
         }
       }
@@ -209,12 +210,13 @@ export default async function handler(
     res.status(200).json({
       success: true,
       summary: {
-        pending,
-        claimable,
-        claimed,
-        accruing,
+        pending: totals.pending,
+        claimable: totals.claimable,
+        claimed: totals.claimed,
+        accruing: totals.accruing,
         nextUnlockAt,
-        firstRewardAt
+        firstRewardAt,
+        legacyFryClaimedSnapshot
       }
     });
   } catch (error) {

@@ -1,452 +1,455 @@
-import { NextApiRequest, NextApiResponse } from 'next';
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
+import type { Transaction } from 'algosdk';
+
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { Device } from '../../../lib/types';
-import algosdk, { mnemonicToSecretKey } from 'algosdk';
-import { FRY_1, getAssetDecimals } from '../../../lib/utils';
+import type { Device } from '../../../lib/types';
+import { getAssetDecimals, fNODE, tFRY } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
-import crypto from 'crypto';
+import { withDeviceActionLock } from '../../../lib/api/deviceAction';
+import { createApiError, ErrorCodes } from '../../../lib/api-errors';
+// Modern wallet infrastructure imports for consistent network handling
+import { getAlgodClient } from '../../../lib/wallet/clients';
+import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
+import {
+  decodeUnsignedTransaction,
+  loadMnemonicAccountPair,
+  signAndSubmitCustodialTransactions
+} from '../../../lib/algorand/admin';
+import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
+import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
+import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
+const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = 443;
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
-
-const lockSet: Set<string> = new Set();
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
 
 type DeviceClaimTarget = {
   source: 'weekly' | 'daily';
   reward_number: number;
-  asset_id: string; // stored as string in device-rewards; cast to number where needed
+  asset_id: string;
   amount: number;
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+// Define proper types for the claim response variants
+type ClaimPreviewResponse = {
+  success: boolean;
+  preview: true;
+  totals: { asset_id: number; amount: number; }[];
+};
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  // Check if user is admin (bypasses all security layers)
+type ClaimExecuteResponse = {
+  success: boolean;
+  preview: false;
+  message: string;
+  txId: string;
+  totals: { asset_id: number; amount: number; }[];
+};
+
+type ClaimResponse = ClaimPreviewResponse | ClaimExecuteResponse;
+
+const PRECISION_DECIMALS = 6;
+const DISPLAY_DECIMALS = 2;
+
+const toError = (err: unknown): Error => {
+  if (err instanceof Error) return err;
+  try {
+    return new Error(JSON.stringify(err));
+  } catch {
+    return new Error(String(err));
+  }
+};
+
+const roundAmount = (value: number, decimals = PRECISION_DECIMALS) =>
+  Math.round(value * 10 ** decimals) / 10 ** decimals;
+
+const quantizeForStorage = (value: number) => roundAmount(value, DISPLAY_DECIMALS);
+
+const parseCurrencyValue = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  return 0;
+};
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Preserve the admin bypass + client token + request signature layers we had previously.
   const isAdmin = await isAdminRequest(req);
 
   if (!isAdmin) {
-    // Layer 1: Verify client token to prevent automated scripts
     const tokenVerified = await verifyClientToken(req, res);
-    if (!tokenVerified) {
-      return;
-    }
+    if (!tokenVerified) return;
 
-    // Layer 2: Verify request signature to prevent tampering
     const signature = req.headers['x-request-signature'] as string;
-    const timestamp = req.headers['x-request-timestamp'] as string;
+    const timestamp = Number(req.headers['x-request-timestamp']);
 
-    if (!signature || !timestamp) {
-      res.status(403).json({
-        success: false,
-        code: 'MISSING_SIGNATURE',
-        message: 'Request signature or timestamp missing'
-      });
+    if (!signature || Number.isNaN(timestamp)) {
+      res.status(403).json(
+        createApiError('MISSING_SIGNATURE', 'Request signature or timestamp missing')
+      );
       return;
     }
 
-    const signatureValid = await verifyRequestSignatureAsync('POST', '/api/rewards/claim', req.body, Number(timestamp), signature, req);
-    if (!signatureValid) {
-      res.status(403).json({
-        success: false,
-        code: 'INVALID_SIGNATURE',
-        message: 'Invalid or expired request signature'
-      });
-      return;
-    }
-  }
-
-  // Layer 3: Session check (always enforced)
-  const session = await getServerSession(req, res, authOptions);
-
-  if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
-    return;
-  }
-
-  const data = (req.body ?? {}) as {
-    miner_key?: string;
-    no?: number;
-    preview?: boolean;
-  };
-
-  const miner_key = typeof data.miner_key === 'string' ? data.miner_key : undefined;
-  const no = typeof data.no === 'number' ? data.no : undefined;
-  const previewMode = data.preview === true;
-
-  if (!miner_key) {
-    res.status(400).json({
-      success: false,
-      code: 'INVALID_INPUT',
-      message: 'Missing miner key for claim request'
-    });
-    return;
-  }
-
-  // Layer 4: Device fingerprint verification (bypassed for admins)
-  // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
-  if (fingerprintStatus === 'retry') {
-    res.status(409).json({
-      success: false,
-      code: 'DEVICE_FINGERPRINT_REFRESH',
-      message: 'Security check refreshed your session. Please retry the request.'
-    });
-    return;
-  }
-  if (fingerprintStatus === 'blocked') {
-    res.status(403).json({
-      success: false,
-      code: 'DEVICE_MISMATCH',
-      message: 'Request from unauthorized device. This operation requires the original browser.'
-    });
-    return;
-  }
-  const lockKey = miner_key;
-  let lockAcquired = false;
-  const releaseLock = () => {
-    if (lockAcquired) {
-      lockSet.delete(lockKey);
-      lockAcquired = false;
-    }
-  };
-  let records: DeviceClaimTarget[] = [];
-  let step = { id: 1, value: 'Step1: Initialization' };
-
-  try {
-    const client = await clientPromise;
-    const db = client.db('main');
-    const weeklyCollection = db.collection('device-rewards');
-    const deviceCollection = db.collection(
-      testMode ? 'test-devices' : 'devices'
+    const signatureValid = await verifyRequestSignatureAsync(
+      'POST',
+      '/api/rewards/claim',
+      req.body,
+      timestamp,
+      signature,
+      req
     );
 
-    const device = await deviceCollection.findOne({ miner_key: miner_key });
-    if (!device) {
-      res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
+    if (!signatureValid) {
+      res.status(403).json(
+        createApiError('INVALID_SIGNATURE', 'Invalid or expired request signature')
+      );
       return;
     }
+  }
 
-    if (!device.reward_wallet) {
-      res.status(400).json({ success: false, code: 'NETWORK_ERROR', message: 'No reward wallet set' });
-      return;
+  const session = await getServerSession(req, res, authOptions);
+  if (!session || !session.user) {
+    res.status(401).json(createApiError(ErrorCodes.UNAUTHORIZED, 'Unauthorized'));
+    return;
+  }
+
+  // Input validation mirrors the legacy handler (miner key required, optional reward number).
+  const { miner_key, no, preview } = req.body ?? {};
+  if (typeof miner_key !== 'string' || miner_key.length === 0) {
+    res.status(400).json(
+      createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for claim request')
+    );
+    return;
+  }
+
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, {
+    walletAddress: session.user.address,
+    minerKey: miner_key
+  });
+
+  if (fingerprintStatus === 'retry') {
+    res.status(409).json(
+      createApiError('DEVICE_FINGERPRINT_REFRESH', 'Security check refreshed your session. Please retry the request.')
+    );
+    return;
+  }
+
+  if (fingerprintStatus === 'blocked') {
+    res.status(403).json(
+      createApiError('DEVICE_MISMATCH', 'Request from unauthorized device. This operation requires the original browser.')
+    );
+    return;
+  }
+
+  if (!isAdmin) {
+    void monitorWalletHealth(session.user.address, { minerKey: miner_key, operation: 'claim' });
+  }
+
+  // Acquire a durable lock/idempotency record before touching database state.
+  await withDeviceActionLock<ClaimResponse>(req, res, {
+    action: 'claim',
+    miner_key,
+    address: session.user.address,
+    metadata: {
+      preview: preview === true,
+      rewardSelection: typeof no === 'number' ? 'single' : 'all'
     }
-
-    if (!device.address || device.address !== session.user.address) {
-      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
-      return;
-    }
-
-    // Always use device-rewards (weekly + daily) as source of truth
-    const doc = await weeklyCollection.findOne({ miner_key });
-    const weeklyClaimables = (doc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
-    const dailyClaimables = (doc?.daily_rewards || []).filter((dr: any) => dr.status === 'claimable');
-
-    if (typeof no === 'number') {
-      const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
-      const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
-      if (weeklyTargets.length === 0 && dailyTargets.length === 0) {
-        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
-        return;
+  }, async () => {
+    try {
+      // Load the same device + rewards data the previous handler inspected.
+      const client = await clientPromise;
+      const db = client.db('main');
+      const rewardsCollection = db.collection('device-rewards');
+      const deviceCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
+      const device = await deviceCollection.findOne({ miner_key });
+      if (!device) {
+        throw {
+          status: 404,
+          response: createApiError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found', 'Verify the miner key and try again.')
+        };
       }
-      weeklyTargets.forEach((wr: any) => records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
-      dailyTargets.forEach((dr: any) => records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
-    } else {
-      if (weeklyClaimables.length === 0 && dailyClaimables.length === 0) {
-        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No rewards available to claim' });
-        return;
-      }
-      weeklyClaimables.forEach((wr: any) => records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount }));
-      dailyClaimables.forEach((dr: any) => records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount }));
-    }
 
-    step.id = 2;
-    step.value = 'Prepared selected rewards for claim (pre-broadcast).';
-
-    type Result = {
-      asset_id: number;
-      totalMicro: bigint;
-      decimals: number;
-      txId?: string; // Optional field
-    };
-
-    const decimalsCache = new Map<number, number>();
-    const sumByAssetId = new Map<number, bigint>();
-
-    for (const reward of records) {
-      const assetId = Number(reward.asset_id);
-
-      let decimals = decimalsCache.get(assetId);
-      if (decimals === undefined) {
-        const fetched = await getAssetDecimals(assetId);
-        decimals = typeof fetched === 'number' ? fetched : 0;
-        decimalsCache.set(assetId, decimals);
+      if (!device.reward_wallet) {
+        throw {
+          status: 400,
+          response: createApiError(ErrorCodes.INVALID_INPUT, 'No reward wallet configured for this device.')
+        };
       }
 
-      const microAmount = BigInt(Math.round(reward.amount * Math.pow(10, decimals)));
-      const prev = sumByAssetId.get(assetId) ?? BigInt(0);
-      sumByAssetId.set(assetId, prev + microAmount);
-    }
+      if (device.address !== session.user.address) {
+        throw {
+          status: 401,
+          response: createApiError(ErrorCodes.WALLET_MISMATCH, 'Wallet mismatch detected. Sign in with the owning wallet to claim rewards.')
+        };
+      }
 
-    const resultArray: Result[] = Array.from(sumByAssetId.entries()).map(
-      ([asset_id, totalMicro]) => ({
+      const rewardsDoc = await rewardsCollection.findOne({ miner_key });
+      const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable');
+      const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable');
+
+      const records: DeviceClaimTarget[] = [];
+      if (typeof no === 'number') {
+        const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
+        const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
+        if (!weeklyTargets.length && !dailyTargets.length) {
+          throw {
+            status: 404,
+            response: createApiError(ErrorCodes.NO_REWARDS, 'No rewards available to claim.', 'Wait for new rewards to unlock and try again or refresh the page if you believe this is not right.')
+          };
+        }
+        weeklyTargets.forEach((wr: any) =>
+          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+        );
+        dailyTargets.forEach((dr: any) =>
+          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+        );
+      } else {
+        if (!weeklyClaimables.length && !dailyClaimables.length) {
+          throw {
+            status: 404,
+            response: createApiError(ErrorCodes.NO_REWARDS, 'No rewards available to claim.', 'Wait for new rewards to unlock and try again or refresh the page if you believe this is not right.')
+          };
+        }
+        weeklyClaimables.forEach((wr: any) =>
+          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+        );
+        dailyClaimables.forEach((dr: any) =>
+          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+        );
+      }
+
+      const decimalsCache = new Map<number, number>();
+      const totals = new Map<number, bigint>();
+
+      for (const reward of records) {
+        const assetId = Number(reward.asset_id);
+        let decimals = decimalsCache.get(assetId);
+        if (decimals === undefined) {
+          const fetched = await getAssetDecimals(assetId);
+          decimals = typeof fetched === 'number' ? fetched : 0;
+          decimalsCache.set(assetId, decimals);
+        }
+        const microAmount = BigInt(
+          Math.round(reward.amount * Math.pow(10, decimals))
+        );
+        const previous = totals.get(assetId) ?? BigInt(0);
+        totals.set(assetId, previous + microAmount);
+      }
+
+      const summary = Array.from(totals.entries()).map(([asset_id, totalMicro]) => ({
         asset_id,
         totalMicro,
         decimals: decimalsCache.get(asset_id) ?? 0
-      })
-    );
+      }));
 
-    const minerPrefix = typeof device.miner_key === 'string' ? device.miner_key.split('-')[0] : '';
-    const isNodeDevice = NODE_PREFIXES.has(minerPrefix);
-    const isAemDevice = minerPrefix === AEM_PREFIX;
-    const isMinerDevice = !isNodeDevice && !isAemDevice;
-    const includesFry1 = resultArray.some((entry) => String(entry.asset_id) === FRY_1.id);
-
-    if (!testMode && isMinerDevice && includesFry1) {
-      res.status(400).json({
-        success: false,
-        code: 'FRY1_RETIRED',
-        message:
-          'FRY 1.0 miner rewards can no longer be claimed. Miner payouts are transitioning to tFry claiming.'
-      });
-      return;
-    }
-
-    if (previewMode) {
-      res.status(200).json({
-        success: true,
-        preview: true,
-        totals: resultArray.map((entry) => ({
-          asset_id: entry.asset_id,
-          amount: Number(entry.totalMicro) / Math.pow(10, entry.decimals)
-        }))
-      });
-      return;
-    }
-
-    if (lockSet.has(lockKey)) {
-      res.status(429).json({ success: false, code: 'NETWORK_ERROR', message: 'Another claim is in progress. Please try again shortly.' });
-      return;
-    }
-    lockSet.add(lockKey);
-    lockAcquired = true;
-
-    step.value = 'Preparing network parameters';
-    const suggestedParams = await algodClient.getTransactionParams().do();
-    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
-
-    const from = account.addr;
-    let txns: algosdk.Transaction[] = [];
-    let signedTxns: Uint8Array[] = [];
-
-    for (let i = 0; i < resultArray.length; i++) {
-      step.value = 'Creating reward transactions';
-      const noteInfo = {
-        miner_key:
-          miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
-        asset_id: resultArray[i].asset_id,
-        amount:
-          Number(resultArray[i].totalMicro) /
-          Math.pow(10, resultArray[i].decimals),
-        date: new Date(Date.now())
-      };
-
-      const enc = new TextEncoder();
-      const note = enc.encode(JSON.stringify(noteInfo));
-
-      const decimals = resultArray[i].decimals;
-      const amountMicro = resultArray[i].totalMicro;
-      if (!testMode) {
-        const safeMax = BigInt(Number.MAX_SAFE_INTEGER);
-        if (amountMicro > safeMax) {
-          throw new Error('Aggregated reward amount exceeds Number.MAX_SAFE_INTEGER');
-        }
+      // Guard: ensure the configured reward wallet is opted into each reward asset before we send funds.
+      const rewardWallet = device.reward_wallet;
+      if (!rewardWallet) {
+        throw {
+          status: 400,
+          response: createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'This device does not have a reward wallet configured.',
+            'Update the device reward wallet and try again.'
+          )
+        };
+      }
+      for (const assetId of summary.map((entry) => String(entry.asset_id))) {
+        await ensureWalletAssetOptIn(rewardWallet, assetId, 'claiming rewards');
       }
 
-      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        sender: from,
-        receiver: device.reward_wallet,
-        amount: testMode ? 0 : Number(amountMicro),
-        assetIndex: Number(resultArray[i].asset_id),
-        note,
-        suggestedParams
-      });
+      const minerPrefix = device.miner_key.split('-')[0];
+      const isNodeDevice = NODE_PREFIXES.has(minerPrefix);
+      const isAemDevice = minerPrefix === AEM_PREFIX;
+      // Pre-compute totals for preview (and to store alongside journal records).
+      const totalsDisplay = summary.map((entry) => ({
+        asset_id: entry.asset_id,
+        amount: quantizeForStorage(Number(entry.totalMicro) / Math.pow(10, entry.decimals))
+      }));
 
-      txns.push(txn);
-      step.value = 'Signing reward transactions';
-      const signedTxn = txn.signTxn(rekey.sk);
-      signedTxns.push(signedTxn);
-    }
-
-    step.value = 'Assigning group ID to transactions';
-    algosdk.assignGroupID(txns);
-    // const stx = await algodClient.simulateRawTransactions(signedTxns).do();
-
-    // let fee: number | undefined = 0;
-    // if (!stx) {
-    //   fee = 1000;
-    // } else {
-    //   fee = stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee;
-    // }
-    // console.log("Simulation : ", stx.txnGroups[0].txnResults[0].txnResult.txn.txn.fee);
-
-    // const isFeePaid = await requestGasFee(suggestedParams, session.user.address, from, fee);
-
-    // if (!isFeePaid) {
-    //   res
-    //     .status(402)
-    //     .json({ message: 'Failed to make fee payment transaction' });
-    //   return;
-    // }
-
-    step.value = 'Submitting reward transfer to the Algorand network';
-    const tx = await algodClient.sendRawTransaction(signedTxns).do();
-    if (!tx) {
-      lockSet.delete(miner_key);
-      res.status(500).json({
-        success: false,
-        code: 'NETWORK_ERROR',
-        message: 'Reward transfer could not be submitted to Algorand. No funds were moved; please retry shortly.'
-      });
-      return;
-    }
-
-    step.id = 3;
-    step.value = `Broadcasted reward claim transaction.`;
-
-    // post-broadcast updates (device-rewards only)
-      // Device-based: mark selected weekly and/or daily entries as claimed and set tx_id
-      const weeklyNos = records.filter(r => r.source === 'weekly').map(r => r.reward_number);
-      const dailyNos = records.filter(r => r.source === 'daily').map(r => r.reward_number);
-      const totalAmount = resultArray.reduce(
-        (acc, r) => acc + Number(r.totalMicro) / Math.pow(10, r.decimals),
-        0
+      const totalAmountNumeric = quantizeForStorage(
+        totalsDisplay.reduce((acc, curr) => acc + curr.amount, 0)
       );
+
+      // Preview path still returns without touching Algorand or Mongo writes.
+      if (preview === true) {
+        return {
+          response: {
+            success: true,
+            preview: true,
+            totals: totalsDisplay
+          } as ClaimPreviewResponse,
+          journal: {
+            status: 'pending' as const,
+            metadata: { totals: totalsDisplay, mode: 'preview' }
+          }
+        };
+      }
+
+      // Modern reward broadcast using centralized wallet infrastructure
+      const algodClient = getAlgodClient();
+      // Use the custodial helper to load the reward vault + signer (respects rekey).
+      const { account } = loadMnemonicAccountPair({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward sender'
+      });
+
+      const unsignedTxns: Transaction[] = [];
+
+      // Build individual ASA transfer transactions for each reward asset with modern transaction builder
+      for (const entry of summary) {
+        const noteInfo = {
+          miner_key: `${miner_key.split('-')[0]}-${miner_key.split('-')[1].slice(0, 6)}`,
+          asset_id: entry.asset_id,
+          amount: Number(entry.totalMicro) / Math.pow(10, entry.decimals),
+          operation: 'reward_claim',
+          timestamp: new Date().toISOString()
+        };
+        const note = new TextEncoder().encode(JSON.stringify(noteInfo));
+
+        if (!testMode) {
+          const safeMax = BigInt(Number.MAX_SAFE_INTEGER);
+          if (entry.totalMicro > safeMax) {
+            throw new Error('Aggregated reward amount exceeds Number.MAX_SAFE_INTEGER');
+          }
+        }
+
+        // Use modern transaction builder for consistent handling - note: amount is already in microunits
+        const encodedTxn = await buildAssetTransferTxn({
+          sender: account.addr.toString(),
+          receiver: device.reward_wallet,
+          assetId: entry.asset_id,
+          amount: testMode ? 0 : Number(entry.totalMicro),
+          note,
+          useRawAmount: true, // Amount is already in microunits, don't apply decimal conversion
+          decimals: entry.decimals // Pass decimals for validation but useRawAmount=true skips conversion
+        });
+
+        unsignedTxns.push(decodeUnsignedTransaction(encodedTxn));
+      }
+
+      // Broadcast all reward transfers via the centralized custodial pipeline.
+      const { txId } = await signAndSubmitCustodialTransactions({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward claim',
+        algod: algodClient,
+        transactions: unsignedTxns
+      });
+      if (!txId) {
+        throw new Error('Reward transfer could not be submitted to Algorand.');
+      }
+
+      const weeklyNos = records.filter((r) => r.source === 'weekly').map((r) => r.reward_number);
+      const dailyNos = records.filter((r) => r.source === 'daily').map((r) => r.reward_number);
+      monitorTransaction(txId, {
+        minerKey: miner_key,
+        walletAddress: session.user.address,
+        operation: 'reward_claim',
+        amount: totalAmountNumeric,
+        preconfirmed: true
+      }).catch((error) => {
+        console.warn('[claim] monitorTransaction failed', error);
+      });
 
       let modifiedAny = false;
       if (weeklyNos.length > 0) {
-        const updW = await weeklyCollection.updateOne(
+        const updateWeekly = await rewardsCollection.updateOne(
           { miner_key },
           {
             $set: {
               'weekly_rewards.$[elem].status': 'claimed',
-              'weekly_rewards.$[elem].tx_id': tx.txid,
+              'weekly_rewards.$[elem].tx_id': txId,
               'weekly_rewards.$[elem].claimed_at': new Date()
             }
           },
           { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
         );
-        if (updW.modifiedCount && updW.modifiedCount > 0) modifiedAny = true;
+        if (updateWeekly.modifiedCount) modifiedAny = true;
       }
 
       if (dailyNos.length > 0) {
-        const updD = await weeklyCollection.updateOne(
+        const updateDaily = await rewardsCollection.updateOne(
           { miner_key },
           {
             $set: {
               'daily_rewards.$[elem].status': 'claimed',
-              'daily_rewards.$[elem].tx_id': tx.txid,
+              'daily_rewards.$[elem].tx_id': txId,
               'daily_rewards.$[elem].claimed_at': new Date()
             }
           },
           { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
         );
-        if (updD.modifiedCount && updD.modifiedCount > 0) modifiedAny = true;
+        if (updateDaily.modifiedCount) modifiedAny = true;
       }
 
-      // Adjust totals
-      await weeklyCollection.updateOne(
+      const currentClaimable = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimable));
+      const currentClaimed = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimed));
+      const nextClaimable = Math.max(0, quantizeForStorage(currentClaimable - totalAmountNumeric));
+      const nextClaimed = quantizeForStorage(currentClaimed + totalAmountNumeric);
+
+      await rewardsCollection.updateOne(
         { miner_key },
-        { $inc: { total_claimable: -totalAmount, total_claimed: totalAmount } }
+        {
+          $set: {
+            total_claimable: nextClaimable,
+            total_claimed: nextClaimed
+          }
+        }
       );
+
       if (!modifiedAny) {
-        releaseLock();
-        return res.status(409).json({
-          success: false,
-          code: 'ALREADY_TRANSITIONED',
-          message: 'Nothing to claim — selected rewards are no longer claimable. Please refresh.'
-        });
+        throw {
+          status: 409,
+          response: createApiError(
+            'ALREADY_TRANSITIONED',
+            'Selected rewards are no longer claimable. Refresh to view the current status.'
+          )
+        };
       }
 
-    // no-op: all error cases above return early with clear messages
-
-    step.id = 4;
-    step.value = `Step4: Recorded transaction ID in database.`;
-
-    releaseLock();
-    res.status(200).json({
-      success: true,
-      message: `Claim submitted for ${miner_key}`,
-      result: tx.txid
-    });
-
-  } catch (error) {
-    const claimError = error as any;
-    const detailMessage =
-      claimError?.response?.body?.message ||
-      claimError?.response?.text ||
-      claimError?.message ||
-      (typeof claimError === 'string' ? claimError : JSON.stringify(claimError));
-
-    loggers.apiError('/api/rewards/claim', claimError, {
-      miner_key,
-      address: session.user.address,
-      issueType: 'REWARD_CLAIM_ERROR',
-      part: `claim.step${step.id}`,
-      step: step.value,
-      detail: detailMessage,
-    });
-    releaseLock();
-
-    if (step.id === 2) {
-      try {
-        const client = await clientPromise;
-        const db = client.db('main');
-        const weeklyCollection = db.collection('device-rewards');
-        // Reset weekly entries back to claimable
-        const weeklyDoc = await weeklyCollection.findOne({ miner_key });
-        const claimables = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'claimable');
-        const targetNos = typeof data.no === 'number'
-          ? claimables.filter((wr: any) => wr.reward_number === data.no).map((wr: any) => wr.reward_number)
-          : claimables.map((wr: any) => wr.reward_number);
-        await weeklyCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'weekly_rewards.$[elem].status': 'claimable',
-              'weekly_rewards.$[elem].tx_id': undefined,
-              'weekly_rewards.$[elem].claimed_at': undefined
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': { $in: targetNos } }] }
-        );
-      } catch (e) {
-        // fallthrough to generic error
-      }
+      return {
+        response: {
+          success: true,
+          preview: false,
+          message: `Claim submitted for ${miner_key}`,
+          txId,
+          totals: totalsDisplay
+        } as ClaimExecuteResponse,
+        journal: {
+          status: 'confirmed' as const,
+          txId,
+          metadata: {
+            totals: totalsDisplay,
+            rewardCount: records.length,
+            totalAmount: totalAmountNumeric
+          }
+        }
+      };
+    } catch (error) {
+      // Ensure operational logging remains intact for support investigations.
+      loggers.apiError('/api/rewards/claim', toError(error), {
+        miner_key,
+        address: session.user.address,
+        issueType: 'REWARD_CLAIM_ERROR',
+        metadata: {
+          preview: preview === true,
+          rewardSelection: typeof no === 'number' ? 'single' : 'all'
+        }
+      });
+      throw error;
     }
-
-    res.status(500).json({ success: false, code: 'NETWORK_ERROR', message: step.value });
-    return;
-  }
+  });
 }

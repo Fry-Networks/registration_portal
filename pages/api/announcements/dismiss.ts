@@ -8,6 +8,7 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import { Document } from 'mongodb';
 
 const COLLECTION_USERS = 'registration-users';
 const ENDPOINT = '/api/announcements/dismiss';
@@ -72,7 +73,7 @@ export default async function handler(
               dismissedAt: now
             }
           }
-        }
+        } as Document
       );
 
       if (pushResult.matchedCount === 0) {

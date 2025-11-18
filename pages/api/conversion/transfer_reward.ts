@@ -1,10 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
-import algosdk, { mnemonicToSecretKey } from 'algosdk';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { verifyTransaction } from '../algorand/verify-txn';
-import { VERIFY_RESULT } from '../../../lib/txn';
+import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import {
   FRY_2,
   fNODE,
@@ -18,16 +17,19 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import { getAlgodClient } from '../../../lib/wallet/clients';
+import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
+import {
+  decodeUnsignedTransaction,
+  loadMnemonicAccountPair,
+  signAndSubmitCustodialTransactions,
+} from '../../../lib/algorand/admin';
+import { Document } from 'mongodb';
+import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = 443;
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 export default async function handler(
   req: NextApiRequest,
@@ -91,6 +93,8 @@ export default async function handler(
     }
 
     const assetId = convertType === FRY_2.id ? FRY_2.id : fNODE.id;
+    // Guard: require the conversion wallet to be opted into the payout asset before sending custodial funds.
+    await ensureWalletAssetOptIn(address, assetId, 'claiming FRY conversion rewards');
     const claimableAmount = Number(user.claimableAmount ?? 0);
 
     const vaultBalance = await getFRYAssetBalances(assetId);
@@ -161,6 +165,7 @@ export default async function handler(
     let shouldReleaseLock = true;
 
     try {
+      const algodClient = getAlgodClient();
       const accountInfo = await algodClient.accountInformation(address).do();
       const normalizedTarget = normalizeAssetId(assetId);
       const assets = (accountInfo.assets ?? []) as Array<{
@@ -185,10 +190,14 @@ export default async function handler(
       }
 
       const suggestedParams = await algodClient.getTransactionParams().do();
-      const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-      const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
+      // Rewards vault is rekeyed, so load signer info via the shared helper.
+      const { account } = loadMnemonicAccountPair({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward conversion'
+      });
 
-      const from = account.addr;
+      const from = account.addr.toString();
 
       const noteInfo = {
         title: 'FRY 1.0 Conversion',
@@ -200,22 +209,30 @@ export default async function handler(
       const enc = new TextEncoder();
       const note = enc.encode(JSON.stringify(noteInfo));
 
-      const decimals = FRY_2.decimals;
+      const rawAmount = testMode
+        ? 0
+        : Math.round(claimableAmount * Math.pow(10, FRY_2.decimals || 0));
 
-      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+      // Conversion payouts stay in microunits so downstream accounting remains exact.
+      const encodedTxn = await buildAssetTransferTxn({
         sender: from,
         receiver: address,
-        amount: testMode
-          ? 0
-          : BigInt(Math.floor(claimableAmount * Math.pow(10, decimals || 0))),
-        assetIndex: Number(assetId),
+        assetId: Number(assetId),
+        amount: rawAmount,
         note,
-        suggestedParams,
+        useRawAmount: true,
+        suggestedParams
       });
-
-      const signedTxn = txn.signTxn(rekey.sk);
-      const tx = await algodClient.sendRawTransaction(signedTxn).do();
-      if (!tx) {
+      const txn = decodeUnsignedTransaction(encodedTxn);
+      // Send the payout using the centralized custodial pipeline (single group).
+      const { txId } = await signAndSubmitCustodialTransactions({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward conversion',
+        algod: algodClient,
+        transactions: [txn]
+      });
+      if (!txId) {
         return res.status(402).json(
           createApiError(
             ErrorCodes.TRANSACTION_FAILED,
@@ -225,7 +242,7 @@ export default async function handler(
         );
       }
 
-      const result = await verifyTransaction(account.addr.toString(), tx.txid);
+      const result = await verifyTransaction(account.addr.toString(), txId);
       if (result !== VERIFY_RESULT.OK) {
         return res.status(402).json(
           createApiError(
@@ -241,12 +258,12 @@ export default async function handler(
         {
           $set: {
             claimableAmount: 0,
-            claimedMonths: claimableMonths + claimedMonths,
+            claimedMonths: claimedMonths + claimableMonths,
             claimableMonths: 0,
             pendingAmount: pendingAfter,
             isProcessing: false,
             lastConversionAt: now,
-            lastConversionTxId: tx.txid,
+            lastConversionTxId: txId,
           },
           $unset: {
             processingStartedAt: '',
@@ -255,9 +272,9 @@ export default async function handler(
             history: {
               amount: claimableAmount,
               tokenType: tokenLabel,
-              date: now,
+              date: new Date(),
             },
-          },
+          } as Document,
         }
       );
 
@@ -267,10 +284,17 @@ export default async function handler(
 
       shouldReleaseLock = false;
 
+      let completionSuffix = '';
+      if (claimedMonths + claimableMonths >= 12) {
+        completionSuffix = ' You have successfully completed your vesting schedule—no further claims remain.';
+      } else {
+        completionSuffix = ' Check back next month for your next claim!';
+      }
+
       return res.status(200).json({
         success: true,
-        message: `You have received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule. Check back next month for your next claim!`,
-        txId: tx.txid,
+        message: `You have received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule.${completionSuffix}`,
+        txId,
       });
     } finally {
       if (shouldReleaseLock) {

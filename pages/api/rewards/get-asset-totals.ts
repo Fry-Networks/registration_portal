@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { FRY_1, fNODE, tFRY } from '../../../lib/utils';
+import { FRY_1, fNODE, tFRY, normalizeAssetId } from '../../../lib/utils';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
@@ -17,6 +17,12 @@ import {
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
 const CUTOFF_DATE = new Date(CUTOFF_ISO);
+const round2 = (value: number) => Math.round(value * 100) / 100;
+const TFryAssetId = String(normalizeAssetId(tFRY.id));
+const fNodeAssetId = String(normalizeAssetId(fNODE.id));
+const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
+const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+const AEM_PREFIX = 'AEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -47,6 +53,9 @@ function getCurrentWeekDates(): { dateStrings: string[]; nextUnlockAt: Date } {
   }
   return { dateStrings, nextUnlockAt };
 }
+
+type RewardBucket = { pending: number; claimable: number; claimed: number; accruing: number };
+const createBucket = (): RewardBucket => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Check if user is admin (bypasses all security layers)
@@ -122,17 +131,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .project({ miner_key: 1 })
       .toArray();
 
+    const isMinerDeviceByKey = new Map<string, boolean>();
+    for (const device of devices) {
+      const key = device?.miner_key;
+      if (!key) continue;
+      const prefix = key.split('-')[0] || '';
+      const isNode = NODE_PREFIXES.has(prefix);
+      const isAem = prefix === AEM_PREFIX;
+      isMinerDeviceByKey.set(key, !(isNode || isAem));
+    }
+
     const minerKeys = devices.map((d: any) => d.miner_key);
     if (minerKeys.length === 0) {
-      res.status(200).json({
-        success: true,
-        totals: {
-          fry1: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
-          fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
-          tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }
-        },
-        nextUnlockAt: null
-      });
+    res.status(200).json({
+      success: true,
+      totals: {
+        fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
+        tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }
+      },
+      nextUnlockAt: null,
+      legacyFryClaimedSnapshot: 0
+    });
       return;
     }
 
@@ -141,53 +160,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .find({ miner_key: { $in: minerKeys } })
       .toArray();
 
-    const sum = () => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
-    const fry1 = sum();
-    const fnode = sum();
-    const tfry = sum();
-
-    const resolveBucket = (assetId: any) => {
-      const id = String(assetId);
-      if (id === FRY_1.id) return fry1;
-      if (id === fNODE.id) return fnode;
-      if (id === tFRY.id) return tfry;
-      return null;
-    };
+    const fnode = createBucket();
+    const tfry = createBucket();
+    let legacyFryClaimedSnapshot = 0;
 
     const { dateStrings, nextUnlockAt } = getCurrentWeekDates();
 
     for (const doc of devRewards) {
-      // Weekly (post-cutoff)
-      if (Array.isArray(doc.weekly_rewards)) {
-        for (const wr of doc.weekly_rewards) {
-          const unlock = wr.unlock_at ? new Date(wr.unlock_at) : null;
-          if (unlock && unlock >= CUTOFF_DATE) {
-            const bucket = resolveBucket(wr.asset_id);
-            if (!bucket) continue;
-            if (wr.status === 'pending') bucket.pending = Math.round((bucket.pending + (wr.amount || 0)) * 100) / 100;
-            if (wr.status === 'claimable') bucket.claimable = Math.round((bucket.claimable + (wr.amount || 0)) * 100) / 100;
-            if (wr.status === 'claimed') bucket.claimed = Math.round((bucket.claimed + (wr.amount || 0)) * 100) / 100;
-          }
-        }
+      const deviceKey = doc?.miner_key as string | undefined;
+      const isMinerDevice = deviceKey ? isMinerDeviceByKey.get(deviceKey) !== false : true;
+      const bucket = isMinerDevice ? tfry : fnode;
+
+      bucket.pending = round2(bucket.pending + Number(doc?.total_pending ?? 0));
+      bucket.claimable = round2(bucket.claimable + Number(doc?.total_claimable ?? 0));
+      bucket.claimed = round2(bucket.claimed + Number(doc?.total_claimed ?? 0));
+
+      if (isMinerDevice) {
+        legacyFryClaimedSnapshot = round2(
+          legacyFryClaimedSnapshot + Number(doc?.legacy_fry_claimed_snapshot ?? 0)
+        );
       }
 
-      // Daily (pre-cutoff) + this week accrual preview
       if (Array.isArray(doc.daily_rewards)) {
+        const allowedAssets = isMinerDevice ? new Set([TFryAssetId, FRY1AssetId]) : new Set([fNodeAssetId]);
         for (const dr of doc.daily_rewards) {
-          const created = dr.created_at ? new Date(dr.created_at) : null;
-          // Pre-cutoff daily totals
-          if (created && created < CUTOFF_DATE) {
-            const bucket = resolveBucket(dr.asset_id);
-            if (!bucket) continue;
-            if (dr.status === 'pending') bucket.pending = Math.round((bucket.pending + (dr.amount || 0)) * 100) / 100;
-            if (dr.status === 'claimable') bucket.claimable = Math.round((bucket.claimable + (dr.amount || 0)) * 100) / 100;
-            if (dr.status === 'claimed') bucket.claimed = Math.round((bucket.claimed + (dr.amount || 0)) * 100) / 100;
+          const assetKey = String(normalizeAssetId(dr.asset_id));
+          if (!allowedAssets.has(assetKey)) {
+            continue;
           }
-          // Accrual preview for current week
-          if (dr.status && (dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
-            const bucket = resolveBucket(dr.asset_id);
-            if (!bucket) continue;
-            bucket.accruing = Math.round((bucket.accruing + (dr.amount || 0)) * 100) / 100;
+          if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
+            bucket.accruing = round2(bucket.accruing + (dr.amount || 0));
           }
         }
       }
@@ -196,11 +198,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json({
       success: true,
       totals: {
-        fry1,
         fnode,
         tfry
       },
-      nextUnlockAt: nextUnlockAt.toISOString()
+      nextUnlockAt: nextUnlockAt.toISOString(),
+      legacyFryClaimedSnapshot: round2(legacyFryClaimedSnapshot)
     });
   } catch (error) {
     handleApiError(res, '/api/rewards/get-asset-totals', error, {

@@ -3,9 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { getTransactionTime } from '../../../lib/utils';
-import algosdk, { mnemonicToSecretKey } from 'algosdk';
+import { loadMnemonicAccountPair } from '../../../lib/algorand/admin';
 import { verifyTransaction } from '../algorand/verify-txn';
-import { VERIFY_RESULT } from '../../../lib/txn';
+import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
@@ -17,12 +17,6 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
-
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = 443;
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -106,8 +100,11 @@ export default async function handler(
 
   try {
     // Verify against the sender vault address
-    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const result = await verifyTransaction(account.addr.toString(), txId);
+    const { address: vaultAddress } = loadMnemonicAccountPair({
+      mnemonicEnv: 'REWARD_MNEMONIC',
+      label: 'reward sender'
+    });
+    const result = await verifyTransaction(vaultAddress, txId);
     if (result !== VERIFY_RESULT.OK) {
       // not confirmed yet
       res.status(200).json({ success: false, code: 'NETWORK_ERROR', message: 'Not yet confirmed' });

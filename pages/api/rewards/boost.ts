@@ -2,67 +2,151 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { RewardBoost, Asset } from '../../../lib/types';
 import { getFRYPrice } from '../../../lib/price';
-import { verifyTransaction } from '../algorand/verify-txn';
-import algosdk, { mnemonicToSecretKey, Account } from 'algosdk';
-import { fixedInputSwap, FRY_1, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET } from '../../../lib/utils';
-import { VERIFY_RESULT } from '../../../lib/txn';
-import { AssetWithIdAndAmount } from '@tinymanorg/tinyman-js-sdk';
-import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+import type { Account, Transaction } from 'algosdk';
+import { fixedInputSwap, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET, tFRY } from '../../../lib/utils';
+import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
-
-// Algod client configuration (align with other API routes)
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = 443;
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+import { withDeviceActionLock } from '../../../lib/api/deviceAction';
+import { getAlgodClient } from '../../../lib/wallet/clients';
+import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
+import {
+  decodeUnsignedTransaction,
+  loadMnemonicAccountPair,
+  signAndSubmitCustodialTransactions
+} from '../../../lib/algorand/admin';
+import { Document } from 'mongodb';
+import { AssetWithIdAndAmount } from '@tinymanorg/tinyman-js-sdk';
+import { notifyDiscordError } from '../../../lib/discord-webhook';
+import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
+import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
+import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
+const WEEKLY_FLAG =
+  process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' ||
+  process.env.WEEKLY_REWARDS_ENABLED === 'true';
+const PRECISION_DECIMALS = 6;
+const DISPLAY_DECIMALS = 2;
+const roundAmount = (value: number, decimals = PRECISION_DECIMALS) =>
+  Math.round(value * 10 ** decimals) / 10 ** decimals;
+const quantizeForStorage = (value: number) => roundAmount(value, DISPLAY_DECIMALS);
+const addInc = (inc: Record<string, number>, key: string, delta: number) => {
+  if (!Number.isFinite(delta)) {
+    return;
+  }
+  const quantizedDelta = quantizeForStorage(delta);
+  if (quantizedDelta === 0) {
+    return;
+  }
+  const next = quantizeForStorage((inc[key] ?? 0) + quantizedDelta);
+  inc[key] = next;
+};
 
-const swapWithInputAsset = async (acc: Account, asset: string, amount: number, rekey: Account) => {
+const computeBoostedAmount = (amount: number): number => {
+  return quantizeForStorage(amount * 0.7);
+};
 
-  if (asset === FRY_1.id) {
-    const res_1 = await fixedInputSwap({account: acc, asset_1: FRY_1, asset_2: ALGO, amount: amount, rekey});
-    if (res_1?.assetOut !== undefined) {
-      const algoAmount = Number(res_1.assetOut.amount) / 10 ** ALGO.decimals;
-      const res_2 = await fixedInputSwap({account: acc, asset_1: ALGO, asset_2: FRY_2, amount: algoAmount, rekey});
-      return res_2?.assetOut;
+const toError = (err: unknown): Error => {
+  if (err instanceof Error) return err;
+  try {
+    return new Error(JSON.stringify(err));
+  } catch {
+    return new Error(String(err));
+  }
+};
+
+type BoostRecord = { reward_number: number; asset_id: string; amount: number };
+
+const buildBoostTotals = (records: BoostRecord[]) => {
+  let sumOriginal = 0;
+  let sumBoosted = 0;
+
+  for (const record of records) {
+    const amount = typeof record.amount === 'number' ? record.amount : 0;
+    const original = quantizeForStorage(amount);
+    const boosted = quantizeForStorage(original * 0.7);
+    sumOriginal = quantizeForStorage(sumOriginal + original);
+    sumBoosted = quantizeForStorage(sumBoosted + boosted);
+  }
+
+  return {
+    sumOriginal,
+    sumBoosted
+  };
+};
+
+const swapWithInputAsset = async (
+  acc: Account,
+  asset: string,
+  amount: number,
+  signer: Account
+): Promise<AssetWithIdAndAmount | undefined> => {
+  if (asset === tFRY.id) {
+    const res1 = await fixedInputSwap({
+      account: acc,
+        asset_1: tFRY,
+      asset_2: ALGO,
+      amount,
+      rekey: signer
+    });
+    if (res1?.assetOut) {
+      const algoAmount = Number(res1.assetOut.amount) / 10 ** ALGO.decimals;
+      const res2 = await fixedInputSwap({
+        account: acc,
+        asset_1: ALGO,
+        asset_2: FRY_2,
+        amount: algoAmount,
+        rekey: signer
+      });
+      return res2?.assetOut;
     }
-  } else if (asset === fNODE.id) {
-    const res = await fixedInputSwap({account: acc, asset_1: fNODE, asset_2: FRY_2, amount: amount, rekey});
-    return res?.assetOut;
-  } else if (asset === fVPN.id) {
-    const res = await fixedInputSwap({account: acc, asset_1: fVPN, asset_2: FRY_2, amount: amount, rekey});
-    return res?.assetOut;
-  } else {
     return undefined;
   }
-}
+
+  if (asset === fNODE.id) {
+    const res = await fixedInputSwap({
+      account: acc,
+      asset_1: fNODE,
+      asset_2: FRY_2,
+      amount,
+      rekey: signer
+    });
+    return res?.assetOut;
+  }
+
+  if (asset === fVPN.id) {
+    const res = await fixedInputSwap({
+      account: acc,
+      asset_1: fVPN,
+      asset_2: FRY_2,
+      amount,
+      rekey: signer
+    });
+    return res?.assetOut;
+  }
+
+  return undefined;
+};
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  // Check if user is admin (bypasses all security layers)
   const isAdmin = await isAdminRequest(req);
 
   if (!isAdmin) {
-    // Layer 1: Verify client token to prevent automated scripts
     const tokenVerified = await verifyClientToken(req, res);
     if (!tokenVerified) {
       return;
     }
 
-    // Layer 2: Verify request signature to prevent body tampering
     const signature = req.headers['x-request-signature'] as string;
     const timestamp = parseInt(req.headers['x-request-timestamp'] as string, 10);
 
@@ -75,7 +159,14 @@ export default async function handler(
       return;
     }
 
-    const signatureValid = await verifyRequestSignatureAsync(req.method || 'POST', req.url || '/api/rewards/boost', req.body, timestamp, signature, req);
+    const signatureValid = await verifyRequestSignatureAsync(
+      req.method || 'POST',
+      req.url || '/api/rewards/boost',
+      req.body,
+      timestamp,
+      signature,
+      req
+    );
     if (!signatureValid) {
       res.status(403).json({
         success: false,
@@ -86,7 +177,6 @@ export default async function handler(
     }
   }
 
-  // Session check happens AFTER security verification
   const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
@@ -96,322 +186,440 @@ export default async function handler(
 
   const data: {
     miner_key: string;
-    no?: number; // optional in weekly mode
+    no?: number;
   } = req.body;
 
   const { miner_key, no } = data;
 
-  // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
-  // Admins can use scripts; non-admins must use same browser/device
-  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
+  const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, {
+    walletAddress: session.user.address,
+    minerKey: miner_key
+  });
   if (fingerprintStatus === 'retry') {
-    return res.status(409).json({
+    res.status(409).json({
       success: false,
       code: 'DEVICE_FINGERPRINT_REFRESH',
       message: 'Security check refreshed your session. Please retry the request.'
     });
+    return;
   }
   if (fingerprintStatus === 'blocked') {
-    return res.status(403).json({
+    res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
       message: 'Request originated from different device or script'
     });
+    return;
   }
 
-  try {
-    const client = await clientPromise;
-    const db = client.db('main');
+  if (!isAdmin) {
+    void monitorWalletHealth(session.user.address, { minerKey: miner_key, operation: 'boost' });
+  }
 
-    const device = await db
-      .collection(testMode ? 'test-devices' : 'devices')
-      .findOne({ miner_key });
-
-    if (!device) {
-      return res.status(404).json({ success: false, code: 'NETWORK_ERROR', message: 'Device not found' });
+  await withDeviceActionLock(req, res, {
+    action: 'boost',
+    miner_key,
+    address: session.user.address,
+    metadata: {
+      rewardSelection: typeof no === 'number' ? 'single' : 'all'
     }
+  }, async () => {
+    try {
+      const client = await clientPromise;
+      const db = client.db('main');
 
-    if (!device.address || device.address !== session.user.address) {
-      res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
-      return;
-    }
-    const weeklyCollection = db.collection('device-rewards');
-    const bCollection = db.collection('reward-boosts');
+      const device = await db
+        .collection(testMode ? 'test-devices' : 'devices')
+        .findOne({ miner_key });
 
-    type BoostRecord = { reward_number: number; asset_id: string; amount: number };
-    let records: BoostRecord[] = [];
-    let mode: 'weekly' | 'daily' = 'weekly';
-    const weeklyDoc = await weeklyCollection.findOne({ miner_key });
-    const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
-    const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
-    if (typeof no === 'number') {
-      const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
-      if (weeklyRecords && weeklyRecords.length > 0) {
-        records = weeklyRecords;
-        mode = 'weekly';
-      } else {
-        const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
-        if (dailyRecords && dailyRecords.length > 0) {
-          records = dailyRecords;
-          mode = 'daily';
-        } else {
-          res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No pending reward with that number. If it shows claimable, please use Claim.' });
-          return;
-        }
+      if (!device) {
+        throw {
+          status: 404,
+          response: createApiError(
+            ErrorCodes.DEVICE_NOT_FOUND,
+            'Device not found',
+            'Refresh your devices and try again.'
+          )
+        };
       }
-    } else {
-      if (weeklyPendings.length > 0) {
+
+      if (!device.address || device.address !== session.user.address) {
+        throw {
+          status: 401,
+          response: createApiError(
+            ErrorCodes.UNAUTHORIZED,
+            'Unauthorized',
+            'Sign in with the wallet that owns this device.'
+          )
+        };
+      }
+
+      const weeklyCollection = db.collection('device-rewards');
+      const bCollection = db.collection('reward-boosts');
+
+      let records: BoostRecord[] = [];
+      let mode: 'weekly' | 'daily' = 'weekly';
+      const weeklyDoc = await weeklyCollection.findOne({ miner_key });
+      const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
+      const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
+
+      if (typeof no === 'number') {
+        const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
+        if (weeklyRecords && weeklyRecords.length > 0) {
+          records = weeklyRecords;
+          mode = 'weekly';
+        } else {
+          const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
+          if (dailyRecords && dailyRecords.length > 0) {
+            records = dailyRecords;
+            mode = 'daily';
+          } else {
+            throw {
+              status: 404,
+              response: createApiError(
+                ErrorCodes.NO_REWARDS,
+                'No pending reward with that number. If it shows claimable, please use Claim.'
+              )
+            };
+          }
+        }
+      } else {
+        if (weeklyPendings.length === 0 && dailyPendings.length === 0) {
+          throw {
+            status: 404,
+            response: createApiError(
+              ErrorCodes.NO_REWARDS,
+              'No pending rewards available. If rewards show claimable, please use Claim.'
+            )
+          };
+        }
+      if (WEEKLY_FLAG) {
         records = weeklyPendings;
         mode = 'weekly';
-      } else if (dailyPendings.length > 0) {
+      } else {
         records = dailyPendings;
         mode = 'daily';
-      } else {
-        res.status(404).json({ success: false, code: 'NO_REWARDS', message: 'No pending rewards to boost. If the selected reward is already claimable, please use Claim.' });
-        return;
       }
     }
+      const { sumOriginal, sumBoosted } = buildBoostTotals(records);
 
-    type Result = {
-      asset_id: number;
-      totalAmount: number;
-      txId?: string; // Optional field
-    };
+      type Result = {
+        asset_id: number;
+        totalAmount: number;
+      };
 
-    const sumByAssetId = records.reduce((acc: Map<number, number>, reward: any) => {
-      const asset_id = Number(reward.asset_id ?? '924268058');
-      if (acc.has(asset_id)) {
-        acc.set(
-          asset_id,
-          Math.round((acc.get(asset_id)! + reward.amount) * 100) / 100
-        );
-      } else {
-        acc.set(asset_id, reward.amount);
+      const sumByAssetId = records.reduce((acc, record) => {
+        const asset_id = Number(record.asset_id);
+        const amount = record.amount;
+        const existingAmount = acc.get(asset_id) || 0;
+        acc.set(asset_id, existingAmount + amount);
+        return acc;
+      }, new Map<number, number>());
+
+      const resultArray: Result[] = Array.from(sumByAssetId.entries()).map(([asset_id, totalAmount]) => ({
+        asset_id,
+        totalAmount
+      }));
+
+      // Guard: require the reward wallet to be opted into each asset before we deliver the 70% payout.
+      const rewardWallet = device.reward_wallet;
+      if (!rewardWallet) {
+        throw {
+          status: 400,
+          response: createApiError(
+            ErrorCodes.INVALID_INPUT,
+            'This device does not have a reward wallet configured.',
+            'Update the reward wallet before using instant claim.'
+          )
+        };
       }
-      return acc;
-    }, new Map<number, number>());
+      for (const assetId of resultArray.map((entry) => entry.asset_id)) {
+        await ensureWalletAssetOptIn(rewardWallet, assetId, 'running instant claim');
+      }
 
-    const entries = Array.from(sumByAssetId.entries()) as Array<[number, number]>;
-    const resultArray: Result[] = entries.map(([asset_id, totalAmount]) => ({ asset_id, totalAmount }));
+      const algodClient = getAlgodClient();
+      const suggestedParams = await algodClient.getTransactionParams().do();
+      const { account, signer } = loadMnemonicAccountPair({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward boost'
+      });
 
-    const params = await algodClient.getTransactionParams().do();
-    const account = mnemonicToSecretKey(process.env.REWARD_MNEMONIC!);
-    const rekey = mnemonicToSecretKey(process.env.REWARD_REKEY!);
+      const from = account.addr;
+      const unsignedTxns: Transaction[] = [];
+      let totalFeeAmount = 0;
+      const feeTotals: Record<string, number> = {};
 
-    const from = account.addr;
-    let txns: algosdk.Transaction[] = [];
-    let signedTxns: Uint8Array[] = [];
-    let totalFeeAmount = 0;
-    
-    for (let i = 0; i < resultArray.length; i++) {
-      const feeAmount = Math.round((resultArray[i].totalAmount * 100 * 30) / 100) / 100;
+      for (let i = 0; i < resultArray.length; i++) {
+        const feeAmount = Math.round((resultArray[i].totalAmount * 100 * 30) / 100) / 100;
 
-      let swappedAsset = {} as AssetWithIdAndAmount | undefined;
-      if (Number(resultArray[i].asset_id) === Number(FRY_1.id)) {
-        if (feeAmount > 10) {
-          swappedAsset = await swapWithInputAsset(account, FRY_1.id, feeAmount, rekey);
+        const sourceAssetId = Number(resultArray[i].asset_id);
+        const isFry2Source = sourceAssetId === Number(FRY_2.id);
+        const isTfrySource = sourceAssetId === Number(tFRY.id);
+        const requiresSwap =
+          sourceAssetId === Number(fNODE.id) || sourceAssetId === Number(fVPN.id);
 
-          if (swappedAsset === undefined) {
-            loggers.apiError('/api/rewards/boost', new Error('FRY 1.0 swap failed'), {
+        let feeTransferAssetId = isTfrySource ? Number(tFRY.id) : Number(FRY_2.id);
+        let feeTransferDecimals = isTfrySource ? tFRY.decimals : FRY_2.decimals;
+        let feeAmountMicro = Math.round(feeAmount * Math.pow(10, feeTransferDecimals));
+        let feeAmountForLog = feeAmount;
+        let swappedAsset: AssetWithIdAndAmount | undefined;
+
+        if (requiresSwap) {
+          swappedAsset = await swapWithInputAsset(account, resultArray[i].asset_id.toString(), feeAmount, signer);
+
+          if (!swappedAsset) {
+            loggers.apiError('/api/rewards/boost', new Error('Swap to FRY 2.0 failed'), {
               miner_key,
               address: session.user.address,
-              asset_id: FRY_1.id,
+              asset_id: resultArray[i].asset_id,
               amount: feeAmount,
               issueType: 'REWARD_BOOST_SWAP_ERROR',
-              part: 'boost.swap.fry1',
+              part: 'boost.swap.alt'
             });
-            res
-              .status(500)
-              .json(
-                createApiError(
-                  ErrorCodes.SWAP_FAILED,
-                  'Unable to convert reward asset for instant claim',
-                  'Please try again later.'
-                )
-              );
-            return;
-          }
-        } else {
-          res
-            .status(400)
-            .json(
-              createApiError(
-                ErrorCodes.INVALID_INPUT,
-                'Reward amount is too small for instant claim',
-                'Please claim this reward normally.'
-              )
-            );
-          return;
-        }
-      } else if (Number(resultArray[i].asset_id) === Number(fNODE.id) || Number(resultArray[i].asset_id) === Number(fVPN.id)){
-        swappedAsset = await swapWithInputAsset(account, resultArray[i].asset_id.toString(), feeAmount, rekey);
-        
-        if (swappedAsset === undefined) {
-          loggers.apiError('/api/rewards/boost', new Error('Swap to FRY 2.0 failed'), {
-            miner_key,
-            address: session.user.address,
-            asset_id: resultArray[i].asset_id,
-            amount: feeAmount,
-            issueType: 'REWARD_BOOST_SWAP_ERROR',
-            part: 'boost.swap.alt',
-          });
-          res
-            .status(500)
-            .json(
-              createApiError(
+            throw {
+              status: 500,
+              response: createApiError(
                 ErrorCodes.SWAP_FAILED,
                 'Unable to convert reward asset for instant claim',
                 'Please try again later.'
               )
-            );
-          return;
+            };
+          }
+
+          feeTransferAssetId = Number(FRY_2.id);
+          feeTransferDecimals = FRY_2.decimals;
+          feeAmountMicro = Number(swappedAsset.amount);
+          feeAmountForLog = Number(swappedAsset.amount) / Math.pow(10, FRY_2.decimals);
+        } else if (!isFry2Source && !isTfrySource) {
+          throw {
+            status: 400,
+            response: createApiError(
+              ErrorCodes.INVALID_INPUT,
+              'Unsupported asset for instant claim',
+              'Please refresh and try again.'
+            )
+          };
+        } else if (isFry2Source) {
+          feeAmountMicro = Math.round(feeAmount * Math.pow(10, FRY_2.decimals));
+          feeAmountForLog = feeAmount;
+        } else if (isTfrySource) {
+          feeAmountMicro = Math.round(feeAmount * Math.pow(10, tFRY.decimals));
+          feeAmountForLog = feeAmount;
         }
+
+        if (!testMode && (!Number.isFinite(feeAmountMicro) || feeAmountMicro <= 0)) {
+          throw {
+            status: 500,
+            response: createApiError(
+              ErrorCodes.INTERNAL_ERROR,
+              'Calculated boost fee is invalid',
+              'Please try again later.'
+            )
+          };
+        }
+
+        const noteInfo = {
+          action: 'Instant Claim',
+          miner_key: miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
+          asset_id: feeTransferAssetId,
+          fee_amount: feeAmountForLog,
+          date: new Date(Date.now())
+        };
+        const enc = new TextEncoder();
+        const note = enc.encode(JSON.stringify(noteInfo));
+
+        const encodedTxn = await buildAssetTransferTxn({
+          sender: String(from),
+          receiver: String(FRYALGO_WALLET),
+          assetId: feeTransferAssetId,
+          amount: testMode ? 0 : feeAmountMicro,
+          note,
+          useRawAmount: true,
+          suggestedParams
+        });
+
+        const txn = decodeUnsignedTransaction(encodedTxn);
+        unsignedTxns.push(txn);
+        totalFeeAmount += feeAmountForLog;
+        const feeKey = String(feeTransferAssetId);
+        feeTotals[feeKey] = quantizeForStorage((feeTotals[feeKey] ?? 0) + feeAmountForLog);
       }
-      
-      const noteInfo = {
-        action: "Instant Claim",
-        miner_key:
-          miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
-        asset_id: FRY_2.id,
-        fee_amount: Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount : Number(swappedAsset?.amount) / 10 ** FRY_2.decimals,
-        date: new Date(Date.now())
-      };
-      const enc = new TextEncoder();
-      const note = enc.encode(JSON.stringify(noteInfo));
 
-      const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-        sender: from,
-        receiver: FRYALGO_WALLET,
-        amount: testMode ? 0 : Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount * Math.pow(10, FRY_2.decimals) : Number(swappedAsset?.amount),
-        note,
-        assetIndex: Number(FRY_2.id),
-        suggestedParams: params,
+      const { txId } = await signAndSubmitCustodialTransactions({
+        mnemonicEnv: 'REWARD_MNEMONIC',
+        rekeyEnv: 'REWARD_REKEY',
+        label: 'reward boost',
+        algod: algodClient,
+        transactions: unsignedTxns
       });
-
-      txns.push(txn);
-
-      const signedTxn = txn.signTxn(rekey.sk);
-      signedTxns.push(signedTxn);
-      totalFeeAmount += Number(resultArray[i].asset_id) === Number(FRY_2.id) ? feeAmount : Number(swappedAsset?.amount) / 10 ** FRY_2.decimals;
-    }
-
-    algosdk.assignGroupID(txns);
-    const tx = await algodClient.sendRawTransaction(signedTxns).do();
-    if (!tx) {
-      loggers.apiError('/api/rewards/boost', new Error('Broadcast returned empty response'), {
-        miner_key,
-        address: session.user.address,
-        txCount: signedTxns.length,
-        issueType: 'REWARD_BOOST_BROADCAST_ERROR',
-        part: 'boost.broadcast.submit',
-      });
-      res
-        .status(500)
-        .json(
-          createApiError(
+      if (!txId) {
+        loggers.apiError('/api/rewards/boost', new Error('Broadcast returned empty response'), {
+          miner_key,
+          address: session.user.address,
+          txCount: unsignedTxns.length,
+          issueType: 'REWARD_BOOST_BROADCAST_ERROR',
+          part: 'boost.broadcast.submit'
+        });
+        throw {
+          status: 500,
+          response: createApiError(
             ErrorCodes.TRANSACTION_FAILED,
             'Instant claim could not be submitted',
             'Please try again later.'
           )
-        );
-      return;
-    }
+        };
+      }
 
-    // Apply database updates only after successful submission
-    let rewards_nos: number[] = [];
-    if (mode === 'daily') {
-      let modifiedAny = false;
-      for (let i = 0; i < records.length; i++) {
-        const r = records[i];
-        const num = r.reward_number;
-        const amt = r.amount;
-        const boostedAmount = Math.round((amt * 100 * 70) / 100) / 100;
+      let rewards_nos: number[] = [];
+      let totalOriginalAmount = sumOriginal;
+      let totalBoostedAmount = sumBoosted;
+      if (mode === 'daily') {
+        let modifiedAny = false;
+        for (let i = 0; i < records.length; i++) {
+          const r = records[i];
+          const num = r.reward_number;
+          const amt = r.amount;
+          const boostedAmount = computeBoostedAmount(amt);
 
-        // Source of truth: device-rewards.daily_rewards
-        const devRes = await weeklyCollection.updateOne(
+          const devRes = await weeklyCollection.updateOne(
+            { miner_key },
+            {
+              $set: {
+                'daily_rewards.$[elem].status': 'claimable',
+                'daily_rewards.$[elem].amount': boostedAmount
+              }
+            },
+            { arrayFilters: [{ 'elem.reward_number': num, 'elem.status': 'pending' }] }
+          );
+          if (devRes.modifiedCount && devRes.modifiedCount > 0) modifiedAny = true;
+          rewards_nos.push(num);
+        }
+
+        await weeklyCollection.updateOne(
           { miner_key },
-          {
-            $set: {
-              'daily_rewards.$[elem].status': 'claimable',
-              'daily_rewards.$[elem].amount': boostedAmount
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': num, 'elem.status': 'pending' }] }
+          { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
         );
-        if (devRes.modifiedCount && devRes.modifiedCount > 0) modifiedAny = true;
-        rewards_nos.push(num);
-      }
-      // Update device-rewards totals (pending -> claimable 70%)
-      const sumOriginal = records.reduce((acc: number, r: any) => acc + (r.amount || 0), 0);
-      const sumBoosted = records.reduce((acc: number, r: any) => acc + Math.round(((r.amount || 0) * 100 * 70) / 100) / 100, 0);
-      await weeklyCollection.updateOne(
-        { miner_key },
-        { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
-      );
-      if (!modifiedAny) {
-        return res.status(409).json(
-          createApiError(
-            ErrorCodes.UPDATE_FAILED,
-            'Nothing to boost — selected rewards are no longer pending',
-            'Please refresh and try again.'
-          )
-        );
-      }
-    } else {
-      // WEEKLY MODE: Update many weekly entries: pending -> claimable and 70% amount
-      const targetNos = records.map((wr: any) => wr.reward_number);
-      const sumOriginal = records.reduce((acc: number, wr: any) => acc + wr.amount, 0);
-      const sumBoosted = Math.round(sumOriginal * 0.7 * 100) / 100;
-      const updateRes = await weeklyCollection.updateOne(
-        { miner_key: data.miner_key },
-        {
-          $set: { 'weekly_rewards.$[elem].status': 'claimable' },
-          $mul: { 'weekly_rewards.$[elem].amount': 0.7 },
-          $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted }
-        },
-        { arrayFilters: [{ 'elem.reward_number': { $in: targetNos }, 'elem.status': 'pending' }] }
-      );
-      if (!updateRes.modifiedCount || updateRes.modifiedCount <= 0) {
-        return res.status(409).json(
-          createApiError(
-            ErrorCodes.UPDATE_FAILED,
-            'Nothing to boost — selected rewards are no longer pending',
-            'Please refresh and try again.'
-          )
-        );
-      }
-      rewards_nos = targetNos;
-    }
+        if (!modifiedAny) {
+          throw {
+            status: 409,
+            response: createApiError(
+              ErrorCodes.UPDATE_FAILED,
+              'Nothing to boost — selected rewards are no longer pending',
+              'Please refresh and try again.'
+            )
+          };
+        }
+      } else {
+        let modifiedAny = false;
+        const updatedNos: number[] = [];
+        for (const record of records) {
+          const boostedAmount = computeBoostedAmount(record.amount);
+          const updateRes = await weeklyCollection.updateOne(
+            { miner_key },
+            {
+              $set: {
+                'weekly_rewards.$[elem].status': 'claimable',
+                'weekly_rewards.$[elem].amount': boostedAmount
+              }
+            },
+            { arrayFilters: [{ 'elem.reward_number': record.reward_number, 'elem.status': 'pending' }] }
+          );
+          if (updateRes.modifiedCount && updateRes.modifiedCount > 0) {
+            modifiedAny = true;
+            updatedNos.push(record.reward_number);
+          }
+        }
 
-    let boostReward = {} as RewardBoost;
-    boostReward.miner_key = miner_key;
-    boostReward.address = session.user.address;
-    boostReward.rewards_nos = rewards_nos;
-    boostReward.fee_amount = totalFeeAmount;
-    boostReward.asset_id = FRY_2.id;
-    boostReward.price = await getFRYPrice(FRY_2.id);
-    boostReward.createdAt = new Date();
-    boostReward.txID = tx.txid;
-    const insertResult = await bCollection.insertOne(boostReward);
-    
-    // Respond immediately; confirmation handled by client background polling
-    res.status(200).json({ success: true, message: `Boost submitted for ${miner_key}`, txId: tx.txid });
-  } catch (error) {
-    handleApiError(res, '/api/rewards/boost', error, {
-      response: createApiError(
-        ErrorCodes.INTERNAL_ERROR,
-        'Instant claim failed',
-        'Please try again. If the problem continues, contact support.'
-      ),
-      minerKey: miner_key,
-      walletAddress: session.user.address,
-      issueType: 'REWARD_BOOST_ERROR',
-      part: 'boost.handler',
-      metadata: {
+        await weeklyCollection.updateOne(
+          { miner_key },
+          { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
+        );
+
+        if (!modifiedAny) {
+          throw {
+            status: 409,
+            response: createApiError(
+              ErrorCodes.UPDATE_FAILED,
+              'Nothing to boost — selected rewards are no longer pending',
+              'Please refresh and try again.'
+            )
+          };
+        }
+        rewards_nos = updatedNos;
+      }
+
+      const feeAssetIds = Object.keys(feeTotals);
+      const boostFeeAssetId = feeAssetIds.length === 1 ? feeAssetIds[0] : FRY_2.id;
+      const boostFeeAmount =
+        feeAssetIds.length === 1 ? feeTotals[boostFeeAssetId] : totalFeeAmount;
+
+      const boostReward = {
         miner_key,
-        address: session.user.address,
-      },
-    });
-    return;
-  }
+        address: String(session.user.address),
+        rewards_nos,
+        fee_amount: boostFeeAmount,
+        asset_id: boostFeeAssetId,
+        fee_assets: feeTotals,
+        price: await getFRYPrice(boostFeeAssetId),
+        createdAt: new Date(),
+        txID: txId
+      };
+      await bCollection.insertOne(boostReward as Document);
+
+      await notifyDiscordError({
+        minerKey: miner_key,
+        walletAddress: session.user.address,
+        issueType: 'BOOST_METRIC',
+        part: 'boost.analytics',
+        errorMessage: `Instant claim submitted (${rewards_nos.length} rewards)`,
+        severity: 'info',
+        metadata: {
+          rewards_nos,
+          totalOriginalAmount,
+          totalBoostedAmount,
+          totalFeeAmount,
+          feeAssets: feeTotals,
+          mode,
+          txId
+        }
+      });
+
+      const monitoredAssetId = records.length === 1 ? Number(records[0].asset_id) : undefined;
+      monitorTransaction(txId, {
+        minerKey: miner_key,
+        walletAddress: session.user.address,
+        operation: 'instant_boost',
+        amount: totalBoostedAmount,
+        assetId: monitoredAssetId,
+        preconfirmed: true
+      }).catch((monitorError) => {
+        console.warn('[boost] monitorTransaction failed', monitorError);
+      });
+
+      return {
+        response: { success: true, message: `Boost submitted for ${miner_key}`, txId },
+        journal: {
+          txId,
+          metadata: {
+            miner_key,
+            rewards: rewards_nos,
+            totalFeeAmount
+          }
+        }
+      };
+    } catch (error) {
+      loggers.apiError(
+        '/api/rewards/boost',
+        toError(error),
+        {
+          miner_key,
+          address: session.user.address,
+          issueType: 'REWARD_BOOST_ERROR',
+          part: 'boost.handler'
+        }
+      );
+      throw error;
+    }
+  });
 }
