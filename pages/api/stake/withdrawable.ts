@@ -1,130 +1,130 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
-import algosdk from 'algosdk';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
 import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
+import { withDeviceActionLock } from '../../../lib/api/deviceAction';
+import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { Device, Product } from '../../../lib/types';
-import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
-import { loggers } from '../../../lib/logger';
+import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
+import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
+import { isLegacyVerificationStake } from '../../../lib/legacyStake';
 
-const lockSet: Set<string> = new Set();
+const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+const DEV_MODE = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+type RequestBody = {
+  address?: string;
+  miner_key?: string;
+};
 
-  const devMode =
-    process.env.NEXT_PUBLIC_DEV_MODE &&
-    process.env.NEXT_PUBLIC_DEV_MODE === 'true';
-
-  const session = await getServerSession(req, res, authOptions);
-  // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    res.status(405).json(createApiError(ErrorCodes.INVALID_INPUT, 'Unsupported method.'));
     return;
   }
 
-  const data: {
-    address: string;
-    miner_key: string;
-  } = req.body;
-
-  const { address, miner_key } = data;
-
-  if (lockSet.has(miner_key)) {
-    res.status(402).json({ message: 'Too Many Request!' });
+  const { address, miner_key: miner }: RequestBody = req.body ?? {};
+  if (!miner || typeof miner !== 'string') {
+    res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for withdraw availability check.'));
     return;
   }
-  lockSet.add(miner_key);
 
-  if (session.user.address !== address || !address) {
-    // console.log(
-    //   `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    // );
-    lockSet.delete(miner_key);
-    res.status(401).json({ message: 'Unauthorized 2' });
+  const security = await enforceWalletApiSecurity(req, res, {
+    endpoint: '/api/stake/withdrawable',
+    minerKey: miner
+  });
+  if (!security) {
     return;
   }
-  try {
+
+  const { session } = security;
+
+  if (!address || address !== session.user.address) {
+    res.status(401).json(createApiError(ErrorCodes.WALLET_MISMATCH, 'Wallet mismatch detected.'));
+    return;
+  }
+
+  void monitorWalletHealth(session.user.address, { minerKey: miner, operation: 'withdraw:verification_check' });
+
+  await withDeviceActionLock(req, res, {
+    action: 'withdraw:verification_check',
+    miner_key: miner,
+    address,
+    metadata: { stage: 'check' }
+  }, async () => {
     const client = await clientPromise;
     const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    const device = (await collection.findOne({
-      miner_key
-    })) as unknown as Device;
+    const devicesCollection = db.collection<Device>(TEST_MODE ? 'test-devices' : 'devices');
 
-    const deviceType = device.miner_key.split('-')[0];
-    const product = (await db
-      .collection('products')
-      .findOne({ key: deviceType })) as Product;
+    const device = await devicesCollection.findOne({ miner_key: miner });
     if (!device) {
-      lockSet.delete(miner_key);
-      res.status(404).json({ message: 'not found' });
-      return;
+      throw {
+        status: 404,
+        response: createApiError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found', 'Verify the miner key and try again.')
+      };
     }
+
     if (!device.staked) {
-      lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized 3' });
-      return;
-    }
-    if (device.staked?.amount == 0) {
-      lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized 4' });
-      return;
+      throw {
+        status: 401,
+        response: createApiError(ErrorCodes.UNAUTHORIZED, 'Verification stake not found for this device.')
+      };
     }
 
     if (!device.address || device.address !== session.user.address) {
-      lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized 5' });
-      return;
+      throw {
+        status: 401,
+        response: createApiError(ErrorCodes.WALLET_MISMATCH, 'Wallet mismatch detected.')
+      };
     }
 
-    const dayCheck =
-      (Date.now() - new Date(device.staked.time).getTime()) /
-        (1000 * 60 * 60 * 24) >
-      1;
-    const sixMonthsCheck =
-      (Date.now() - new Date(device.staked.time).getTime()) /
-        (1000 * 60 * 60 * 24) >
-      180;
+    const product = (await db
+      .collection('products')
+      .findOne({ key: device.miner_key.split('-')[0] })) as Product | null;
+    if (!product) {
+      throw {
+        status: 404,
+        response: createApiError(ErrorCodes.PRODUCT_NOT_FOUND, 'Product configuration not found for this device.')
+      };
+    }
 
-    const data = {
-      available:
-        devMode || device.staked.asset_id !== product.reward.tokens?.stake
-          ? true
-          : device.staked.type == 'one'
-            ? dayCheck
-            : sixMonthsCheck,
-      availableIn:
-        device.staked.type == 'one'
-          ? new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24
-          : new Date(device.staked.time).getTime() + 1000 * 60 * 60 * 24 * 180
+    const stakeTime = device.staked.time ? new Date(device.staked.time).getTime() : 0;
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const sixMonthsMs = 180 * oneDayMs;
+
+    const dayCheck = stakeTime ? now - stakeTime > oneDayMs : false;
+    const sixMonthsCheck = stakeTime ? now - stakeTime > sixMonthsMs : false;
+
+    const available =
+      DEV_MODE || device.staked.asset_id !== product.reward.tokens?.stake
+        ? true
+        : device.staked.type === 'one'
+          ? dayCheck
+          : sixMonthsCheck;
+
+    const availableIn = device.staked.type === 'one'
+      ? stakeTime + oneDayMs
+      : stakeTime + sixMonthsMs;
+
+    const legacyStake = isLegacyVerificationStake(device);
+    const payload = legacyStake
+      ? {
+          available: true,
+          availableIn: Date.now(),
+          legacy: true
+        }
+      : {
+          available,
+          availableIn,
+          legacy: false
+        };
+
+    return {
+      response: { message: 'ok', data: payload },
+      journal: {
+        metadata: payload,
+        status: 'confirmed'
+      }
     };
-
-    lockSet.delete(miner_key);
-    res.status(200).json({ message: 'ok', data });
-  } catch (error) {
-    lockSet.delete(miner_key);
-    handleApiError(res, '/api/stake/withdrawable', error, {
-      response: createApiError(
-        ErrorCodes.INTERNAL_ERROR,
-        'Unable to determine withdraw availability',
-        'Please try again. If this persists, contact support.'
-      ),
-      minerKey: miner_key,
-      walletAddress: address,
-      issueType: 'WITHDRAWABLE_CHECK_ERROR',
-      part: 'withdrawable.handler',
-      metadata: {
-        miner_key,
-        address,
-      },
-    });
-  }
+  });
 }

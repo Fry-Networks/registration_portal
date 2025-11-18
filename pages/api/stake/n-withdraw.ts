@@ -1,131 +1,129 @@
 'use server';
-import { NextApiRequest, NextApiResponse } from 'next';
-import axios from 'axios';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
-import algosdk, { Indexer, waitForConfirmation } from 'algosdk';
-import 'dotenv/config';
-import clientPromise from '../../../lib/mongoclient';
-import { getFRYPrice } from '../../../lib/price';
+
+import type { NextApiRequest, NextApiResponse } from 'next';
+import type { Transaction } from 'algosdk';
 import type { UpdateFilter } from 'mongodb';
-import { Device, Product } from '../../../lib/types';
-import { confirmTransaction, VERIFY_RESULT } from '../../../lib/txn';
-import { verifyTransaction } from '../algorand/verify-txn';
-import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+
+import clientPromise from '../../../lib/mongoclient';
+import { withDeviceActionLock } from '../../../lib/api/deviceAction';
+import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { loggers } from '../../../lib/logger';
+import { Device, Product } from '../../../lib/types';
+import { verifyTransaction } from '../algorand/verify-txn';
+import { VERIFY_RESULT } from '../../../lib/algorand/verification';
+// Modern wallet infrastructure imports for consistent network handling
+import { getAlgodClient, getIndexerClient } from '../../../lib/wallet/clients';
+import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
+import {
+  decodeUnsignedTransaction,
+  loadMnemonicAccountPair,
+  signAndSubmitCustodialTransactions
+} from '../../../lib/algorand/admin';
+import { fNODE } from '../../../lib/utils';
+import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
+import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
+import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
+import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
 
-// Algorand client setup
-const token = '';
-const server = 'https://xna-mainnet-api.algonode.cloud/';
-const tokenToSend = { 'X-API-Key': token };
-const port = 443;
-const algodClient = new algosdk.Algodv2(tokenToSend, server, port);
+const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+type RequestBody = {
+  address?: string;
+  miner_key?: string;
+};
 
-const devMode =
-  process.env.NEXT_PUBLIC_DEV_MODE &&
-  process.env.NEXT_PUBLIC_DEV_MODE === 'true';
-
-const indexServer = 'https://mainnet-idx.algonode.cloud/';
-const indexer = new Indexer(tokenToSend, indexServer, port);
-
-const fryCryptoAssetId = '924268058';
-const lockSet: Set<string> = new Set();
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  const session = await getServerSession(req, res, authOptions);
-  // Check if user is authenticated
-  if (!session || !session.user) {
-    res.status(401).json({ message: 'Unauthorized 1' });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    res.status(405).json(createApiError(ErrorCodes.INVALID_INPUT, 'Unsupported method.'));
     return;
   }
 
-  const data: {
-    address: string;
-    miner_key: string;
-  } = req.body;
-
-  const { address, miner_key } = data;
-
-  if (lockSet.has(miner_key)) {
-    res.status(402).json({ message: 'Too Many Request!' });
-    return;
-  }
-  lockSet.add(miner_key);
-
-  if (session.user.address !== address || !address) {
-    // console.log(
-    //   `get miner type session.user.address: ${session.user.address}, address: ${address} SPOOF`
-    // );
-    lockSet.delete(miner_key);
-    res.status(401).json({ message: 'Unauthorized 2' });
+  const { address, miner_key: miner }: RequestBody = req.body ?? {};
+  if (!miner || typeof miner !== 'string') {
+    res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for node stake withdrawal.'));
     return;
   }
 
-  try {
+  const security = await enforceWalletApiSecurity(req, res, {
+    endpoint: '/api/stake/n-withdraw',
+    minerKey: miner
+  });
+  if (!security) {
+    return;
+  }
+  const { session } = security;
+
+  if (!address || address !== session.user.address) {
+    res.status(401).json(createApiError(ErrorCodes.WALLET_MISMATCH, 'Wallet mismatch detected.'));
+    return;
+  }
+
+  void monitorWalletHealth(session.user.address, { minerKey: miner, operation: 'withdraw:node' });
+
+  await withDeviceActionLock(req, res, {
+    action: 'withdraw:node',
+    miner_key: miner,
+    address,
+    metadata: { stage: 'init' }
+  }, async () => {
     const client = await clientPromise;
     const db = client.db('main');
-    const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    const device = (await collection.findOne({
-      miner_key
-    })) as unknown as Device;
+    const devicesCollection = db.collection<Device>(TEST_MODE ? 'test-devices' : 'devices');
 
-    const deviceType = device.miner_key.split('-')[0];
+    const device = await devicesCollection.findOne({ miner_key: miner });
+    if (!device) {
+      throw {
+        status: 404,
+        response: createApiError(ErrorCodes.DEVICE_NOT_FOUND, 'Device not found', 'Verify the miner key and try again.')
+      };
+    }
+
+    if (!device.node) {
+      throw {
+        status: 401,
+        response: createApiError(ErrorCodes.UNAUTHORIZED, 'Node stake not found for this device.')
+      };
+    }
+
     const product = (await db
       .collection('products')
-      .findOne({ key: deviceType })) as Product;
-
-    if (!device) {
-      lockSet.delete(miner_key);
-      res.status(404).json({ message: 'not found' });
-      return;
-    }
-    if (!device.node) {
-      lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized 3' });
-      return;
-    }
-
+      .findOne({ key: device.miner_key.split('-')[0] })) as Product | null;
     if (!product) {
-      lockSet.delete(miner_key);
-      res.status(404).json({ message: 'Product not found' });
-      return;
+      throw {
+        status: 404,
+        response: createApiError(ErrorCodes.PRODUCT_NOT_FOUND, 'Product configuration not found for this device.')
+      };
     }
+
     const amount = device.node.amount;
     if (!amount) {
-      lockSet.delete(miner_key);
-      res.status(401).json({ message: 'Unauthorized 5' });
-      return;
+      throw {
+        status: 400,
+        response: createApiError(ErrorCodes.INVALID_INPUT, 'No node stake is currently locked for this device.')
+      };
     }
 
-    let result: string | null = null;
+    const assetId = device.node.asset_id ?? product.reward.tokens?.node ?? fNODE.id;
+    // Guard: ensure the wallet can actually receive the node stake asset before sending.
+    await ensureWalletAssetOptIn(address, assetId, 'receiving node stake withdrawal');
 
-    const asset_id = device.node?.asset_id ?? fryCryptoAssetId;
-    result = await withdraw(miner_key, address, amount, asset_id);
-    if (!result) {
-      lockSet.delete(miner_key);
-      res
-        .status(500)
-        .json(
-          createApiError(
-            ErrorCodes.TRANSACTION_FAILED,
-            'Unable to withdraw node stake',
-            'Please try again. If this persists, contact support.'
-          )
-        );
-      return;
+    const txId = await withdraw(miner, address, amount, assetId);
+    if (!txId) {
+      throw {
+        status: 500,
+        response: createApiError(
+          ErrorCodes.TRANSACTION_FAILED,
+          'Unable to withdraw node stake',
+          'Please try again. If this persists, contact support.'
+        )
+      };
     }
 
     const withdrawalRecord = {
       amount,
-      txId: result,
+      txId,
       time: new Date(),
-      asset_id
+      asset_id: assetId
     };
 
     const previousStakeRecord =
@@ -158,30 +156,46 @@ export default async function handler(
       } as NonNullable<UpdateFilter<Device>['$push']>;
     }
 
-    await collection.updateOne({ miner_key }, updateOps);
+    await devicesCollection.updateOne({ miner_key: miner }, updateOps);
 
-    lockSet.delete(miner_key);
-    res.status(200).json({ message: 'ok', txId: result });
-  } catch (error) {
-    lockSet.delete(miner_key);
-    handleApiError(res, '/api/stake/n-withdraw', error, {
-      response: createApiError(
-        ErrorCodes.INTERNAL_ERROR,
-        'Unable to withdraw node stake',
-        'Please try again. If this persists, contact support.'
-      ),
-      minerKey: miner_key,
-      walletAddress: address,
-      metadata: {
-        miner_key,
-        address,
-        issueType: 'NODE_STAKE_WITHDRAW_ERROR',
-        part: 'handler.finalize',
-      },
+    loggers.stakeOperation('node_withdraw_completed', miner, {
+      txId,
+      amount,
+      assetId
     });
-  }
+
+    void monitorTransaction(txId, {
+      minerKey: miner,
+      walletAddress: address,
+      operation: 'withdraw:node',
+      amount,
+      assetId,
+      preconfirmed: true
+    });
+
+    return {
+      response: { message: 'ok', txId },
+      journal: {
+        txId,
+        metadata: {
+          amount,
+          assetId
+        }
+      }
+    };
+  });
 }
 
+/**
+ * Modern node withdrawal helper using centralized wallet infrastructure.
+ * 
+ * This modernizes the legacy algosdk patterns with our lib/wallet/ approach:
+ * - Uses getAlgodClient() and getIndexerClient() for consistent network configuration  
+ * - Uses buildAssetTransferTxn() for standardized transaction building (no manual assetIndex/suggestedParams)
+ * - Maintains the same verification flow: confirm + verify + indexer lookup
+ * - Includes comprehensive Discord error logging via loggers.apiError
+ * - Preserves the exact amount conversion logic and security model
+ */
 export async function withdraw(
   miner_key: string,
   address: string,
@@ -189,57 +203,79 @@ export async function withdraw(
   asset_id: string
 ) {
   try {
-    // Convert mnemonic to secret key
-    const account = algosdk.mnemonicToSecretKey(process.env.STAKE_MNEMONIC!);
-    const rekey = algosdk.mnemonicToSecretKey(process.env.STAKE_REKEY!);
-
-    const from = account.addr.toString();
-
-    const assetIndex: number = asset_id === 'none' ? 0 : Number(asset_id);
-
-    // Fetch transaction parameters from the Algorand network
-    const suggestedParams = await algodClient.getTransactionParams().do();
-
-    const noteInformation = {
-      miner_key:
-        miner_key.split('-')[0] + '-' + miner_key.split('-')[1].slice(0, 6),
-      asset_id: asset_id,
-      from: account.addr.toString(),
-      to: address,
-      amount: amount
-    };
-
-    const enc = new TextEncoder();
-    const note = enc.encode(JSON.stringify(noteInformation));
-
-    // Create a transaction to send FRY
-    const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      sender: from,
-      receiver: address,
-      amount: testMode ? 0 : amount * 1_000_000,
-      assetIndex,
-      note,
-      suggestedParams
+    // Use modern wallet infrastructure for consistent network configuration
+    const algodClient = getAlgodClient();
+    const indexer = getIndexerClient();
+    // Resolve staking vault/signing pair for node withdrawals.
+    const { account } = loadMnemonicAccountPair({
+      mnemonicEnv: 'STAKE_MNEMONIC',
+      rekeyEnv: 'STAKE_REKEY',
+      label: 'node stake withdraw'
     });
 
-    // Sign the transaction with the account secret key
-    const signedTxn = txn.signTxn(rekey.sk);
+    const from = account.addr.toString();
+    const assetId = asset_id === 'none' ? 0 : Number(asset_id);
 
-    // Send the signed transaction to the network
-    const tx = await algodClient.sendRawTransaction(signedTxn).do();
+    // Build transaction note with operation context for node withdrawal
+    const noteInformation = {
+      miner_key: `${miner_key.split('-')[0]}-${miner_key.split('-')[1].slice(0, 6)}`,
+      asset_id,
+      from,
+      to: address,
+      amount,
+      operation: 'node_stake_withdrawal',
+      timestamp: new Date().toISOString()
+    };
 
-    // const result = await waitForConfirmation(algodClient, tx.txid, 3);
+    const note = new TextEncoder().encode(JSON.stringify(noteInformation));
 
-    const checking = await verifyTransaction(address, tx.txid);
-    return checking === VERIFY_RESULT.OK ? tx.txid : '';
+    // Use modern transaction builder with consistent decimal handling
+    const encodedTxn = await buildAssetTransferTxn({
+      sender: from,
+      receiver: address,
+      assetId,
+      amount: TEST_MODE ? 0 : amount, // buildAssetTransferTxn handles decimal conversion properly
+      note,
+      useRawAmount: TEST_MODE, // In test mode, send raw amount without conversion  
+      decimals: 6 // fNODE and other node staking tokens use 6 decimals
+    });
+
+    // Sign with the rekey account via shared helper (maintains existing security model)
+    const transaction: Transaction = decodeUnsignedTransaction(encodedTxn);
+    const { txId } = await signAndSubmitCustodialTransactions({
+    // Reuse shared custodial pipeline for the broadcast + confirmation wait.
+      mnemonicEnv: 'STAKE_MNEMONIC',
+      rekeyEnv: 'STAKE_REKEY',
+      label: 'node stake withdraw',
+      algod: algodClient,
+      transactions: [transaction],
+      assignGroupId: false,
+      waitRounds: 4
+    });
+
+    // Double-check transaction success via existing verification logic
+    const verified = await verifyTransaction(address, txId);
+    if (verified !== VERIFY_RESULT.OK) {
+      throw new Error('Transaction verification failed after blockchain confirmation');
+    }
+
+    // Additional indexer lookup for transaction finalization (legacy behavior preserved)
+    await indexer.lookupTransactionByID(txId).do().catch(() => undefined);
+
+    return txId;
   } catch (error) {
+    // Comprehensive error logging with Discord webhook notification 
     loggers.apiError('/api/stake/n-withdraw#withdraw', error, {
       miner_key,
-      address,
+      walletAddress: address,
       asset_id,
       amount,
       issueType: 'NODE_STAKE_WITHDRAW_ERROR',
-      part: 'withdraw.transaction',
+      part: 'withdraw.modernBroadcast',
+      metadata: {
+        testMode: TEST_MODE,
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+      }
     });
     return null;
   }

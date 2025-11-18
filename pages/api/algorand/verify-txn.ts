@@ -1,34 +1,18 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
-import algosdk from 'algosdk';
 import type { indexerModels } from 'algosdk'; // Use Algorand indexer typings for safer transaction access
 import { loggers } from '../../../lib/logger';
 import clientPromise from '../../../lib/mongoclient';
 import mongoose from 'mongoose';
-import {
-  Indexer
-} from 'algosdk';
-import { VERIFY_RESULT } from '../../../lib/txn';
+import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import {
   CommonErrors,
   createApiError,
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
-
-const token = '';
-const port = 443;
-const tokenToSend = {
-  'X-API-Key': token
-};
-const algodClient = new algosdk.Algodv2(
-  '',
-  'https://mainnet-api.algonode.cloud',
-  ''
-);
-const indexServer = 'https://mainnet-idx.algonode.cloud/';
-const indexer = new Indexer(tokenToSend, indexServer, port);
+import { getIndexerClient } from '../../../lib/wallet/clients';
 export const wait = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -76,6 +60,7 @@ export default async function handler(
   }
 
   try {
+    const indexer = getIndexerClient();
     let checking = false;
     let checkingRetry = 0;
     while (!checking) {
@@ -128,6 +113,7 @@ export default async function handler(
 }
 
 export async function verifyTransaction(address: string, txId: string) {
+  const indexer = getIndexerClient();
   let checking = false;
   let checkingRetry = 0;
 
