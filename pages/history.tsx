@@ -1,6 +1,7 @@
 import { Button, Flex, Title } from '@tremor/react';
 import { CalendarIcon, ClockIcon } from '@heroicons/react/outline';
 import Image from 'next/image';
+import type { GetServerSidePropsContext } from 'next';
 import bgImg from '../assets/background.png';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
@@ -14,7 +15,7 @@ import { useRouter } from 'next/router';
 import { useModal } from '../app/modalcontext';
 import ClaimModal from '../components/modals/Claim';
 import BoostModal from '../components/modals/Boost';
-import { getClientToken } from '../lib/clientToken';
+import { getClientToken, refreshClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
@@ -24,7 +25,10 @@ import {
   type StakeHistoryMap
 } from '../lib/history/collectStakeHistory';
 import Tooltip from '../components/Tooltip';
-import { REWARD_STATUS_DESCRIPTIONS } from '../lib/utils';
+import { REWARD_STATUS_DESCRIPTIONS, getAssetDisplay } from '../lib/utils';
+import { isLegacyVerificationStake } from '../lib/legacyStake';
+import { useToastContext } from '../hooks/ToastContext';
+import { secureFetch } from '../lib/api/secureFetch';
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -58,11 +62,46 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
+const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+const AEM_PREFIX = 'AEM';
+
 const PAGE_SIZE = 10;
+const dayMs = 24 * 60 * 60 * 1000;
+const sixMonthsMs = 180 * dayMs;
+const devModeClient =
+  process.env.NEXT_PUBLIC_DEV_MODE &&
+  process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+
+type StakeCategory = 'verification' | 'registration' | 'node';
+
+type StakeFieldSnapshot = {
+  amount?: number | string;
+  asset_id?: string;
+  txId?: string;
+  time?: string | Date;
+  type?: string;
+};
+
+type StakeAvailability = {
+  hasStake: boolean;
+  available: boolean;
+  availableAt?: Date | null;
+  amount?: number;
+  assetId?: string;
+  lockType?: string;
+};
+
+type StakeAvailabilityMap = Record<StakeCategory, StakeAvailability>;
+
+const STAKE_LABELS: Record<StakeCategory, string> = {
+  verification: 'Verification Stake',
+  registration: 'Registration Stake',
+  node: 'Node Operation Stake'
+};
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -71,15 +110,14 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0,
-          tfry: json?.prices?.['2681521901'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0
         });
       } catch (error) {
         console.error('Failed to fetch prices', error);
@@ -133,15 +171,13 @@ const TokenPricesBar = () => {
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
       <span className="text-white text-gray-400">•</span>
-      <PriceWithTooltip label="tFry" price={prices.tfry || 0} />
-      <span className="text-white text-gray-400">•</span>
       <a
         href="https://vote.frynetworks.com/allvotes"
         target="_blank"
         rel="noreferrer"
         className="font-bold text-white underline hover:text-gray-200 whitespace-nowrap"
       >
-        About FIP-009
+        About FIP-009 (Switch from daily to weekly rewards)
       </a>
     </div>
   );
@@ -160,10 +196,9 @@ export default function History({
   // Cache initial SSR payload once so CSR can build on top of it without round-tripping.
   const prefetchedRewards = initialRewards as unknown as RewardView[];
   const hasPrefetched = Array.isArray(prefetchedRewards) && prefetchedRewards.length > 0;
-  const initialPage = hasPrefetched ? 1 : 0;
-  const initialTotal = hasPrefetched
-    ? initialTotalPages || Math.max(1, Math.ceil(prefetchedRewards.length / PAGE_SIZE))
-    : initialTotalPages || 0;
+const prefetchedPageCount = hasPrefetched ? Math.max(1, Math.ceil(prefetchedRewards.length / PAGE_SIZE)) : 0;
+const initialPage = hasPrefetched ? prefetchedPageCount : 0;
+const initialTotal = initialTotalPages || (hasPrefetched ? prefetchedPageCount : 0);
   const initialWeeklyLoaded = prefetchedRewards.filter((r) => (r as any).isWeekly === true).length;
   const initialDailyLoaded = prefetchedRewards.length - initialWeeklyLoaded;
 
@@ -183,9 +218,20 @@ export default function History({
     daily: initialCounts?.daily ?? initialDailyLoaded
   }));
   const [showFilters, setShowFilters] = useState(false);
-  const [prices, setPrices] = useState<{ fry1?: number; fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
   const { data: session } = useSession();
+  const toast = useToastContext();
   const [stakeHistoryData, setStakeHistoryData] = useState<StakeHistoryMap | null>(null);
+  const [activeStakes, setActiveStakes] = useState<{
+    verification?: StakeFieldSnapshot;
+    registration?: StakeFieldSnapshot;
+    node?: StakeFieldSnapshot;
+  } | null>(null);
+  const [productTokens, setProductTokens] = useState<any | null>(null);
+const [legacyStakeUnlocked, setLegacyStakeUnlocked] = useState(false);
+const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(false);
+  const [withdrawLoading, setWithdrawLoading] = useState<Partial<Record<StakeCategory, boolean>>>({});
+  const [deviceRefreshToken, setDeviceRefreshToken] = useState(0);
   const hasStakeHistory = useMemo(() => {
     if (!stakeHistoryData) return false;
     return (
@@ -198,6 +244,13 @@ export default function History({
 
   const { miner_key } = router.query;
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
+  const isTFryMiner = useMemo(() => {
+    if (!minerKey) return false;
+    const prefix = minerKey.split('-')[0] || '';
+    if (!prefix) return false;
+    if (NODE_PREFIXES.has(prefix) || prefix === AEM_PREFIX) return false;
+    return true;
+  }, [minerKey]);
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
   const [now, setNow] = useState(() => Date.now());
   const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
@@ -243,6 +296,11 @@ export default function History({
       }
     }
     return String(value ?? '0');
+  };
+
+  const formatLegacyAmount = (value: number) => {
+    if (!Number.isFinite(value)) return '0';
+    return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   const StatusPill = ({
@@ -310,14 +368,24 @@ export default function History({
       if (!fingerprintReady) return null;
       if (!minerKey) return null;
       try {
-        const clientToken = await getClientToken();
-        const body = { miner_key: minerKey, page: targetPage };
-        const timestamp = Math.floor(Date.now() / 1000);
-        const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
-        
+        const refreshClientTokenOnce = async () => {
+          try {
+            await refreshClientToken();
+            return true;
+          } catch (error) {
+            console.error('[ClientToken] Failed to refresh token for rewards page', error);
+            return false;
+          }
+        };
+
         const response = await fetchWithFingerprintRetry(
-          () =>
-            fetch('api/rewards/get-rewards-page', {
+          async () => {
+            const body = { miner_key: minerKey, page: targetPage };
+            const timestamp = Math.floor(Date.now() / 1000);
+            const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
+            const clientToken = await getClientToken();
+
+            return fetch('api/rewards/get-rewards-page', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -326,8 +394,10 @@ export default function History({
                 'x-request-timestamp': timestamp.toString()
               },
               body: JSON.stringify(body)
-            }),
-          refreshFingerprint
+            });
+          },
+          refreshFingerprint,
+          { refreshClientToken: refreshClientTokenOnce }
         );
 
         if (!response.ok) {
@@ -468,10 +538,9 @@ export default function History({
   useEffect(() => {
     const rewardViews = initialRewards as unknown as RewardView[];
     const prefetched = Array.isArray(rewardViews) && rewardViews.length > 0;
-    const pageValue = prefetched ? 1 : 0;
-    const totalValue = prefetched
-      ? initialTotalPages || Math.max(1, Math.ceil(rewardViews.length / PAGE_SIZE))
-      : initialTotalPages || 0;
+    const prefetchedPages = prefetched ? Math.max(1, Math.ceil(rewardViews.length / PAGE_SIZE)) : 0;
+    const pageValue = prefetched ? prefetchedPages : 0;
+    const totalValue = initialTotalPages || (prefetched ? prefetchedPages : 0);
     const weeklyLoaded = prefetched ? rewardViews.filter((r) => (r as any).isWeekly === true).length : 0;
     const dailyLoaded = prefetched ? rewardViews.length - weeklyLoaded : 0;
 
@@ -498,15 +567,14 @@ export default function History({
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0,
-          tfry: json?.prices?.['2681521901'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0
         });
       } catch {}
     };
@@ -524,6 +592,10 @@ export default function History({
     }
     let active = true;
     setStakeHistoryData(null);
+    setActiveStakes(null);
+    setProductTokens(null);
+    setLegacyStakeUnlocked(false);
+    setHasLegacyVerificationStake(false);
     (async () => {
       try {
         const res = await fetchWithFingerprintRetry(
@@ -551,15 +623,23 @@ export default function History({
           if (pr.ok) {
             const pj = await pr.json();
             productName = pj?.data?.[0]?.name;
+            setProductTokens(pj?.data?.[0]?.reward?.tokens ?? null);
           }
         } catch {}
         if (!active) return;
         setStakeHistoryData(collectStakeHistory(deviceDetail));
+        setActiveStakes({
+          verification: deviceDetail?.staked ?? undefined,
+          registration: deviceDetail?.registration ?? undefined,
+          node: deviceDetail?.node ?? undefined
+        });
+        setLegacyStakeUnlocked(Boolean(deviceDetail?.legacy_stake_unlocked));
+        setHasLegacyVerificationStake(Boolean(deviceDetail && isLegacyVerificationStake(deviceDetail)));
         setDeviceMeta({ nickname: nick, name, productName });
       } catch {}
     })();
     return () => { active = false; };
-  }, [miner_key, session?.user?.address, refreshFingerprint]);
+  }, [miner_key, session?.user?.address, refreshFingerprint, deviceRefreshToken]);
 
   // (moved) Infinite scroll observer defined after derived lists for type safety
 
@@ -590,6 +670,140 @@ export default function History({
   const itemsWeekly: WeeklyRewardView[] = (rewards || []).filter((r): r is WeeklyRewardView => (r as any).isWeekly === true);
   const itemsDaily: DailyRewardView[] = (rewards || []).filter((r): r is DailyRewardView => (r as any).isWeekly !== true);
   // const allAssets = Array.from(new Set((rewards || []).map((r) => r.asset_id))).filter((id) => id);
+
+  const stakeAvailability = useMemo<StakeAvailabilityMap>(() => {
+    const defaultEntry = { hasStake: false, available: false };
+    const map: StakeAvailabilityMap = {
+      verification: { ...defaultEntry },
+      registration: { ...defaultEntry },
+      node: { ...defaultEntry }
+    };
+
+    const parseAmount = (value: any): number | undefined => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
+
+    const setEntry = (type: StakeCategory, info: Partial<StakeAvailability>) => {
+      map[type] = { ...map[type], ...info, hasStake: true };
+    };
+
+    const verification = activeStakes?.verification;
+    if (verification) {
+      const amount = parseAmount(verification.amount);
+      const stakeTime = verification.time ? new Date(verification.time).getTime() : NaN;
+      if (amount && amount > 0 && Number.isFinite(stakeTime)) {
+        const lockType = verification.type === 'two' ? 'two' : 'one';
+        const unlockAt =
+          lockType === 'two'
+            ? new Date(stakeTime + sixMonthsMs)
+            : new Date(stakeTime + dayMs);
+        const productStakeAsset = productTokens?.stake;
+        const assetId = verification.asset_id ? String(verification.asset_id) : undefined;
+        const assetMismatch =
+          assetId && productStakeAsset ? String(assetId) !== String(productStakeAsset) : false;
+        const available =
+          devModeClient ||
+          legacyStakeUnlocked ||
+          assetMismatch ||
+          Date.now() >= unlockAt.getTime();
+        setEntry('verification', {
+          amount,
+          assetId,
+          lockType,
+          available,
+          availableAt: unlockAt
+        });
+      }
+    }
+
+    const registration = activeStakes?.registration;
+    if (registration) {
+      const amount = parseAmount(registration.amount);
+      if (amount && amount > 0) {
+        setEntry('registration', {
+          amount,
+          assetId: registration.asset_id ? String(registration.asset_id) : undefined,
+          available: true,
+          availableAt: null
+        });
+      }
+    }
+
+    const node = activeStakes?.node;
+    if (node) {
+      const amount = parseAmount(node.amount);
+      if (amount && amount > 0) {
+        setEntry('node', {
+          amount,
+          assetId: node.asset_id ? String(node.asset_id) : undefined,
+          available: true,
+          availableAt: null
+        });
+      }
+    }
+
+    return map;
+  }, [activeStakes, productTokens, legacyStakeUnlocked]);
+
+  const handleWithdrawStake = useCallback(
+    async (type: StakeCategory) => {
+      if (!session?.user?.address || typeof miner_key !== 'string') {
+        toast.error({
+          heading: 'Withdraw Error',
+          message: 'Select a device and ensure you are signed in before withdrawing.'
+        });
+        return;
+      }
+
+      const endpointMap: Record<StakeCategory, string> = {
+        verification: '/api/stake/stake-withdraw',
+        registration: '/api/stake/r-withdraw',
+        node: '/api/stake/n-withdraw'
+      };
+
+      if (type === 'verification') {
+        const confirmMessage = 'Withdrawing your verification stake removes your multiplier and you will only earn base rewards until you re-stake with FRY 2.0. Do you want to continue?';
+        const confirmed = typeof window === 'undefined' ? false : window.confirm(confirmMessage);
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      setWithdrawLoading((prev) => ({ ...prev, [type]: true }));
+      try {
+        const res = await secureFetch(endpointMap[type], {
+          address: session.user.address,
+          miner_key
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error({
+            heading: 'Withdraw Error',
+            message: payload?.message || 'Server error. Please try again.'
+          });
+          return;
+        }
+
+        toast.success({
+          heading: 'Withdraw submitted',
+          message: payload?.txId ? `Tx: ${payload.txId}` : 'Withdrawal completed.'
+        });
+        setDeviceRefreshToken((token) => token + 1);
+      } catch (error) {
+        console.error('[history] withdraw failed', error);
+        toast.error({
+          heading: 'Withdraw Error',
+          message: 'Unable to submit withdrawal. Please try again.'
+        });
+      } finally {
+        setWithdrawLoading((prev) => ({ ...prev, [type]: false }));
+      }
+    },
+    [miner_key, session?.user?.address, toast]
+  );
+
 
   const applyFilters = <T extends RewardView>(list: T[]) => {
     const fromTs = dateFrom ? new Date(dateFrom + 'T00:00:00Z').getTime() : undefined;
@@ -756,12 +970,40 @@ export default function History({
           />
         )}
       </div>
+      {isTFryMiner && typeof summary.legacyFryClaimedSnapshot === 'number' && (
+        <div className="mt-4 rounded-2xl border border-yellow-400/40 bg-yellow-500/10 p-4">
+          <div className="text-xs uppercase tracking-wide text-yellow-200/80 font-semibold">
+            Legacy Fry 1.0 Claimed - 12/13/2024 to 10/08/2025
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-yellow-100">
+            {formatLegacyAmount(summary.legacyFryClaimedSnapshot)} FRY 1.0
+          </div>
+          <p className="mt-1 text-xs text-yellow-200/80">
+            Historical FRY 1.0 payouts claimed before the tFry migration. These are shown for context only and are not included in the tFry totals above.
+          </p>
+        </div>
+      )}
       </>
     )}
   </div>
-  {hasStakeHistory && (
+  {hasLegacyVerificationStake && (
+    <div className="px-2 sm:px-20 mt-4">
+      <div className="rounded-2xl border border-amber-400/60 bg-gradient-to-br from-amber-600/20 via-amber-400/10 to-transparent px-4 py-4 text-amber-100 shadow-inner shadow-amber-900/30">
+        <div className="text-xs uppercase tracking-[0.35em] text-amber-200/80">Legacy FRY 1.0 stake detected</div>
+        <p className="mt-2 text-sm text-amber-100">
+          Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.
+        </p>
+      </div>
+    </div>
+  )}
+  {(hasStakeHistory || Object.values(stakeAvailability).some((entry) => entry.hasStake)) && (
     <div className="px-2 sm:px-20 mt-6">
-      <StakeHistorySection history={stakeHistoryData} />
+      <StakeHistorySection
+        history={stakeHistoryData}
+        availability={stakeAvailability}
+        onWithdraw={handleWithdrawStake}
+        withdrawLoading={withdrawLoading}
+      />
     </div>
   )}
   <div className="px-2 sm:px-20 mt-6">
@@ -924,17 +1166,24 @@ function MinerSelect() {
   );
 }
 
-function StakeHistorySection({ history }: { history: StakeHistoryMap | null }) {
-  if (!history) return null;
-
+function StakeHistorySection({
+  history,
+  availability,
+  onWithdraw,
+  withdrawLoading
+}: {
+  history: StakeHistoryMap | null;
+  availability: StakeAvailabilityMap;
+  onWithdraw: (type: StakeCategory) => void;
+  withdrawLoading: Partial<Record<StakeCategory, boolean>>;
+}) {
   const sections: Array<{ key: keyof StakeHistoryMap; label: string; entries: StakeEvent[] }> = [
-    { key: 'verification', label: 'Verification Stake History', entries: history.verification },
-    { key: 'registration', label: 'Registration Stake History', entries: history.registration },
-    { key: 'node', label: 'Node Operation Stake History', entries: history.node }
+    { key: 'verification', label: 'Verification Stake History', entries: history?.verification ?? [] },
+    { key: 'registration', label: 'Registration Stake History', entries: history?.registration ?? [] },
+    { key: 'node', label: 'Node Operation Stake History', entries: history?.node ?? [] }
   ];
 
-  const hasAny = sections.some((section) => section.entries.length > 0);
-  if (!hasAny) return null;
+  const hasHistory = sections.some((section) => section.entries.length > 0);
 
   const formatDateTime = (value: string) => {
     const date = new Date(value);
@@ -945,6 +1194,27 @@ function StakeHistorySection({ history }: { history: StakeHistoryMap | null }) {
   const formatAmount = (amount: number) => amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatTx = (txId: string) => (txId.length <= 12 ? txId : `${txId.slice(0, 6)}…${txId.slice(-4)}`);
 
+  const formatCountdown = (target: Date) => {
+    const diffMs = target.getTime() - Date.now();
+    if (diffMs <= 0) return 'unlocking now';
+    const days = Math.floor(diffMs / dayMs);
+    const hours = Math.floor((diffMs % dayMs) / (60 * 60 * 1000));
+    const minutes = Math.floor((diffMs % (60 * 60 * 1000)) / (60 * 1000));
+    if (days > 0) return `${days} day${days === 1 ? '' : 's'} remaining`;
+    if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'} remaining`;
+    return `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
+  };
+
+  const activeEntries = (['verification', 'registration', 'node'] as StakeCategory[]).map((type) => ({
+    type,
+    ...(availability?.[type] ?? { hasStake: false, available: false })
+  }));
+  const hasActiveEntries = activeEntries.some((entry) => entry.hasStake);
+
+  if (!hasHistory && !hasActiveEntries) {
+    return null;
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -953,6 +1223,54 @@ function StakeHistorySection({ history }: { history: StakeHistoryMap | null }) {
           Track every stake and withdrawal for this device across verification, registration, and node operation.
         </p>
       </div>
+      {hasActiveEntries && (
+        <div className="grid gap-3 md:grid-cols-3">
+          {activeEntries
+            .filter((entry) => entry.hasStake)
+            .map((entry) => (
+              <div
+                key={entry.type}
+                className="rounded-lg border border-gray-800 bg-gray-900/40 p-4 shadow-inner shadow-black/20 flex flex-col gap-2"
+              >
+                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Active {STAKE_LABELS[entry.type]}
+                </div>
+                <div className="text-2xl font-semibold text-white">
+                  {entry.amount ? entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {entry.assetId ? getAssetDisplay(entry.assetId) : 'Asset unknown'}
+                </div>
+                {entry.type === 'verification' && entry.lockType && (
+                  <div className="text-xs text-gray-500">
+                    Lock: {entry.lockType === 'two' ? 'Type 2 (6 month)' : 'Type 1 (24 hour)'}
+                  </div>
+                )}
+                {entry.available ? (
+                  <p className="text-xs text-emerald-300">Lock complete. Ready to withdraw.</p>
+                ) : entry.availableAt ? (
+                  <p className="text-xs text-gray-400">
+                    Unlocks on {entry.availableAt.toLocaleString()} ({formatCountdown(entry.availableAt)})
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500">Waiting for lock completion.</p>
+                )}
+                {entry.type === 'verification' && (
+                  <div className="rounded border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.7rem] text-amber-100">
+                    Withdrawing removes your verification multiplier. You will earn base rewards until you re-stake with FRY&nbsp;2.0.
+                  </div>
+                )}
+                <Button
+                  className="mt-auto bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 disabled:opacity-40"
+                  disabled={!entry.available || withdrawLoading[entry.type]}
+                  onClick={() => onWithdraw(entry.type)}
+                >
+                  {withdrawLoading[entry.type] ? 'Withdrawing…' : 'Withdraw'}
+                </Button>
+              </div>
+            ))}
+        </div>
+      )}
       {sections.map((section) => {
         if (section.entries.length === 0) return null;
         return (
@@ -992,7 +1310,7 @@ function StakeHistorySection({ history }: { history: StakeHistoryMap | null }) {
                       <td className="py-2 pr-4 font-mono text-[0.65rem]">
                         {event.txId ? (
                           <a
-                            href={`https://algoexplorer.io/tx/${event.txId}`}
+                            href={`https://explorer.perawallet.app/tx/${event.txId}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sky-400 hover:text-sky-300"
@@ -1066,108 +1384,118 @@ function DailyByMonth({ list, onClaim, onBoost, sort }: { list: DailyRewardView[
   );
 }
 
-export async function getServerSideProps(context: any) {
+
+const EMPTY_HISTORY_PROPS = {
+  props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
+};
+
+export async function getServerSideProps(context: GetServerSidePropsContext) {
   const session = await getSession(context);
-
-  if (!session || !session.user) {
-    return {
-      props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
-    };
+  if (!session?.user) {
+    return EMPTY_HISTORY_PROPS;
   }
 
-  const query = context.query;
-  if (!query) {
-    return {
-      props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
-    };
+  const minerKeyParam = context?.query?.miner_key;
+  const miner_key = Array.isArray(minerKeyParam) ? minerKeyParam[0] : minerKeyParam;
+  if (!miner_key) {
+    return EMPTY_HISTORY_PROPS;
   }
-
-  const { miner_key } = query;
 
   try {
     const client = await clientPromise;
     const db = client.db('main');
-    const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
-    const CUTOFF_DATE = new Date(CUTOFF_ISO);
+    const cutoffIso = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
+    const cutoffDate = new Date(cutoffIso);
 
     const doc = await db.collection('device-rewards').findOne({ miner_key });
     if (!doc) {
-      return { props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } } };
+      return EMPTY_HISTORY_PROPS;
     }
 
-    const dayMs = 24 * 60 * 60 * 1000;
-    const getThisFridayStartUTC = (ref: Date): Date => {
-      const d = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0, 0));
-      const day = d.getUTCDay();
-      const diffToFriday = (day + 7 - 5) % 7;
-      d.setUTCDate(d.getUTCDate() - diffToFriday);
-      return d;
-    };
     const daysBetween = (a: Date, b: Date): number => {
       const ms = Math.max(0, b.getTime() - a.getTime());
-      return Math.min(30, Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24))));
+      return Math.min(30, Math.max(0, Math.floor(ms / dayMs)));
     };
+
     const formatRange = (start: Date, end: Date): string => {
-      const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+      const fmt = (d: Date) =>
+        d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
       return `${fmt(start)} – ${fmt(end)}`;
     };
 
     const weekly = (doc?.weekly_rewards || [])
-      .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
-      .map((wr: any) => ({
-        _id: wr._id,
-        miner_key,
-        no: wr.reward_number,
-        status: wr.status,
-        asset_id: wr.asset_id,
-        amount: wr.amount,
-        txId: wr.tx_id,
-        createdAt: wr.unlock_at,
-        claimedAt: wr.claimed_at,
-        isWeekly: true,
-        progressDays: daysBetween(new Date(wr.unlock_at), new Date()),
-        etaDate: new Date(new Date(wr.unlock_at).getTime() + 30 * dayMs),
-        weekLabel: (() => {
-          const wkStart = wr.week_start ? new Date(wr.week_start) : new Date(getThisFridayStartUTC(new Date(wr.unlock_at)).getTime() - 7 * dayMs);
-          const wkEnd = wr.week_end ? new Date(wr.week_end) : new Date(wkStart.getTime() + 6 * dayMs);
-          return formatRange(wkStart, wkEnd);
-        })()
-      }));
+      .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= cutoffDate)
+      .map((wr: any) => {
+        const unlockAt = new Date(wr.unlock_at);
+        return {
+          _id: wr._id,
+          miner_key,
+          no: wr.reward_number,
+          status: wr.status,
+          asset_id: wr.asset_id,
+          amount: wr.amount,
+          txId: wr.tx_id,
+          createdAt: wr.unlock_at,
+          claimedAt: wr.claimed_at,
+          isWeekly: true,
+          progressDays: daysBetween(unlockAt, new Date()),
+          etaDate: new Date(unlockAt.getTime() + 30 * dayMs),
+          weekLabel: (() => {
+            const wkStart = wr.week_start
+              ? new Date(wr.week_start)
+              : new Date(getThisFridayStartUTC(unlockAt).getTime() - 7 * dayMs);
+            const wkEnd = wr.week_end ? new Date(wr.week_end) : new Date(wkStart.getTime() + 6 * dayMs);
+            return formatRange(wkStart, wkEnd);
+          })()
+        };
+      });
 
     const daily = (doc?.daily_rewards || [])
-      .filter((dr: any) => dr.created_at && new Date(dr.created_at) < CUTOFF_DATE)
-      .map((dr: any) => ({
-        _id: dr._id,
-        miner_key,
-        no: dr.reward_number,
-        status: dr.status,
-        asset_id: dr.asset_id,
-        amount: dr.amount,
-        txId: dr.tx_id,
-        createdAt: dr.created_at,
-        claimedAt: dr.claimed_at,
-        isWeekly: false,
-        progressDays: daysBetween(new Date(dr.created_at), new Date()),
-        etaDate: new Date(new Date(dr.created_at).getTime() + 30 * dayMs)
-      }));
+      .filter((dr: any) => dr.created_at && new Date(dr.created_at) < cutoffDate)
+      .map((dr: any) => {
+        const createdAt = new Date(dr.created_at);
+        return {
+          _id: dr._id,
+          miner_key,
+          no: dr.reward_number,
+          status: dr.status,
+          asset_id: dr.asset_id,
+          amount: dr.amount,
+          txId: dr.tx_id,
+          createdAt: dr.created_at,
+          claimedAt: dr.claimed_at,
+          isWeekly: false,
+          progressDays: daysBetween(createdAt, new Date()),
+          etaDate: new Date(createdAt.getTime() + 30 * dayMs)
+        };
+      });
 
-    const rewards = weekly.concat(daily)
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 10);
+    const allRewards = weekly
+      .concat(daily)
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    const totalRewards = weekly.length + daily.length;
-    const totalPages = totalRewards > 0 ? Math.ceil(totalRewards / PAGE_SIZE) || 1 : 0;
+    const totalRewards = allRewards.length;
+    const totalPages = totalRewards > 0 ? Math.ceil(totalRewards / PAGE_SIZE) : 0;
+
+    const recentCutoff = new Date();
+    recentCutoff.setMonth(recentCutoff.getMonth() - 3);
+    const recentRewards = allRewards.filter((reward: any) => {
+      const ts = new Date(reward.createdAt).getTime();
+      return !Number.isNaN(ts) && ts >= recentCutoff.getTime();
+    });
+
+    const initialRewards = recentRewards.length > 0 ? recentRewards : allRewards.slice(0, PAGE_SIZE);
 
     return {
       props: {
-        initialRewards: JSON.parse(JSON.stringify(rewards)),
+        initialRewards: JSON.parse(JSON.stringify(initialRewards)),
         initialTotalPages: totalPages,
         initialCounts: { weekly: weekly.length, daily: daily.length }
       }
     };
-  } catch (error) {}
+  } catch (error) {
+    console.error('Failed to load reward history', error);
+  }
 
-  return {
-    props: { initialRewards: [], initialTotalPages: 0, initialCounts: { weekly: 0, daily: 0 } }
-  };
+  return EMPTY_HISTORY_PROPS;
 }

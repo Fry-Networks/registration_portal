@@ -105,6 +105,11 @@ const StakeModal = ({
 
   const MINIMUM_ALGO_BUFFER = 0.01; // Require a tiny Algo reserve to cover network fees
 
+  const buttonBaseClass =
+    'px-4 py-2 rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 disabled:opacity-60 disabled:cursor-not-allowed';
+  const primaryButtonClass = `${buttonBaseClass} border-red-600 bg-red-600 text-white hover:bg-red-500 hover:border-red-500`;
+  const secondaryButtonClass = `${buttonBaseClass} border-red-600 text-red-600 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-900/20`;
+
   // Added reusable opt-in helper so staking modals can automatically submit the ASA opt-in
   // transaction (0 amount transfer to self) when the wallet has not opted into the stake asset yet.
   const requestAssetOptIn = useCallback(
@@ -635,7 +640,7 @@ const StakeModal = ({
         className="z-[100]"
       >
         {/* Mirror withdraw modal palette so staking dialogs stay legible in both themes. */}
-        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -719,16 +724,11 @@ const StakeModal = ({
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
-            <Button
-              className="bg-transparent border-red-600 text-white hover:bg-red-600 hover:border-red-600"
-              onClick={() => !isProcessing && closeModal(modalName)}
-            >
+            <Button className={secondaryButtonClass} onClick={() => !isProcessing && closeModal(modalName)}>
               Close
             </Button>
             <Button
-              className={`relative flex items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
-                isProcessing ? 'cursor-not-allowed opacity-75' : 'cursor-default'
-              }`}
+              className={`${primaryButtonClass} relative flex items-center justify-center`}
               onClick={handleSubmit}
               disabled={isProcessing || stakeAmount <= 0}
             >

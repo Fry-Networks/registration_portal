@@ -106,7 +106,13 @@ export default function SignIn({ signed }: SignInProps) {
           throw new Error('Failed to sign the transaction');
         }
       } catch (error) {
-        console.error('Error signing message:', error);
+        const friendlyMessage =
+          error instanceof Error ? error.message : JSON.stringify(error ?? {});
+        console.error('Error signing message:', friendlyMessage);
+        toast.error({
+          heading: 'Sign In Failed',
+          message: friendlyMessage || 'Unexpected error occurred while signing.'
+        });
       } finally {
         setIsAuthenticating(false);
       }
@@ -224,16 +230,26 @@ export default function SignIn({ signed }: SignInProps) {
         });
 
         const callbackUrl = (router.query.callbackUrl as string) || '/';
-        const res = await signIn('wallet', {
-          address: walletAddress,
-          email: isNew ? email : undefined,
-          first_name: isNew ? first_name : undefined,
-          last_name: isNew ? last_name : undefined,
-          signedTxn: signedTxnBase64,
-          nonce,
-          redirect: false,
-          callbackUrl
-        });
+        const performSignIn = async (): Promise<Awaited<ReturnType<typeof signIn>>> => {
+          return signIn('wallet', {
+            address: walletAddress,
+            email: isNew ? email : undefined,
+            first_name: isNew ? first_name : undefined,
+            last_name: isNew ? last_name : undefined,
+            signedTxn: signedTxnBase64,
+            nonce,
+            redirect: false,
+            callbackUrl
+          });
+        };
+        let res = await performSignIn();
+        if (!res || res.error === 'Failed to fetch') {
+          toast.info({
+            heading: 'Network hiccup',
+            message: 'Retrying sign-in...'
+          });
+          res = await performSignIn();
+        }
         if (res?.error) {
           console.error('NextAuth signIn error:', res.error);
           toast.error({
@@ -246,7 +262,13 @@ export default function SignIn({ signed }: SignInProps) {
           await router.push(callbackUrl);
         }
       } catch (error) {
-        console.error('Error signing message:', error);
+        const friendlyMessage =
+          error instanceof Error ? error.message : JSON.stringify(error ?? {});
+        console.error('Error signing message:', friendlyMessage);
+        toast.error({
+          heading: 'Sign In Failed',
+          message: friendlyMessage || 'Unexpected error occurred while signing.'
+        });
         toast.error({
           heading: 'Sign In Failed',
           message:
@@ -319,11 +341,15 @@ export default function SignIn({ signed }: SignInProps) {
   return !devConnect && !walletAddress ? (
     <></>
   ) : (
-    <div className="w-full">
+    // Allow the onboarding form to scroll on smaller devices so the Sign In button stays reachable.
+    <div 
+      className="w-full max-w-xl mx-auto px-4" 
+      style={{ maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' }}
+    >
       <Flex flexDirection="col" className="w-full">
         <Title className="text-white px-2 text-center">
           {!session || !isSessionWallet
-            ? 'Please click Sign in button to sign with the currently connected wallet.'
+            ? 'Please click the Sign in button to sign with the currently connected wallet.'
             : 'You are signed successfully, click Go to Dashboard to onboard your devices.'}
         </Title>
         {isNew && (

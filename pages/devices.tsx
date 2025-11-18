@@ -15,7 +15,7 @@ import { SWRConfig } from 'swr';
 import type { Summary } from '../lib/hooks/useRewardSummary';
 import clientPromise from '../lib/mongoclient';
 import { Device, FryConversion, FryToken, Product } from '../lib/types';
-import { getClientToken } from '../lib/clientToken';
+import { getClientToken, refreshClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
@@ -37,6 +37,7 @@ import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
+import { shouldForceLegacyUnverified } from '../lib/legacyStake';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import {
   isNodeStaked,
@@ -44,9 +45,6 @@ import {
   getWalletAddress,
   algodClient,
   computeDeviceStatus,
-  FRY_1,
-  fNODE,
-  tFRY,
   anchorIdForMinerKey
 } from '../lib/utils';
 import type { Notification as AppNotification } from '../components/NotificationCenter';
@@ -149,7 +147,7 @@ function isLinkRequiredForPrefix(prefix: string) {
 
 // Smart price formatting component with hover tooltip
 const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number; tfry?: number }>({});
+  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
 
   useEffect(() => {
     let active = true;
@@ -158,15 +156,14 @@ const TokenPricesBar = () => {
         const res = await fetch('/api/price/get', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024', '2681521901'] })
+          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
         });
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
         setPrices({
           fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0,
-          tfry: json?.prices?.['2681521901'] ?? 0
+          fnode: json?.prices?.['2485202024'] ?? 0
         });
       } catch (error) {
         console.error('Failed to fetch prices', error);
@@ -219,8 +216,6 @@ const TokenPricesBar = () => {
       <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
       <span className="text-white text-gray-400">•</span>
       <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
-      <span className="text-white text-gray-400">•</span>
-      <PriceWithTooltip label="tFry" price={prices.tfry || 0} />
       <span className="text-white text-gray-400">•</span>
       <a
         href="https://docs.frynetworks.com/dashboard/registration"
@@ -549,12 +544,7 @@ const DevicesPage = ({
   products = [],
   tokenMetadata = {},
   rewardFallback = {},
-  statusFallback = {},
-  bannerTotals = {
-    FRY1: { pending: 0, claimable: 0 },
-    fNODE: { pending: 0, claimable: 0 },
-    tFRY: { pending: 0, claimable: 0 }
-  }
+  statusFallback = {}
 }: {
   initialDevices: Device[];
   products: Product[];
@@ -569,11 +559,6 @@ const DevicesPage = ({
   >;
   rewardFallback?: Record<string, Summary>;
   statusFallback?: Record<string, { [key: string]: string } | undefined>;
-  bannerTotals: {
-    FRY1: { pending: number; claimable: number };
-    fNODE: { pending: number; claimable: number };
-    tFRY: { pending: number; claimable: number };
-  };
 }) => {
   const router = useRouter();
   const toast = useToastContext();
@@ -622,6 +607,7 @@ const DevicesPage = ({
   const [selectedDevice, setSelectedDevice] = useState<Device>(
     initialDevices[0]
   );
+  const [stakeContext, setStakeContext] = useState<'verification' | 'registration' | 'node'>('verification');
   const [isProcessing, setIsProcessing] = useState(false);
   const [addr, setAddr] = useState(session?.user.address);
   const [showFry1Check, setShowFry1Check] = useState(false);
@@ -630,11 +616,11 @@ const DevicesPage = ({
   const [countdown, setCountdown] = useState<string>("");
   const [totals, setTotals] = useState<{
     totals: {
-      fry1: { pending: number; claimable: number; claimed: number; accruing: number };
       fnode: { pending: number; claimable: number; claimed: number; accruing: number };
       tfry: { pending: number; claimable: number; claimed: number; accruing: number };
     };
     nextUnlockAt?: string;
+    legacyFryClaimedSnapshot?: number;
   } | null>(null);
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [hardwareStatus, setHardwareStatus] = useState<Record<string, HardwareStatus>>({});
@@ -920,24 +906,38 @@ const DevicesPage = ({
       };
     }
     
+    const refreshClientTokenOnce = async () => {
+      try {
+        await refreshClientToken();
+        return true;
+      } catch (error) {
+        console.error('[ClientToken] Failed to refresh token after rejection', error);
+        return false;
+      }
+    };
+
     const fetchTotals = async () => {
       try {
-        const clientToken = await getClientToken();
-        const timestamp = Math.floor(Date.now() / 1000);
-        const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-asset-totals', {}, timestamp);
+        const requestFactory = async () => {
+          const timestamp = Math.floor(Date.now() / 1000);
+          const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-asset-totals', {}, timestamp);
+          const clientToken = await getClientToken();
+
+          return fetch('/api/rewards/get-asset-totals', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-client-token': clientToken,
+              'x-request-signature': signature,
+              'x-request-timestamp': timestamp.toString()
+            }
+          });
+        };
 
         const res = await fetchWithFingerprintRetry(
-          () =>
-            fetch('/api/rewards/get-asset-totals', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-client-token': clientToken,
-                'x-request-signature': signature,
-                'x-request-timestamp': timestamp.toString()
-              }
-            }),
-          refreshFingerprint
+          requestFactory,
+          refreshFingerprint,
+          { refreshClientToken: refreshClientTokenOnce }
         );
         if (!res.ok) {
           if (active && res.status === 401) {
@@ -961,9 +961,8 @@ const DevicesPage = ({
   }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
-  const { estimatedFry1, estimatedFnode, estimatedTfry } = useMemo(() => {
-    if (!totals?.totals) return { estimatedFry1: 0, estimatedFnode: 0, estimatedTfry: 0 };
-    const accFry1 = totals.totals.fry1?.accruing || 0;
+  const { estimatedFnode, estimatedTfry } = useMemo(() => {
+    if (!totals?.totals) return { estimatedFnode: 0, estimatedTfry: 0 };
     const accFnode = totals.totals.fnode?.accruing || 0;
     const accTfry = totals.totals.tfry?.accruing || 0;
     const now = new Date();
@@ -973,10 +972,9 @@ const DevicesPage = ({
     thisFriday.setUTCDate(thisFriday.getUTCDate() - diffToFriday);
     const elapsed = Math.floor((now.getTime() - thisFriday.getTime()) / (24 * 60 * 60 * 1000)) + 1;
     const daysElapsed = Math.min(7, Math.max(1, elapsed));
-    const est1 = Math.round(((accFry1 / daysElapsed) * 7) * 100) / 100;
     const estN = Math.round(((accFnode / daysElapsed) * 7) * 100) / 100;
     const estT = Math.round(((accTfry / daysElapsed) * 7) * 100) / 100;
-    return { estimatedFry1: est1, estimatedFnode: estN, estimatedTfry: estT };
+    return { estimatedFnode: estN, estimatedTfry: estT };
   }, [totals?.totals]);
 
   const handleSetting = async (minerKey: string): Promise<void> => {
@@ -1044,9 +1042,10 @@ const DevicesPage = ({
     });
   };
 
-  const handleStaking = async (miner_key: string): Promise<void> => {
-    // Redirect to an edit page where the device details can be modified
-    router.push({ pathname: '/pay-register', query: { minerKey: miner_key } });
+  const handleStakeRequirement = (device: Device, requirement: 'registration' | 'node'): void => {
+    setSelectedDevice(device);
+    setStakeContext(requirement);
+    openModal('stake');
   };
 
   // const handleAlgoWithdraw = async (device: Device): Promise<void> => {
@@ -1057,6 +1056,7 @@ const DevicesPage = ({
     setSelectedDevice(device);
 
     if (!device.verified) {
+      setStakeContext('verification');
       openModal('stake');
     } else {
       openModal('withdraw');
@@ -1118,18 +1118,20 @@ const DevicesPage = ({
     [session?.user?.address, refreshFingerprint]
   );
   
+  const hydrateFromSelectedDevice = (element: Device): Device => {
+    if (!selectedDevice || element.miner_key !== selectedDevice.miner_key) {
+      return element;
+    }
+    return cloneDeviceWithPatch(element, {
+      names: selectedDevice.names ?? element.names,
+      email: selectedDevice.email ?? element.email
+    });
+  };
+
   const handleBoost = async (ret: boolean, message: string): Promise<void> => {
     console.log('Boost function');
 
-    const updateDevices = devices.map((element) => {
-      if (element.miner_key !== selectedDevice.miner_key) {
-        return element;
-      } else {
-        return {
-          ...element
-        };
-      }
-    }) as Device[];
+    const updateDevices = devices.map(hydrateFromSelectedDevice) as Device[];
 
     setDevices(updateDevices);
     // Revalidate only this device's summary
@@ -1138,16 +1140,12 @@ const DevicesPage = ({
     }
   };
 
-  const handleClaim = async (ret: boolean, message: string): Promise<void> => {
-    const updateDevices = devices.map((element) => {
-      if (element.miner_key !== selectedDevice.miner_key) {
-        return element;
-      } else {
-        return {
-          ...element
-        };
-      }
-    }) as Device[];
+  const handleClaim = async (
+    ret: boolean,
+    message: string,
+    _context?: { txId?: string; minerKey?: string; rewardNumbers?: number[] }
+  ): Promise<void> => {
+    const updateDevices = devices.map(hydrateFromSelectedDevice) as Device[];
 
     setDevices(updateDevices);
     if (selectedDevice?.miner_key) {
@@ -1214,17 +1212,24 @@ const DevicesPage = ({
   //   console.log('Selected Withdraw: ', device);
   // }
 
-  function isNodeDevice(d: Device): boolean {
+  const isNodeDevice = useCallback((d: Device): boolean => {
     const prefix = d.miner_key.split('-')[0];
     return ['RDN', 'SVN', 'SDN', 'CN'].includes(prefix);
-  }
+  }, []);
 
-  function isMinerDevice(d: Device): boolean {
-    return !isNodeDevice(d);
-  }
+  const isMinerDevice = useCallback(
+    (d: Device): boolean => !isNodeDevice(d),
+    [isNodeDevice]
+  );
 
-  const minerDevices = useMemo(() => devices.filter(isMinerDevice), [devices]);
-  const nodeDevices = useMemo(() => devices.filter(isNodeDevice), [devices]);
+  const minerDevices = useMemo(
+    () => devices.filter(isMinerDevice),
+    [devices, isMinerDevice]
+  );
+  const nodeDevices = useMemo(
+    () => devices.filter(isNodeDevice),
+    [devices, isNodeDevice]
+  );
 
   return (
     <SWRConfig value={{ fallback: rewardFallback }}>
@@ -1233,7 +1238,7 @@ const DevicesPage = ({
         <Image
           src={bgImg}
           // Fixed height banner to prevent growth with window resizing
-          className="w-full h-32 sm:h-36 object-cover"
+          className="w-full h-24 sm:h-22 object-cover"
           alt="Background Image"
           priority
         />
@@ -1241,10 +1246,7 @@ const DevicesPage = ({
           flexDirection="col"
           className="absolute w-full h-full justify-center gap-2"
         >
-          <Title className="text-white text-2xl sm:text-3xl lg:text-4xl w-full text-center font-extralight tracking-wide px-2">
-            Onboard your miners and nodes to Fry Networks
-          </Title>
-          <p className="text-sm sm:text-base text-center px-2 text-gray-300">
+          <p className="text-sm sm:text-base text-center px-2 text-gray-400">
             Register and manage miners and nodes: verify details, link portals, and handle rewards.
           </p>
           <TokenPricesBar />
@@ -1255,9 +1257,9 @@ const DevicesPage = ({
         <FloatingTotalsWidget
           totals={totals}
           countdown={countdown}
-          estimatedFry1={estimatedFry1}
           estimatedFnode={estimatedFnode}
           estimatedTfry={estimatedTfry}
+          legacyFryClaimedSnapshot={totals.legacyFryClaimedSnapshot}
         />
       )}
       <StatsGrid
@@ -1326,7 +1328,7 @@ const DevicesPage = ({
                 stakeable={isProductStakeAvailable(product!)}
                 initialStatus={statusFallback[device.miner_key]}
                 hardwareStatus={hardwareStatus[device.miner_key]}
-                handleStaking={handleStaking}
+                handleStakeRequirement={handleStakeRequirement}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}
                 handleSetting={handleSetting}
@@ -1366,6 +1368,7 @@ const DevicesPage = ({
             modalName={'stake'}
             device={selectedDevice}
             product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+            stakeContext={stakeContext}
             handleStakingUpdate={handleStakingUpdate}
           />
           <WithdrawModal
@@ -1428,11 +1431,6 @@ export async function getServerSideProps(context: any) {
     // Initialize variables at function scope
     let rewardFallback: Record<string, Summary> = {};
     let statusFallback: Record<string, any> = {};
-    let bannerTotals = {
-      FRY1: { pending: 0, claimable: 0 },
-      fNODE: { pending: 0, claimable: 0 },
-      tFRY: { pending: 0, claimable: 0 }
-    };
 
     // const collection = db.collection('rewards');
     // let query = { miner_key: { $regex: "ISM-3VMFG9XP18V5U9WQR70NC111ZTBTJNYF", $options: "i" } };
@@ -1486,10 +1484,44 @@ export async function getServerSideProps(context: any) {
     //   }
     // }
 
-    const devicesRaw = await db
-      .collection(testMode ? 'test-devices' : 'devices')
-      .find({ address: session.user.address, is_registered: true }, { projection: { address: 1, byod: 1, is_registered: 1, miner_key: 1, name: 1, nickname: 1, position: 1, reward_wallet: 1, staked: 1, stake_type: 1, verified: 1, hexId: 1, created_at: 1, email: 1, registered_portal_model: 1 } })
+    const devicesCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
+    const devicesRaw = await devicesCollection
+      .find(
+        { address: session.user.address, is_registered: true },
+        {
+          projection: {
+            address: 1,
+            byod: 1,
+            is_registered: 1,
+            miner_key: 1,
+            name: 1,
+            nickname: 1,
+            position: 1,
+            reward_wallet: 1,
+            staked: 1,
+            stake_type: 1,
+            verified: 1,
+            hexId: 1,
+            created_at: 1,
+            email: 1,
+            registered_portal_model: 1,
+            legacy_stake_unlocked: 1
+          }
+        }
+      )
       .toArray();
+
+    await Promise.all(
+      devicesRaw.map(async (rawDevice) => {
+        if (shouldForceLegacyUnverified(rawDevice) && rawDevice.verified) {
+          await devicesCollection.updateOne(
+            { _id: rawDevice._id },
+            { $set: { verified: false } }
+          );
+          rawDevice.verified = false;
+        }
+      })
+    );
 
     const devices = await Promise.all(
       devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device))
@@ -1551,39 +1583,6 @@ export async function getServerSideProps(context: any) {
     // Server-side reward summary prefetch for all devices
     const minerKeys: string[] = devices?.map((d: any) => d.miner_key) || [];
     if (minerKeys.length > 0) {
-      const rewardsCol = db.collection(testMode ? 'test-rewards' : 'rewards');
-      const pipeline = [
-        {
-          $match: {
-            miner_key: { $in: minerKeys },
-            status: { $in: ['pending', 'claimable'] }
-          }
-        },
-        {
-          $group: {
-            _id: { miner_key: '$miner_key', status: '$status', asset_id: '$asset_id' },
-            total: { $sum: { $toDouble: '$amount' } }
-          }
-        }
-      ];
-      const grouped = await rewardsCol.aggregate(pipeline).toArray();
-
-      // initialize
-      rewardFallback = minerKeys.reduce((acc, key) => {
-        acc[`reward-summary:${key}`] = { pending: 0, claimable: 0, firstRewardAt: null };
-        return acc;
-      }, {} as Record<string, Summary>);
-
-      for (const row of grouped as any[]) {
-        const mk = row._id.miner_key as string;
-        const status = row._id.status as 'pending' | 'claimable';
-        const total = Math.round((row.total || 0) * 100) / 100;
-        const k = `reward-summary:${mk}`;
-        if (!rewardFallback[k]) rewardFallback[k] = { pending: 0, claimable: 0, firstRewardAt: null };
-        rewardFallback[k][status] = total;
-      }
-
-      // Build statusFallback (SSR device status) and bannerTotals by asset
       for (const d of devices as any[]) {
         const product = products.find((p: any) => p.key === d.miner_key.split('-')[0]);
         const status = computeDeviceStatus(
@@ -1592,6 +1591,7 @@ export async function getServerSideProps(context: any) {
             byod: d.byod,
             created_at: d.created_at,
             email: d.email,
+            names: d.names,
             hexId: d.hexId,
             is_registered: d.is_registered,
             miner_key: d.miner_key,
@@ -1611,173 +1611,47 @@ export async function getServerSideProps(context: any) {
           statusFallback[d.miner_key] = status;
         }
       }
+    }
 
-      // Banner totals per asset_id across all devices
-      const assetTotals: Record<string, { pending: number; claimable: number }> = {};
-      for (const row of grouped as any[]) {
-        const asset = String(row._id.asset_id);
-        const status = row._id.status as 'pending' | 'claimable';
-        const total = Math.round((row.total || 0) * 100) / 100;
-        if (!assetTotals[asset]) assetTotals[asset] = { pending: 0, claimable: 0 };
-        assetTotals[asset][status] += total;
+    return {
+      props: {
+        initialDevices: JSON.parse(
+          JSON.stringify(
+            devices.map((device) => ({
+              address: device.address,
+              byod: device.byod,
+              is_registered: device.is_registered,
+              miner_key: device.miner_key,
+              name: device.name,
+              nickname: device.nickname,
+              position: device.position,
+              reward_wallet: device.reward_wallet,
+            staked: device.staked,
+            stake_type: device.stake_type,
+            verified: device.verified,
+            legacy_stake_unlocked: device.legacy_stake_unlocked,
+            hexId: device.hexId,
+            created_at: device.created_at,
+            email: device.email,
+            registered_portal_model: device.registered_portal_model,
+            names: device.names
+          }))
+        )
+        ),
+        products: JSON.parse(
+          JSON.stringify(
+            products.map((product) => ({
+              name: product.name,
+              key: product.key,
+              reward: product.reward
+            }))
+          )
+        ),
+        rewardFallback,
+        statusFallback,
+        tokenMetadata: serializedTokenMetadata
       }
-
-      bannerTotals = {
-        FRY1: assetTotals[FRY_1.id] || { pending: 0, claimable: 0 },
-        fNODE: assetTotals[fNODE.id] || { pending: 0, claimable: 0 },
-        tFRY: assetTotals[tFRY.id] || { pending: 0, claimable: 0 }
-      };
-
-      // Return early with computed fallbacks
-      return {
-        props: {
-          initialDevices: JSON.parse(
-            JSON.stringify(
-              devices.map((device) => ({
-                address: device.address,
-                byod: device.byod,
-                is_registered: device.is_registered,
-                miner_key: device.miner_key,
-                name: device.name,
-                nickname: device.nickname,
-                position: device.position,
-                reward_wallet: device.reward_wallet,
-                staked: device.staked,
-                stake_type: device.stake_type,
-                verified: device.verified,
-                hexId: device.hexId,
-                created_at: device.created_at,
-                email: device.email,
-                registered_portal_model: device.registered_portal_model
-              }))
-            )
-          ),
-          products: JSON.parse(
-            JSON.stringify(
-              products.map((product) => ({
-                name: product.name,
-                key: product.key,
-                reward: product.reward
-              }))
-            )
-          ),
-          rewardFallback,
-          statusFallback,
-          bannerTotals,
-          tokenMetadata: serializedTokenMetadata
-        }
-      };
-    }
-
-    if (!devices && !products) {
-      return {
-        props: {
-          devices: [],
-          products: [],
-          rewardFallback: {},
-          statusFallback: {},
-          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } },
-          tokenMetadata: serializedTokenMetadata
-        }
-      };
-    } else if (!devices && products) {
-      return {
-        props: {
-          initialDevices: [],
-          products: JSON.parse(
-            JSON.stringify(
-              products.map((product) => {
-                return {
-                  name: product.name,
-                  key: product.key,
-                  reward: product.reward
-                };
-              })
-            )
-          ),
-          rewardFallback: {},
-          statusFallback: {},
-          bannerTotals: { FRY1: { pending: 0, claimable: 0 }, fNODE: { pending: 0, claimable: 0 }, tFRY: { pending: 0, claimable: 0 } },
-          tokenMetadata: serializedTokenMetadata
-        }
-      };
-    } else if (devices && !products) {
-      return {
-        props: {
-          initialDevices: JSON.parse(
-            JSON.stringify(
-              devices.map((device) => {
-                return {
-                  address: device.address,
-                  byod: device.byod,
-                  is_registered: device.is_registered,
-                  miner_key: device.miner_key,
-                  name: device.name,
-                  nickname: device.nickname,
-                  position: device.position,
-                  reward_wallet: device.reward_wallet,
-                  staked: device.staked,
-                  stake_type: device.stake_type,
-                  verified: device.verified,
-                  hexId: device.hexId,
-                  created_at: device.created_at,
-                  email: device.email,
-                  registered_portal_model: device.registered_portal_model
-                };
-              })
-            )
-          ),
-          products: [],
-          rewardFallback,
-          statusFallback,
-          bannerTotals,
-          tokenMetadata: serializedTokenMetadata
-        }
-      };
-    } else {
-      return {
-        props: {
-          initialDevices: JSON.parse(
-            JSON.stringify(
-              devices.map((device) => {
-                return {
-                  address: device.address,
-                  byod: device.byod,
-                  is_registered: device.is_registered,
-                  miner_key: device.miner_key,
-                  name: device.name,
-                  nickname: device.nickname,
-                  position: device.position,
-                  reward_wallet: device.reward_wallet,
-                  staked: device.staked,
-                  stake_type: device.stake_type,
-                  verified: device.verified,
-                  hexId: device.hexId,
-                  created_at: device.created_at,
-                  email: device.email,
-                  registered_portal_model: device.registered_portal_model
-                };
-              })
-            )
-          ),
-          products: JSON.parse(
-            JSON.stringify(
-              products.map((product) => {
-                return {
-                  name: product.name,
-                  key: product.key,
-                  reward: product.reward
-                };
-              })
-            )
-          ),
-          rewardFallback,
-          statusFallback,
-          bannerTotals,
-          tokenMetadata: serializedTokenMetadata
-        }
-      };
-    }
+    };
   } catch (e) {
     console.error(e);
     return {

@@ -42,7 +42,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
           darkOverlay={0.45}
         />
 
-        <div className="py-8 pl-8 pr-24 md:px-24 h-full relative">
+        <div className="py-8 pl-8 pr-24 md:px-24">
           <form className="w-full text-black">
             <div>
               <label className="block mb-2 text-white">
@@ -98,7 +98,7 @@ const DeviceInfo = ({ minerKey, data, setData, onNext, onSkip, onCancel, status 
             </div>
           </form>
 
-          <div className="absolute bottom-4 right-4 flex gap-2 text-white">
+          <div className="mt-6 flex flex-wrap gap-2 justify-end text-white">
             <button
               type="button"
               className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500"

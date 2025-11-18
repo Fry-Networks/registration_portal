@@ -1,21 +1,16 @@
 import { Button, Flex, Title } from '@tremor/react';
-import { useWallet } from '@txnlab/use-wallet-react';
 import { signIn } from 'next-auth/react';
-import { useEffect, useState } from 'react';
-import algosdk from 'algosdk';
+import { useCallback, useEffect, useState } from 'react';
 import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import { useToastContext } from '../hooks/ToastContext';
-
-const algodClient = new algosdk.Algodv2(
-  '',
-  'https://mainnet-api.algonode.cloud',
-  ''
-);
+import { useWalletActions } from '../lib/wallet/useWalletActions';
+import { buildPaymentTxn } from '../lib/wallet/transactions';
+import { WalletRequestInFlightError, isWalletRequestActive } from '../lib/wallet/requestCoordinator.client';
 
 export default function SignIn() {
   const router = useRouter();
-  const { activeAccount, signTransactions } = useWallet();
+  const { activeAddress: walletAddress, signTransactions } = useWalletActions();
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
   const [email, setEmail] = useState('');
@@ -25,28 +20,28 @@ export default function SignIn() {
   const { devConnect } = useDevWallet();
   const toast = useToastContext();
 
-  const checkUser = async () => {
-    if (!activeAccount) {
+  const checkUser = useCallback(async () => {
+    if (!walletAddress) {
       return;
     }
 
     const res = await fetch('/api/check-user', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: activeAccount.address })
+      body: JSON.stringify({ address: walletAddress })
     });
 
     const { isNew } = await res.json();
     console.log('Check User: ' + isNew);
     setIsNewUser(isNew);
-  };
+  }, [walletAddress]);
 
   useEffect(() => {
     checkUser();
-  }, [activeAccount]);
+  }, [checkUser]);
 
   async function handleWalletAuth() {
-    if (!activeAccount) {
+    if (!walletAddress) {
       toast.error({
         heading: 'Wallet Not Connected',
         message: 'Connect your wallet before signing in.'
@@ -60,16 +55,14 @@ export default function SignIn() {
       const message = `Sign this message to prove you own the wallet: ${nonce}`;
       console.log('Signing message:', message);
 
-      const suggestedParams = await algodClient.getTransactionParams().do();
-      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        sender: activeAccount.address,
-        receiver: activeAccount.address,
+      const noteBytes = new TextEncoder().encode(message);
+      const unsignedTxn = await buildPaymentTxn({
+        sender: walletAddress,
+        receiver: walletAddress,
         amount: 0,
-        note: new Uint8Array(Buffer.from(message)),
-        suggestedParams
+        useMicroAlgos: true,
+        note: noteBytes
       });
-
-      const unsignedTxn = algosdk.encodeUnsignedTransaction(txn);
 
       const coerceToBytes = (value: unknown): Uint8Array | null => {
         if (!value) return null;
@@ -89,15 +82,15 @@ export default function SignIn() {
       const collectSignature = async (
         includeMessage: boolean
       ): Promise<Uint8Array | null> => {
-        try {
-          const payload = includeMessage
-            ? await signTransactions(
-                [unsignedTxn],
-                {
-                  message: 'Sign in to Fry Dashboard'
-                } as any
-              )
-            : await signTransactions([unsignedTxn]);
+       try {
+         const payload = includeMessage
+           ? await signTransactions(
+               [unsignedTxn],
+               {
+                 message: 'Sign in to the Fry Dashboard'
+               } as any
+             )
+           : await signTransactions([unsignedTxn]);
 
           if (!payload?.length) {
             return null;
@@ -108,8 +101,15 @@ export default function SignIn() {
               return bytes;
             }
           }
-          return null;
-        } catch (error) {
+         return null;
+       } catch (error) {
+          if (error instanceof WalletRequestInFlightError) {
+            toast.info({
+              heading: 'Wallet Request In Progress',
+              message: 'Finish or cancel the current wallet prompt, then retry.'
+            });
+            return null;
+          }
           console.error(
             '[pages/signin] signTransactions failed',
             includeMessage ? 'with message' : 'default',
@@ -131,11 +131,14 @@ export default function SignIn() {
       }
 
       if (!signedBytes) {
-        toast.error({
-          heading: 'Signature Required',
-          message:
-            'We did not receive a signature. Reopen Pera/WalletConnect and try again.'
-        });
+        // Avoid double messaging when another wallet prompt is already in flight.
+        if (!isWalletRequestActive()) {
+          toast.error({
+            heading: 'Signature Required',
+            message:
+              'We did not receive a signature. Reopen Pera/WalletConnect and try again.'
+          });
+        }
         setIsAuthenticating(false);
         return;
       }
@@ -154,7 +157,7 @@ export default function SignIn() {
       // Sign in using NextAuth
       const callbackUrl = (router.query.callbackUrl as string) || '/';
       const res = await signIn('wallet', {
-        address: activeAccount.address,
+        address: walletAddress,
         signedTxn: signedTxnBase64,
         nonce,
         email,
@@ -193,7 +196,7 @@ export default function SignIn() {
       <Title className="mt-10 mb-20" style={{ fontSize: '30px' }}>
         Sign in
       </Title>
-      {activeAccount || devConnect ? (
+      {walletAddress || devConnect ? (
         <>
           {isNewUser && (
             <>

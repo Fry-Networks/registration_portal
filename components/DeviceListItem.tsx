@@ -144,7 +144,7 @@ export default function DeviceListItem({
   const deviceStatusOkay = device?.verified === true && alertShow === false;
 
   const router = useRouter();
-  const isStaked = () => {
+  const isStaked = useCallback(() => {
     if (!device) {
       return false;
     }
@@ -154,7 +154,7 @@ export default function DeviceListItem({
     }
 
     return true;
-  };
+  }, [device]);
 
   const minerPrefix = device.miner_key.split('-')[0];
   const linkRequiredForPrefix = isLinkRequiredForPrefix(minerPrefix);

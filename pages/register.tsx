@@ -39,7 +39,7 @@ import dynamic from 'next/dynamic';
 import mapboxgl, { LngLat, Map } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { deviceValidatorRegistry } from '../lib/validators';
-const MapboxAutocomplete = dynamic(() => import('react-mapbox-autocomplete'), {  ssr: false});
+const MapboxAutocomplete = dynamic(() => import('@mapbox/search-js-react').then(mod => ({ default: mod.SearchBox })), { ssr: false });
 const HexMap = dynamic(() => import('../components/HexMap'), { ssr: false });
 mapboxgl.accessToken ='REDACTED_ROTATE_ME';
 
@@ -1038,6 +1038,26 @@ const sections = [
     return (match?.sub_types ?? []).slice();
   }, [availableSubtypes, selectedSubtype]);
 
+  const hasCredentialData = useCallback(() => {
+    const keys = activeCredentialKeys();
+    if (!keys.length) {
+      return Object.values(credentials).some((value) => {
+        if (typeof value === 'string') {
+          return value.trim().length > 0;
+        }
+        return Boolean(value);
+      });
+    }
+
+    return keys.some((key) => {
+      const value = credentials[key];
+      if (typeof value === 'string') {
+        return value.trim().length > 0;
+      }
+      return Boolean(value);
+    });
+  }, [activeCredentialKeys, credentials]);
+
   const buildCredentialPayload = useCallback(() => {
     const keys = activeCredentialKeys();
     if (!keys.length) {
@@ -1051,9 +1071,18 @@ const sections = [
   }, [activeCredentialKeys, credentials]);
 
   const persistCredentials = useCallback(async (): Promise<{ ok: boolean; collection?: string | null }> => {
-    if (!credentialsValidated || !session?.user.address || !resolvedMinerKey) {
+    if (!session?.user.address || !resolvedMinerKey) {
       return { ok: false };
     }
+
+    if (!hasCredentialData()) {
+      return { ok: true };
+    }
+
+    if (!credentialsValidated) {
+      return { ok: false };
+    }
+
     try {
       const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
       const res = await fetch('/api/devices/save-credentials', {
@@ -1077,7 +1106,7 @@ const sections = [
       console.error('Failed to persist credentials', err);
       return { ok: false };
     }
-  }, [buildCredentialPayload, credentialsValidated, effectivePortalKey, type, resolvedMinerKey, selectedSubtype, session?.user?.address]);
+  }, [buildCredentialPayload, credentialsValidated, effectivePortalKey, type, resolvedMinerKey, selectedSubtype, session?.user?.address, hasCredentialData]);
 
   const handleCredentialUpdate = async () => {
     if (!selectedSubtype) {
@@ -1329,11 +1358,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
     const registrationNeeded = product ? isRegistrationNeeded(product) : null;
     const nodeStakingNeeded = product ? isNodeStakingNeeded(product) : null;
 
-    return (
-      product && (registrationNeeded || nodeStakingNeeded)
-        ? { pathname: '/pay-register', query: { minerKey: resolvedMinerKey } }
-        : '/devices'
-    );
+    const destination: NextRoute =
+      productMinerKey
+        ? { pathname: '/devices', query: { minerKey: productMinerKey } }
+        : '/devices';
+    return destination;
   }, [device?.miner_key, resolvedMinerKey, products]);
 
   // Update registerDevice to use the new personal+localization flow
@@ -1685,6 +1714,21 @@ const savePersonalInformation = async (): Promise<boolean> => {
         }
         .react-mapbox-ac-suggestion:hover {
           color: #111 !important;
+        }
+        .mapboxgl-ctrl-geocoder {
+          width: 100% !important;
+          border-radius: 8px !important;
+          border: 1px solid #dc2626 !important;
+          background-color: white !important;
+          color: #111827 !important;
+          height: 40px !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+          font-size: 14px !important;
+        }
+        .mapboxgl-ctrl-geocoder input {
+          padding: 8px !important;
+          color: #111827 !important;
+          background-color: white !important;
         }
       `}</style>
 
@@ -2454,37 +2498,39 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     {/* Search: spans 6 columns on md+ */}
                     <div className="md:col-span-6 flex flex-col">
                       <label className="text-sm mb-1 text-white">Search</label>
-                      <MapboxAutocomplete
-                        // @ts-ignore
-                        publicKey={mapboxgl.accessToken!}
-                        inputClass="w-full rounded-lg border border-red-600 bg-white text-gray-900 placeholder:text-gray-600 p-2 h-10 shadow-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                        resetSearch={true}
-                        placeholder="Search location..."
-                        onSuggestionSelect={(_result: string, lat: string, lng: string) => {
-                          const parsedLat = Number(lat);
-                          const parsedLng = Number(lng);
-                          if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
-                            // Prefer resolution 7 for search zoom; use 6 if you want a slightly larger area
-                            const desiredRes = 6;
-                            const cell = h3.latLngToCell(parsedLat, parsedLng, desiredRes);
-                            setMapInfoData((p: any) => ({
-                              ...p,
-                              latitude: String(parsedLat),
-                              longitude: String(parsedLng),
-                              h3Index: cell,
-                            }));
-                            // update displayed hex + resolution so HexMap can zoom/update view
-                            try {
-                              setDisplayedHex(cell);
-                              setDisplayedHexRes(desiredRes);
-                            } catch (e) {
-                              // silent fallback if state setters not available in this scope
+                      <div className="w-full">
+                        <MapboxAutocomplete
+                          accessToken={mapboxgl.accessToken!}
+                          onRetrieve={(result: any) => {
+                            if (result?.features?.[0]?.geometry?.coordinates) {
+                              const [lng, lat] = result.features[0].geometry.coordinates;
+                              const parsedLat = Number(lat);
+                              const parsedLng = Number(lng);
+                              if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng)) {
+                                // Prefer resolution 7 for search zoom; use 6 if you want a slightly larger area
+                                const desiredRes = 6;
+                                const cell = h3.latLngToCell(parsedLat, parsedLng, desiredRes);
+                                setMapInfoData((p: any) => ({
+                                  ...p,
+                                  latitude: String(parsedLat),
+                                  longitude: String(parsedLng),
+                                  h3Index: cell,
+                                }));
+                                // update displayed hex + resolution so HexMap can zoom/update view
+                                try {
+                                  setDisplayedHex(cell);
+                                  setDisplayedHexRes(desiredRes);
+                                } catch (e) {
+                                  // silent fallback if state setters not available in this scope
+                                }
+                                setFieldErrors((prev: any) => ({ ...prev, latitude: '', longitude: '' }));
+                                setHexSynced(true);
+                              }
                             }
-                            setFieldErrors((prev: any) => ({ ...prev, latitude: '', longitude: '' }));
-                            setHexSynced(true);
-                          }
-                        }}
-                      />
+                          }}
+                          placeholder="Search location..."
+                        />
+                      </div>
                       {/* reserve error space to avoid vertical shifts (smaller) */}
                       <div className="min-h-[0.25rem] mt-0" />
                     </div>

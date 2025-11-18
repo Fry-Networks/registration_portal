@@ -1,7 +1,7 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import { Device, Product } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
 import { secureFetch } from '../../lib/api/secureFetch';
@@ -27,64 +27,83 @@ export default function WithdrawModal({
   const [withdrawableTime, setWithdrawableTime] = useState<Date>(
     new Date(Date.now())
   );
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
 
   const { data: session } = useSession();
   const toast = useToastContext();
   const walletAddress = session?.user?.address ?? null;
+  const modalOpen = Boolean(modals[modalName]);
+  const errorToastShownRef = useRef(false);
+  const buttonBaseClass =
+    'px-4 py-2 rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 disabled:opacity-60 disabled:cursor-not-allowed';
+  const primaryButtonClass = `${buttonBaseClass} border-red-600 bg-red-600 text-white hover:bg-red-500 hover:border-red-500`;
+  const secondaryButtonClass = `${buttonBaseClass} border-red-600 text-red-600 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-900/20`;
 
-  const fetchWithdrawable = useCallback(
-    async (targetDevice: Device) => {
-      if (modals[modalName] === false) {
-        return;
-      }
+  useEffect(() => {
+    if (!modalOpen) {
+      setAcknowledged(false);
+      setStatusError(null);
+      errorToastShownRef.current = false;
+    }
+  }, [modalOpen]);
 
-      console.log('fetchWithdrawable');
+  useEffect(() => {
+    if (!modalOpen || !device || !walletAddress) {
+      return;
+    }
 
-      if (!walletAddress) {
-        console.log('Session invalid');
-        return;
-      }
-
+    let cancelled = false;
+    const fetchWithdrawableStatus = async () => {
       try {
         const response = await secureFetch('/api/stake/withdrawable', {
-          miner_key: targetDevice.miner_key,
+          miner_key: device.miner_key,
           address: walletAddress
         });
+        const payload = await response.json().catch(() => null);
 
         if (!response.ok) {
-          toast.error({
-            heading: 'Withdraw Error',
-            message: 'Network error to get withdraw status'
-          });
-          return;
+          const fallback = 'We could not confirm your withdraw status. Please try again in a few moments.';
+          const message =
+            typeof payload?.message === 'string' ? payload.message : fallback;
+          throw new Error(message);
         }
 
-        const result = await response.json();
-        setIsWithdrawable(result.data.available);
-        setWithdrawableTime(new Date(result.data.availableIn));
-      } catch (error) {}
-    },
-    [modals, modalName, walletAddress, toast]
-  );
+        if (!payload?.data) {
+          throw new Error('Withdraw status response was malformed. Please refresh and try again.');
+        }
 
-  useEffect(() => {
-    if (device) {
-      fetchWithdrawable(device);
-    }
-  }, [device, fetchWithdrawable]);
+        if (!cancelled) {
+          setIsWithdrawable(Boolean(payload.data.available));
+          setWithdrawableTime(new Date(payload.data.availableIn));
+          setStatusError(null);
+          errorToastShownRef.current = false;
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'We could not confirm your withdraw status. Please try again in a few moments.';
+        setIsWithdrawable(false);
+        setStatusError(message);
 
-  useEffect(() => {
-    if (!modals[modalName]) {
-      setAcknowledged(false);
-    }
-  }, [modals, modalName]);
+        if (!errorToastShownRef.current) {
+          toast.error({
+            heading: 'Withdraw check failed',
+            message
+          });
+          errorToastShownRef.current = true;
+        }
+      }
+    };
 
-  useEffect(() => {
-    if (!modals[modalName]) {
-      setAcknowledged(false);
-    }
-  }, [modals, modalName]);
+    void fetchWithdrawableStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [modalOpen, device, walletAddress, toast]);
 
   const handleWithdraw = async () => {
     setIsProcessing(true);
@@ -133,7 +152,7 @@ export default function WithdrawModal({
         className="z-[100]"
       >
         {/* Align modal palette with the verification withdraw styling so text stays legible on both themes. */}
-        <DialogPanel className="sm|max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -150,6 +169,11 @@ export default function WithdrawModal({
               ? `You can withdraw now`
               : `You can withdraw at ${withdrawableTime}`}
           </p>
+          {statusError && (
+            <p className="mt-2 text-sm text-red-500 dark:text-red-400">
+              {statusError}
+            </p>
+          )}
 
           {/* {!isWithdrawable && (
             <p className="text-red-500 mt-4">
@@ -180,16 +204,11 @@ export default function WithdrawModal({
             justifyContent="center"
             className="gap-3 w-full mt-5"
           >
-            <Button
-            className="bg-transparent border-red-600 text-white hover:bg-red-600 hover:border-red-600"
-              onClick={() => !isProcessing && closeModal(modalName)}
-            >
+            <Button className={secondaryButtonClass} onClick={() => !isProcessing && closeModal(modalName)}>
               Close
             </Button>
             <Button
-              className={`relative flex items-center justify-center bg-transparent border-red-600 text-white hover:bg-red-600 hover:border-red-600 ${
-                isProcessing ? 'cursor-not-allowed' : 'cursor-default'
-              }`}
+              className={`${primaryButtonClass} relative flex items-center justify-center`}
               disabled={!isWithdrawable || !acknowledged}
               onClick={() => handleWithdraw()}
             >
