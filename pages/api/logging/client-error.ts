@@ -22,6 +22,35 @@ type ClientErrorBody = {
 
 const ENDPOINT = '/api/logging/client-error';
 
+/**
+ * Normalize an error message coming from the browser.
+ * Some callers invoke the logger with `console.error({})`, which results in an empty string.
+ * We try to extract something meaningful from the `message`, `reason`, or `stack` fields so
+ * the downstream Discord alert has actionable text instead of `[object Object]`.
+ */
+const deriveMessage = (body: ClientErrorBody): string => {
+  if (typeof body.message === 'string' && body.message.trim().length > 0) {
+    return body.message.trim().slice(0, 2000);
+  }
+  if (body.reason) {
+    try {
+      const serialized = JSON.stringify(body.reason);
+      if (serialized && serialized !== '{}') {
+        return `Client error reason: ${serialized.slice(0, 2000)}`;
+      }
+    } catch {
+      const reasonString = String(body.reason);
+      if (reasonString && reasonString !== '[object Object]') {
+        return reasonString.slice(0, 2000);
+      }
+    }
+  }
+  if (typeof body.stack === 'string' && body.stack.trim().length > 0) {
+    return body.stack.trim().split('\n')[0]?.slice(0, 2000) ?? 'Unknown client error';
+  }
+  return 'Unknown client error';
+};
+
 export default function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -40,10 +69,7 @@ export default function handler(
 
   try {
     const body = (req.body ?? {}) as ClientErrorBody;
-    const errorMessage =
-      typeof body.message === 'string' && body.message.trim().length > 0
-        ? body.message.trim().slice(0, 2000)
-        : 'Unknown client error';
+    const errorMessage = deriveMessage(body);
 
     const minerKey =
       typeof body.minerKey === 'string' && body.minerKey.trim().length > 0

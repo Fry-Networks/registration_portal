@@ -129,6 +129,20 @@ export function emitClientError(detail: ClientErrorEventDetail) {
 export function useClientErrorLogger(session: Session | null | undefined) {
   const walletAddress = session?.user?.address ?? null;
   const cacheRef = useRef<Map<string, number>>(new Map());
+  const shouldSuppress = (payload: ErrorPayload): boolean => {
+    const message = payload?.message ?? '';
+    if (typeof message === 'string' && message.toLowerCase().includes('no accounts found')) {
+      return true;
+    }
+    const reason = payload?.reason;
+    if (typeof reason === 'string' && reason.toLowerCase().includes('no accounts found')) {
+      return true;
+    }
+    if (reason instanceof Error && reason.message.toLowerCase().includes('no accounts found')) {
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -151,6 +165,9 @@ export function useClientErrorLogger(session: Session | null | undefined) {
 
     const postError = async (payload: ErrorPayload) => {
       try {
+        if (shouldSuppress(payload)) {
+          return;
+        }
         const minerKey = normalizeString(payload.minerKey) ?? getLastMinerKey();
         if (minerKey && minerKey !== 'UNKNOWN_MINER_KEY') {
           recordMinerKey(minerKey);

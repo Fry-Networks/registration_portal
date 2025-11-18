@@ -5,7 +5,7 @@ import '../app/globals.css';
 import { useSession, SessionProvider, getSession, signOut } from 'next-auth/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Modal from 'react-modal';
-import { WalletManager, NetworkId, WalletId } from '@txnlab/use-wallet';
+import type { WalletManager } from '@txnlab/use-wallet';
 import { WalletProvider } from '@txnlab/use-wallet-react';
 import Navbar from '../components/Navbar';
 import AnnouncementBanner from '../components/AnnouncementBanner';
@@ -15,12 +15,14 @@ import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
-import { generateClientToken } from '../lib/clientToken';
+import { getClientToken } from '../lib/clientToken';
 import { FingerprintProvider, useFingerprintReady, useRegisterFingerprintRefresh } from '../app/fingerprintcontext';
 import type { MySession } from './api/auth/[...nextauth]';
 import { useClientErrorLogger } from '../lib/hooks/useClientErrorLogger';
-import { useWallet } from '@txnlab/use-wallet-react';
 import { useToastContext } from '../hooks/ToastContext';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from '../lib/wallet/manager';
+import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -45,86 +47,22 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
   useEffect(() => {
     let mounted = true;
-
-    const dappName = 'Fry Networks Dashboard';
-    const dappIcon =
-      process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png';
-
-    const manager = new WalletManager({
-      wallets: [
-        {
-          id: WalletId.DEFLY,
-          options: {
-            shouldShowSignTxnToast: false,
-            chainId: 416001, // Mainnet chain ID
-          }
-        },
-        {
-          id: WalletId.PERA,
-          options: {
-            shouldShowSignTxnToast: false,
-            chainId: 416001, // Mainnet chain ID
-            compactMode: false,
-          }
-        }
-      ],
-      networks: {
-        mainnet: {
-          algod: {
-            token: '',
-            baseServer: 'https://mainnet-api.algonode.cloud',
-            port: 443
-          },
-          genesisHash: 'wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
-          genesisId: 'mainnet-v1.0',
-          caipChainId: 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8='
-        },
-        testnet: {
-          algod: {
-            token: '',
-            baseServer: 'https://testnet-api.algonode.cloud',
-            port: 443
-          },
-          genesisHash: 'SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=',
-          genesisId: 'testnet-v1.0',
-          caipChainId: 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
-        }
-      },
-      defaultNetwork: NetworkId.MAINNET
-    });
-
-    const disconnectAll = () => {
-      const maybeManager = manager as unknown as {
-        disconnectAll?: () => void | Promise<void>;
-      };
-      if (typeof maybeManager.disconnectAll === 'function') {
-        try {
-          void maybeManager.disconnectAll();
-        } catch (error) {
-          console.error('[WalletManager] Failed to disconnect wallets', error);
-        }
-      }
-    };
-
+    const manager = createWalletManager();
     setWalletManager(manager);
 
     (async () => {
-      try {
-        await manager.resumeSessions();
-      } catch (error) {
-        console.error('[WalletManager] Failed to resume sessions', error);
-      }
+      await resumeWalletSessions(manager);
       if (!mounted) {
-        disconnectAll();
+        await disconnectAllWallets(manager);
       }
     })();
 
     // Initialize client token for API security
     (async () => {
       try {
-        await generateClientToken();
+        await getClientToken();
       } catch (error) {
-        console.error('[ClientToken] Failed to generate token', error);
+        console.error('[ClientToken] Failed to warm token cache', error);
       }
     })();
 
@@ -133,7 +71,13 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
     return () => {
       mounted = false;
+      void disconnectAllWallets(manager);
     };
+  }, []);
+
+  useEffect(() => {
+    // Safari hard-limits replaceState, so install the throttle as soon as we're on the client.
+    installHistoryReplaceThrottle();
   }, []);
 
   useEffect(() => {
@@ -207,11 +151,12 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   const toast = useToastContext();
   const walletMismatchNotified = useRef(false);
   const previousAuthStatus = useRef(status);
-  const noopRefresh = useCallback(async () => false, []);
+  const noopRefresh = useCallback(async (_options?: { forceUpdate?: boolean }) => false, []);
 
   const sessionUserAgent = session?.userAgent ?? null;
 
-  const refreshFingerprint = useCallback(async (): Promise<boolean> => {
+  const refreshFingerprint = useCallback(async (options: { forceUpdate?: boolean } = {}): Promise<boolean> => {
+    const { forceUpdate = false } = options;
     if (status !== 'authenticated') return false;
     try {
       const res = await fetch('/api/auth/capture-fingerprint', { method: 'POST' });
@@ -221,10 +166,18 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
       const ua = data?.userAgent ?? sessionUserAgent ?? null;
 
       if (fingerprint && update) {
-        await update({
-          deviceFingerprint: fingerprint,
-          userAgent: ua
-        });
+        if (!forceUpdate && fingerprint === session?.deviceFingerprint && ua === sessionUserAgent) {
+          setFingerprintReady(true);
+          return true;
+        }
+        try {
+          await update({
+            deviceFingerprint: fingerprint,
+            userAgent: ua
+          });
+        } catch {
+          await getSession();
+        }
       } else {
         await getSession();
       }
@@ -235,7 +188,7 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
       console.error('[Fingerprint] Failed to refresh fingerprint', error);
       return false;
     }
-  }, [status, update, sessionUserAgent, setFingerprintReady]);
+  }, [status, update, sessionUserAgent, session?.deviceFingerprint, setFingerprintReady]);
 
   useEffect(() => {
     registerRefresh(refreshFingerprint);
@@ -250,7 +203,18 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
       return;
     }
 
-    if (session?.deviceFingerprint) {
+    const browserUserAgent =
+      typeof navigator !== 'undefined' ? navigator.userAgent : null;
+    const sessionFingerprint = session?.deviceFingerprint ?? null;
+    const sessionBoundUserAgent = session?.userAgent ?? null;
+
+    const needsRebind =
+      !sessionFingerprint ||
+      (browserUserAgent &&
+        sessionBoundUserAgent &&
+        browserUserAgent !== sessionBoundUserAgent);
+
+    if (!needsRebind) {
       setFingerprintReady(true);
       return;
     }
@@ -352,7 +316,7 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
       const now = Date.now();
       if (now - lastCapture < FOCUS_CAPTURE_INTERVAL_MS) return;
       lastCapture = now;
-      void refreshFingerprint();
+      void refreshFingerprint({ forceUpdate: false });
     };
 
     window.addEventListener('focus', handleFocus);
