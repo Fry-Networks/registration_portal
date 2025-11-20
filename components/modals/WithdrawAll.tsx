@@ -25,6 +25,7 @@ export default function WithdrawAllModal({
 	const { data: session } = useSession();
 	const toast = useToastContext();
 	const [selectedOption, setSelectedOption] = useState('');
+	const [acknowledged, setAcknowledged] = useState(false);
 
 	// Options depend on product: AI Edge has no Node Staking
 const options = useMemo(() => {
@@ -40,8 +41,25 @@ useEffect(() => {
 
     if (defaultOption) {
         setSelectedOption(defaultOption);
+        setAcknowledged(false);
+    } else {
+        setSelectedOption('');
+        setAcknowledged(false);
     }
 }, [device, options]);
+
+const warningCopy: Record<string, { title: string; body: string; ack: string }> = {
+  'Registration Staking': {
+    title: 'Withdrawing registration stake stops device rewards.',
+    body: 'Keep the registration stake in place to stay eligible for payouts. Removing it pauses all earnings for this device until you re-stake.',
+    ack: 'I understand withdrawing registration stake stops all device rewards until I re-stake.'
+  },
+  'Node Staking': {
+    title: 'Withdrawing node stake stops node earnings.',
+    body: 'Your node must stay staked to earn rewards. Removing the stake pauses node payouts until you re-stake and resume operation.',
+    ack: 'I understand withdrawing node stake pauses node earnings until I re-stake.'
+  }
+};
 
 	const withdrawAll = async () => {
 		setIsProcessing(true);
@@ -153,6 +171,14 @@ useEffect(() => {
 					>
 						<p>Do you want to withdraw registration and node staking?</p>
 					</Flex> */}
+					<div className="rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
+						<p className="font-semibold text-amber-50">
+							Withdrawing registration or node stakes stops rewards.
+						</p>
+						<p className="text-xs mt-1 text-amber-100/90">
+							Remove the stake only if you understand the device (or node) will stop earning until you re-stake and rejoin reward cycles.
+						</p>
+					</div>					
 					{/* Re-use the dark-mode friendly card palette so option selectors remain legible. */}
 					<Card className="max-w-md mx-auto p-4 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 border border-amber-500/30">
 						<Title className='text-[16px] text-gray-900 dark:text-gray-100'>Registration or Node Staking?</Title>
@@ -174,7 +200,10 @@ useEffect(() => {
 											name="custom-radio"
 											value={option}
 											checked={selectedOption === option}
-											onChange={() => setSelectedOption(option)}
+											onChange={() => {
+												setSelectedOption(option);
+												setAcknowledged(false);
+											}}
 											className="form-radio text-blue-600 h-4 w-4 mr-3"
 											disabled={option === 'Registration Staking' ? ( isRegistrationStaked(device) ? false : true ) : isNodeStaked(device) ? false : true}
 										/>
@@ -184,6 +213,21 @@ useEffect(() => {
 							})}
 						</div>
 					</Card>
+					{selectedOption && warningCopy[selectedOption] && (
+						<div className="mt-4 rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+							<p className="font-semibold text-amber-50">{warningCopy[selectedOption].title}</p>
+							<p className="text-xs mt-1 text-amber-100/90">{warningCopy[selectedOption].body}</p>
+							<label className="mt-3 flex items-center gap-2 text-xs text-amber-50">
+								<input
+									type="checkbox"
+									className="h-4 w-4 rounded border-amber-200 text-amber-200 focus:ring-amber-400"
+									checked={acknowledged}
+									onChange={(event) => setAcknowledged(event.target.checked)}
+								/>
+								<span>{warningCopy[selectedOption].ack}</span>
+							</label>
+						</div>
+					)}
 					<Flex
 						flexDirection="row"
 						justifyContent="center"
@@ -204,8 +248,9 @@ useEffect(() => {
 						</Button>
 						<Button
 							className={`relative flex items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
-								isProcessing ? 'cursor-not-allowed' : 'cursor-default'
+								isProcessing || !acknowledged || !selectedOption ? 'cursor-not-allowed opacity-60' : 'cursor-default'
 							}`}
+							disabled={isProcessing || !acknowledged || !selectedOption}
 							onClick={() => withdrawAll()}
 						>
 							{isProcessing ? (

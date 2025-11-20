@@ -652,13 +652,13 @@ const StakeModal = ({
             </button>
           </div>
           {/* Keep headings consistent with the withdraw modal styling for contrast. */}
-          <Title className="mb-5 text-gray-900 dark:text-gray-100">{`${modalTitle}${tokenName ? ` (${tokenName})` : ''}`}</Title>
+           <Title className="mb-5 text-gray-100">{`${modalTitle}${tokenName ? ` (${tokenName})` : ''}`}</Title>
           {/* Use explicit text colors so staking controls stay readable on dark/light backgrounds. */}
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5 text-gray-900 dark:text-gray-100"
+            className="gap-3 w-full mt-5 text-gray-100"
           >
             {effectiveContext === 'verification' ? (
               <>
@@ -703,7 +703,7 @@ const StakeModal = ({
             <div className="flex items-center w-full space-x-2">
               <label
                 htmlFor="stakeAmount"
-                className="text-sm font-medium text-gray-700 dark:text-gray-100 text-nowrap"
+                className="text-sm font-medium text-gray-100 text-nowrap"
               >
                 Amount to Stake:
               </label>

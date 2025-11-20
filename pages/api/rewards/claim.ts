@@ -84,6 +84,12 @@ const parseCurrencyValue = (value: unknown): number => {
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await getServerSession(req, res, authOptions);
+  if (session?.user?.address) {
+    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
+      session.user.address;
+  }
+
   // Preserve the admin bypass + client token + request signature layers we had previously.
   const isAdmin = await isAdminRequest(req);
 
@@ -118,7 +124,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
     res.status(401).json(createApiError(ErrorCodes.UNAUTHORIZED, 'Unauthorized'));
     return;

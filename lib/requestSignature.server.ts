@@ -20,6 +20,10 @@ import { logSecurityEventAggregated } from './securityEventAggregation';
 const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
 const MAX_AGE_SECONDS = 300; // 5 minutes
 
+type RequestWithSessionWallet = NextApiRequest & {
+  _sessionWalletAddress?: string;
+};
+
 /**
  * Helper: Format and log security event
  */
@@ -140,7 +144,18 @@ export function verifyRequestSignature(
   }
 
   const crypto = require('crypto');
-  const walletAddress = (req?.body?.address || req?.body?.wallet || 'unknown') as string;
+  const sessionWalletAddress = (req as RequestWithSessionWallet | undefined)?._sessionWalletAddress;
+  const headerWallet =
+    (typeof req?.headers?.['x-wallet'] === 'string' ? (req.headers['x-wallet'] as string) : undefined) ??
+    (typeof req?.headers?.['x-address'] === 'string' ? (req.headers['x-address'] as string) : undefined);
+
+  const walletAddress = (
+    (req?.body?.address as string | undefined) ||
+    (req?.body?.wallet as string | undefined) ||
+    sessionWalletAddress ||
+    headerWallet ||
+    'unknown'
+  ) as string;  
   const minerKey = (req?.body?.miner_key || req?.query?.miner_key || 'unknown') as string;
 
   // Check timestamp is within acceptable range

@@ -997,6 +997,9 @@ export default function DeviceListItem({
                   {formatTx(stakeSource.txId ?? registrationDetail.txId)}
                 </span>
               </div>
+              <div className="border-t border-gray-700 pt-1.5 text-[0.65rem] text-gray-400 italic">
+                Withdrawing registration stake stops device rewards until you re-stake.
+              </div>
             </div>
           )
         });
@@ -1079,6 +1082,9 @@ export default function DeviceListItem({
                 <span className="font-mono text-[0.65rem]">
                   {formatTx(nodeStakeSource.txId ?? nodeDetail.txId)}
                 </span>
+              </div>
+              <div className="border-t border-gray-700 pt-1.5 text-[0.65rem] text-gray-400 italic">
+                Withdrawing node staking pauses node earnings until you re-stake and resume operation.
               </div>
             </div>
           )
@@ -2047,18 +2053,20 @@ const collapsibleSections: SectionConfig[] = useMemo(
             History
           </Button>
           {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
-            <Button
-              className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
-                !isProductStakeAvailable(product)
-                  ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
-                  : isStaked()
-                    ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
-                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
-              }`}
-              onClick={() => handleWithdrawAllButton(device)}
-            >
-              Unstake
-            </Button>
+            <Tooltip text="Registration and node staking keeps rewards flowing. Withdrawing stops payouts until you re-stake.">
+              <Button
+                className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+                  !isProductStakeAvailable(product)
+                    ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                    : isStaked()
+                      ? 'border-green-500 hover:bg-green-500 hover-border-green-500'
+                      : 'border-red-500 hover:bg-red-500 hover-border-red-500'
+                }`}
+                onClick={() => handleWithdrawAllButton(device)}
+              >
+                Unstake
+              </Button>
+            </Tooltip>
           )}
         </div>
         {pendingAmount > 0 && (

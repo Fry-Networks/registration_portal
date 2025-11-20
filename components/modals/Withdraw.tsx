@@ -152,7 +152,7 @@ export default function WithdrawModal({
         className="z-[100]"
       >
         {/* Align modal palette with the verification withdraw styling so text stays legible on both themes. */}
-        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
+        <DialogPanel className="sm:max-w-xl text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -163,8 +163,8 @@ export default function WithdrawModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5 text-gray-900 dark:text-gray-100">{`Withdraw`}</Title>
-          <p className="text-gray-900 dark:text-gray-100">
+          <Title className="mb-5 text-gray-100">{`Withdraw Verification stake`}</Title>
+          <p className="text-gray-100">
             {isWithdrawable
               ? `You can withdraw now`
               : `You can withdraw at ${withdrawableTime}`}

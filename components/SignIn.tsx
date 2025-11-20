@@ -350,7 +350,7 @@ export default function SignIn({ signed }: SignInProps) {
         <Title className="text-white px-2 text-center">
           {!session || !isSessionWallet
             ? 'Please click the Sign in button to sign with the currently connected wallet.'
-            : 'You are signed successfully, click Go to Dashboard to onboard your devices.'}
+            : 'You are signed in successfully, click "Go to Dashboard" to continue.'}
         </Title>
         {isNew && (
           <div className="mt-4">

@@ -19,7 +19,6 @@ import { getClientToken, refreshClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
-import Image from 'next/image';
 import Link from 'next/link';
 import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
@@ -38,6 +37,7 @@ import FryConversionModal from '../components/modals/FryConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 import { shouldForceLegacyUnverified } from '../lib/legacyStake';
+import HeroBanner from '../components/HeroBanner';
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import {
   isNodeStaked,
@@ -144,90 +144,6 @@ function isLinkRequiredForPrefix(prefix: string) {
   if (CREDENTIALS_NEEDED.has('ALL')) return true;
   return CREDENTIALS_NEEDED.has(prefix);
 }
-
-// Smart price formatting component with hover tooltip
-const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
-
-  useEffect(() => {
-    let active = true;
-    const fetchPrices = async () => {
-      try {
-        const res = await fetch('/api/price/get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
-        });
-        if (!res.ok) return;
-        const json = await res.json();
-        if (!active) return;
-        setPrices({
-          fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0
-        });
-      } catch (error) {
-        console.error('Failed to fetch prices', error);
-      }
-    };
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 300000); // 5 minutes
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const formatPrice = (price: number): { display: string; full: string } => {
-    const full = `$${price.toFixed(10).replace(/\.?0+$/, '')}`;
-    
-    if (price >= 1) {
-      return { display: `$${price.toFixed(2)}`, full };
-    } else if (price >= 0.01) {
-      // Show 4 decimals for values between $0.01 and $1
-      const trimmed = price.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-      return { display: `$${trimmed}`, full };
-    } else if (price >= 0.0001) {
-      const trimmed = price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-      return { display: `$${trimmed}`, full };
-    } else if (price > 0) {
-      return { display: `$${price.toExponential(1)}`, full };
-    }
-    return { display: '$0.00', full: '$0.00' };
-  };
-
-  const PriceWithTooltip = ({ label, price }: { label: string; price: number }) => {
-    const formatted = formatPrice(price);
-    return (
-      <span className="group relative inline-block">
-        <span className="font-bold text-white">
-          {label}: {formatted.display}
-        </span>
-        {formatted.display !== formatted.full && (
-          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg z-50">
-            {formatted.full}
-          </span>
-        )}
-      </span>
-    );
-  };
-
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
-      <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
-      <span className="text-white text-gray-400">•</span>
-      <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
-      <span className="text-white text-gray-400">•</span>
-      <a
-        href="https://docs.frynetworks.com/dashboard/registration"
-        target="_blank"
-        rel="noreferrer"
-        className="font-bold text-white underline hover:text-gray-200 whitespace-nowrap"
-      >
-        Registration Guide
-      </a>
-    </div>
-  );
-};
 
 function getMinerCategory(miner_key: string): MinerCategory | null {
   const prefix = miner_key.split('-')[0];
@@ -1233,24 +1149,19 @@ const DevicesPage = ({
 
   return (
     <SWRConfig value={{ fallback: rewardFallback }}>
-    <div className="w-full">
-      <div className="relative flex">
-        <Image
-          src={bgImg}
-          // Fixed height banner to prevent growth with window resizing
-          className="w-full h-24 sm:h-22 object-cover"
-          alt="Background Image"
-          priority
+    <div className="w-full space-y-6">
+      <div className="px-2 sm:px-20 mt-2">
+        <HeroBanner
+          title="Fry Operations Center"
+          subtitle="Register and manage miners and nodes: verify details, link portals, and handle rewards."
+          backgroundImage={bgImg}
+          links={[
+            {
+              label: 'Registration Guide',
+              href: 'https://docs.frynetworks.com/dashboard/registration'
+            }
+          ]}
         />
-        <Flex
-          flexDirection="col"
-          className="absolute w-full h-full justify-center gap-2"
-        >
-          <p className="text-sm sm:text-base text-center px-2 text-gray-400">
-            Register and manage miners and nodes: verify details, link portals, and handle rewards.
-          </p>
-          <TokenPricesBar />
-        </Flex>
       </div>
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
       {session?.user?.address && totals && (

@@ -28,6 +28,12 @@ export const enforceWalletApiSecurity = async (
   { endpoint, minerKey, method }: SecurityContext
 ): Promise<WalletSecurityResult | null> => {
   const resolvedMethod = method ?? req.method ?? 'POST';
+  const session = await getServerSession(req, res, authOptions);
+  if (session?.user?.address) {
+    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
+      session.user.address;
+  }
+
   const isAdmin = await isAdminRequest(req);
 
   if (!isAdmin) {
@@ -70,7 +76,6 @@ export const enforceWalletApiSecurity = async (
     }
   }
 
-  const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
     res.status(401).json(CommonErrors.noSession());
     return null;

@@ -139,6 +139,12 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  const session = await getServerSession(req, res, authOptions);
+  if (session?.user?.address) {
+    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
+      session.user.address;
+  }
+
   const isAdmin = await isAdminRequest(req);
 
   if (!isAdmin) {
@@ -177,7 +183,6 @@ export default async function handler(
     }
   }
 
-  const session = await getServerSession(req, res, authOptions);
 
   if (!session || !session.user) {
     res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });

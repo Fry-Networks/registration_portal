@@ -1,8 +1,8 @@
-import { Button, Flex, Title } from '@tremor/react';
+import { Button, Flex, Title, Dialog, DialogPanel } from '@tremor/react';
 import { CalendarIcon, ClockIcon } from '@heroicons/react/outline';
-import Image from 'next/image';
 import type { GetServerSidePropsContext } from 'next';
 import bgImg from '../assets/background.png';
+import HeroBanner from '../components/HeroBanner';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
 import { Reward } from '../lib/types';
@@ -99,88 +99,25 @@ const STAKE_LABELS: Record<StakeCategory, string> = {
   node: 'Node Operation Stake'
 };
 
-// Smart price formatting component with hover tooltip
-const TokenPricesBar = () => {
-  const [prices, setPrices] = useState<{ fry2?: number; fnode?: number }>({});
-
-  useEffect(() => {
-    let active = true;
-    const fetchPrices = async () => {
-      try {
-        const res = await fetch('/api/price/get', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_ids: ['2485314946', '2485202024'] })
-        });
-        if (!res.ok) return;
-        const json = await res.json();
-        if (!active) return;
-        setPrices({
-          fry2: json?.prices?.['2485314946'] ?? 0,
-          fnode: json?.prices?.['2485202024'] ?? 0
-        });
-      } catch (error) {
-        console.error('Failed to fetch prices', error);
-      }
-    };
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 300000); // 5 minutes
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, []);
-
-  const formatPrice = (price: number): { display: string; full: string } => {
-    const full = `$${price.toFixed(10).replace(/\.?0+$/, '')}`;
-    
-    if (price >= 1) {
-      return { display: `$${price.toFixed(2)}`, full };
-    } else if (price >= 0.01) {
-      // Show 4 decimals for values between $0.01 and $1
-      const trimmed = price.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-      return { display: `$${trimmed}`, full };
-    } else if (price >= 0.0001) {
-      const trimmed = price.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
-      return { display: `$${trimmed}`, full };
-    } else if (price > 0) {
-      return { display: `$${price.toExponential(1)}`, full };
-    }
-    return { display: '$0.00', full: '$0.00' };
-  };
-
-  const PriceWithTooltip = ({ label, price }: { label: string; price: number }) => {
-    const formatted = formatPrice(price);
-    return (
-      <span className="group relative inline-block">
-        <span className="font-bold text-white">
-          {label}: {formatted.display}
-        </span>
-        {formatted.display !== formatted.full && (
-          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg z-50">
-            {formatted.full}
-          </span>
-        )}
-      </span>
-    );
-  };
-
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs sm:text-sm px-2">
-      <PriceWithTooltip label="FRY 2.0" price={prices.fry2 || 0} />
-      <span className="text-white text-gray-400">•</span>
-      <PriceWithTooltip label="fNode" price={prices.fnode || 0} />
-      <span className="text-white text-gray-400">•</span>
-      <a
-        href="https://vote.frynetworks.com/allvotes"
-        target="_blank"
-        rel="noreferrer"
-        className="font-bold text-white underline hover:text-gray-200 whitespace-nowrap"
-      >
-        About FIP-009 (Switch from daily to weekly rewards)
-      </a>
-    </div>
-  );
+const STAKE_WITHDRAW_WARNINGS: Record<
+  StakeCategory,
+  { title: string; body: string; ack: string }
+> = {
+  verification: {
+    title: 'Withdrawing removes your verification multiplier.',
+    body: 'You will earn base rewards only until you re-stake with FRY\u00a02.0 and restore your multiplier bonus.',
+    ack: 'I understand withdrawing removes my multiplier until I re-stake.'
+  },
+  registration: {
+    title: 'CAUTION: Withdrawing stops device rewards.',
+    body: 'Registration stake keeps this device eligible for payouts. Removing it pauses all earnings until you re-stake.',
+    ack: 'I understand withdrawing registration stake stops rewards until I re-stake.'
+  },
+  node: {
+    title: 'CAUTION: Withdrawing stops node earnings.',
+    body: 'Node operation stake keeps your node active. Removing it pauses node rewards until you re-stake and resume operation.',
+    ack: 'I understand withdrawing node stake pauses node earnings until I re-stake.'
+  }
 };
 
 export default function History({
@@ -231,6 +168,9 @@ const initialTotal = initialTotalPages || (hasPrefetched ? prefetchedPageCount :
 const [legacyStakeUnlocked, setLegacyStakeUnlocked] = useState(false);
 const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(false);
   const [withdrawLoading, setWithdrawLoading] = useState<Partial<Record<StakeCategory, boolean>>>({});
+  const [withdrawPrompt, setWithdrawPrompt] = useState<StakeCategory | null>(null);
+  const [withdrawAcknowledged, setWithdrawAcknowledged] = useState(false);
+  const [withdrawPromptLoading, setWithdrawPromptLoading] = useState(false);
   const [deviceRefreshToken, setDeviceRefreshToken] = useState(0);
   const hasStakeHistory = useMemo(() => {
     if (!stakeHistoryData) return false;
@@ -256,6 +196,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
   const isLoadingAllRef = useRef(false);
   const [isLoadingAll, setIsLoadingAll] = useState(false);
+  const activeWithdrawWarning = withdrawPrompt ? STAKE_WITHDRAW_WARNINGS[withdrawPrompt] : null;
 
   // Mirror reactive state into refs so loadPage can stay memoised without re-running parent effects.
   useEffect(() => {
@@ -747,14 +688,14 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     return map;
   }, [activeStakes, productTokens, legacyStakeUnlocked]);
 
-  const handleWithdrawStake = useCallback(
-    async (type: StakeCategory) => {
+  const submitWithdraw = useCallback(
+    async (type: StakeCategory): Promise<boolean> => {
       if (!session?.user?.address || typeof miner_key !== 'string') {
         toast.error({
           heading: 'Withdraw Error',
           message: 'Select a device and ensure you are signed in before withdrawing.'
         });
-        return;
+        return false;
       }
 
       const endpointMap: Record<StakeCategory, string> = {
@@ -762,14 +703,6 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         registration: '/api/stake/r-withdraw',
         node: '/api/stake/n-withdraw'
       };
-
-      if (type === 'verification') {
-        const confirmMessage = 'Withdrawing your verification stake removes your multiplier and you will only earn base rewards until you re-stake with FRY 2.0. Do you want to continue?';
-        const confirmed = typeof window === 'undefined' ? false : window.confirm(confirmMessage);
-        if (!confirmed) {
-          return;
-        }
-      }
 
       setWithdrawLoading((prev) => ({ ...prev, [type]: true }));
       try {
@@ -783,7 +716,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
             heading: 'Withdraw Error',
             message: payload?.message || 'Server error. Please try again.'
           });
-          return;
+          return false;
         }
 
         toast.success({
@@ -791,18 +724,42 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           message: payload?.txId ? `Tx: ${payload.txId}` : 'Withdrawal completed.'
         });
         setDeviceRefreshToken((token) => token + 1);
+        return true;
       } catch (error) {
         console.error('[history] withdraw failed', error);
         toast.error({
           heading: 'Withdraw Error',
           message: 'Unable to submit withdrawal. Please try again.'
         });
+        return false;
       } finally {
         setWithdrawLoading((prev) => ({ ...prev, [type]: false }));
       }
     },
     [miner_key, session?.user?.address, toast]
   );
+
+  const handleWithdrawRequest = useCallback((type: StakeCategory) => {
+    setWithdrawPrompt(type);
+    setWithdrawAcknowledged(false);
+  }, []);
+
+  const closeWithdrawPrompt = useCallback(() => {
+    if (withdrawPromptLoading) return;
+    setWithdrawPrompt(null);
+    setWithdrawAcknowledged(false);
+  }, [withdrawPromptLoading]);
+
+  const confirmWithdraw = useCallback(async () => {
+    if (!withdrawPrompt) return;
+    setWithdrawPromptLoading(true);
+    const success = await submitWithdraw(withdrawPrompt);
+    setWithdrawPromptLoading(false);
+    if (success) {
+      setWithdrawPrompt(null);
+      setWithdrawAcknowledged(false);
+    }
+  }, [submitWithdraw, withdrawPrompt]);
 
 
   const applyFilters = <T extends RewardView>(list: T[]) => {
@@ -890,26 +847,19 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   }, [dateFrom, dateTo, isAllDataLoaded, isLoadingAll, handleLoadAll]);
 
   return (
-    <div className="w-full">
-      <div className="relative flex">
-        <Image
-          src={bgImg}
-          className="w-full h-32 sm:h-36 object-cover"
-          alt="Background Image"
+    <div className="w-full space-y-6">
+      <div className="px-2 sm:px-20 mt-2">
+        <HeroBanner
+          title="Reward History"
+          subtitle="Explore detailed payouts, confirm on-chain settlements, and keep Fry earnings aligned across devices."
+          backgroundImage={bgImg}
+          links={[
+            {
+              label: 'About FIP-009 (Switch from daily to weekly rewards)',
+              href: 'https://vote.frynetworks.com/allvotes'
+            }
+          ]}
         />
-        <Flex
-          flexDirection="col"
-          className="absolute w-full h-full justify-center gap-3"
-        >
-          <Title className="text-white text-2xl sm:text-3xl lg:text-4xl font-extralight tracking-wide px-2">
-            Reward History
-          </Title>
-          <p className="text-sm sm:text-base text-center px-2 text-gray-300">
-            You can explore the rewards history and manage each reward for
-            miners and nodes.
-          </p>
-          <TokenPricesBar />
-        </Flex>
       </div>
       <div className="px-2 sm:px-20">
         <Link href="/devices">
@@ -1001,11 +951,81 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
       <StakeHistorySection
         history={stakeHistoryData}
         availability={stakeAvailability}
-        onWithdraw={handleWithdrawStake}
+        onWithdraw={handleWithdrawRequest}
         withdrawLoading={withdrawLoading}
       />
     </div>
   )}
+  <Dialog
+    open={Boolean(withdrawPrompt)}
+    onClose={closeWithdrawPrompt}
+    static={true}
+    className="z-[120]"
+  >
+    {withdrawPrompt && activeWithdrawWarning && (
+      <DialogPanel className="sm:max-w-xl bg-gray-900 text-gray-100">
+        <Title className="mb-4 text-gray-100">
+          Withdraw {STAKE_LABELS[withdrawPrompt]}
+        </Title>
+        <div className="rounded-2xl border border-amber-400/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          <p className="font-semibold text-amber-50">{activeWithdrawWarning.title}</p>
+          <p className="text-xs mt-1 text-amber-100/90">{activeWithdrawWarning.body}</p>
+          <label className="mt-3 flex items-center gap-2 text-xs text-amber-50">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-amber-200 text-amber-200 focus:ring-amber-400"
+              checked={withdrawAcknowledged}
+              onChange={(event) => setWithdrawAcknowledged(event.target.checked)}
+            />
+            <span>{activeWithdrawWarning.ack}</span>
+          </label>
+        </div>
+        <Flex
+          flexDirection="row"
+          justifyContent="center"
+          className="gap-3 w-full mt-5"
+        >
+          <Button
+            className="bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600"
+            onClick={closeWithdrawPrompt}
+            disabled={withdrawPromptLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            className="bg-red-600 text-white hover:bg-red-500 hover:border-red-500 border-red-600 disabled:opacity-60"
+            disabled={!withdrawAcknowledged || withdrawPromptLoading}
+            onClick={confirmWithdraw}
+          >
+            {withdrawPromptLoading ? (
+              <svg
+                className="animate-spin h-5 w-5 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+            ) : (
+              'Withdraw'
+            )}
+          </Button>
+        </Flex>
+      </DialogPanel>
+    )}
+  </Dialog>
   <div className="px-2 sm:px-20 mt-6">
     {/* Tabs + Status on left; compact date filters on right */}
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1227,48 +1247,54 @@ function StakeHistorySection({
         <div className="grid gap-3 md:grid-cols-3">
           {activeEntries
             .filter((entry) => entry.hasStake)
-            .map((entry) => (
-              <div
-                key={entry.type}
-                className="rounded-lg border border-gray-800 bg-gray-900/40 p-4 shadow-inner shadow-black/20 flex flex-col gap-2"
-              >
-                <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                  Active {STAKE_LABELS[entry.type]}
-                </div>
-                <div className="text-2xl font-semibold text-white">
-                  {entry.amount ? entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
-                </div>
-                <div className="text-xs text-gray-400">
-                  {entry.assetId ? getAssetDisplay(entry.assetId) : 'Asset unknown'}
-                </div>
-                {entry.type === 'verification' && entry.lockType && (
-                  <div className="text-xs text-gray-500">
-                    Lock: {entry.lockType === 'two' ? 'Type 2 (6 month)' : 'Type 1 (24 hour)'}
-                  </div>
-                )}
-                {entry.available ? (
-                  <p className="text-xs text-emerald-300">Lock complete. Ready to withdraw.</p>
-                ) : entry.availableAt ? (
-                  <p className="text-xs text-gray-400">
-                    Unlocks on {entry.availableAt.toLocaleString()} ({formatCountdown(entry.availableAt)})
-                  </p>
-                ) : (
-                  <p className="text-xs text-gray-500">Waiting for lock completion.</p>
-                )}
-                {entry.type === 'verification' && (
-                  <div className="rounded border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.7rem] text-amber-100">
-                    Withdrawing removes your verification multiplier. You will earn base rewards until you re-stake with FRY&nbsp;2.0.
-                  </div>
-                )}
-                <Button
-                  className="mt-auto bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 disabled:opacity-40"
-                  disabled={!entry.available || withdrawLoading[entry.type]}
-                  onClick={() => onWithdraw(entry.type)}
+            .map((entry) => {
+              const notice = STAKE_WITHDRAW_WARNINGS[entry.type];
+              return (
+                <div
+                  key={entry.type}
+                  className="rounded-lg border border-gray-800 bg-gray-900/40 p-4 shadow-inner shadow-black/20 flex flex-col gap-2"
                 >
-                  {withdrawLoading[entry.type] ? 'Withdrawing…' : 'Withdraw'}
-                </Button>
-              </div>
-            ))}
+                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                    Active {STAKE_LABELS[entry.type]}
+                  </div>
+                  <div className="text-2xl font-semibold text-white">
+                    {entry.amount ? entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {entry.assetId ? getAssetDisplay(entry.assetId) : 'Asset unknown'}
+                  </div>
+                  {entry.type === 'verification' && entry.lockType && (
+                    <div className="text-xs text-gray-500">
+                      Lock: {entry.lockType === 'two' ? 'Type 2 (6 month)' : 'Type 1 (24 hour)'}
+                    </div>
+                  )}
+                  {entry.available ? (
+                    <p className="text-xs text-emerald-300">
+                      {entry.type === 'verification' ? 'Lock complete. Ready to withdraw.' : 'Ready to withdraw.'}
+                    </p>
+                  ) : entry.type === 'verification' && entry.availableAt ? (
+                    <p className="text-xs text-gray-400">
+                      Unlocks on {entry.availableAt.toLocaleString()} ({formatCountdown(entry.availableAt)})
+                    </p>
+                  ) : entry.type === 'verification' ? (
+                    <p className="text-xs text-gray-500">Waiting for lock completion.</p>
+                  ) : null}
+                  {notice && (
+                    <div className="rounded border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.7rem] text-amber-100">
+                      <p className="font-semibold text-amber-50">{notice.title}</p>
+                      <p className="text-xs mt-1 text-amber-100/90">{notice.body}</p>
+                    </div>
+                  )}
+                  <Button
+                    className="mt-auto bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 disabled:opacity-40"
+                    disabled={!entry.available || withdrawLoading[entry.type]}
+                    onClick={() => onWithdraw(entry.type)}
+                  >
+                    {withdrawLoading[entry.type] ? 'Withdrawing…' : 'Withdraw'}
+                  </Button>
+                </div>
+              );
+            })}
         </div>
       )}
       {sections.map((section) => {

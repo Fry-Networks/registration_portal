@@ -26,6 +26,12 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  const session = await getServerSession(req, res, authOptions);
+  if (session?.user?.address) {
+    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
+      session.user.address;
+  }
+
   // Check if user is admin (bypasses all security layers)
   const isAdmin = await isAdminRequest(req);
 
@@ -61,7 +67,6 @@ export default async function handler(
   }
 
   // Session check happens AFTER security verification
-  const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
     res.status(401).json(CommonErrors.noSession());
     return;

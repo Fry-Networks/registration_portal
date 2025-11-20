@@ -58,6 +58,12 @@ type RewardBucket = { pending: number; claimable: number; claimed: number; accru
 const createBucket = (): RewardBucket => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const session = await getServerSession(req, res, authOptions);
+  if (session?.user?.address) {
+    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
+      session.user.address;
+  }
+
   // Check if user is admin (bypasses all security layers)
   const isAdmin = await isAdminRequest(req);
 
@@ -93,7 +99,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Layer 3: Session check
-  const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
     res.status(401).json(CommonErrors.noSession());
     return;

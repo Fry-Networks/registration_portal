@@ -14,6 +14,7 @@ import { buildPaymentTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import { getAlgoBalance } from '../../lib/algorand/balances';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -48,11 +49,23 @@ export default function ClaimModal({
   const toast = useToastContext();
   const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
 
+  const MIN_FEE_BUFFER = 0.002; // 0.002 ALGO ensures 0.001 fee + safety buffer
+
   const requestGasFee = async (from: string | undefined): Promise<boolean> => {
     try {
       if (!from) {
         return false;
       }
+
+      const algoBalance = await getAlgoBalance(from);
+      if (algoBalance === null || algoBalance < MIN_FEE_BUFFER) {
+        toast.error({
+          heading: 'Insufficient ALGO',
+          message: `Your reward wallet needs at least ${MIN_FEE_BUFFER.toFixed(3)} ALGO to cover the claim fee. Current balance: ${(algoBalance ?? 0).toFixed(3)} ALGO.`
+        });
+        return false;
+      }
+      
       toast.info({
         heading: 'Signature required',
         message: 'Approve the fee transaction in your wallet to continue.'
@@ -180,7 +193,7 @@ export default function ClaimModal({
         if (!isFeePaid) {
           toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${walletAddress}` });
           setStage('error');
-          setStatusText('Fee payment failed. Please try again.');
+          setStatusText('Fee payment failed. Please ensure your reward wallet has enough ALGO and try again.');
           setIsProcessing(false);
           return;
         }
