@@ -163,7 +163,7 @@ export default function WithdrawModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5 text-gray-100">{`Withdraw Verification stake`}</Title>
+          <Title className="mb-5 text-gray-100">{`Withdraw Verification Stake`}</Title>
           <p className="text-gray-100">
             {isWithdrawable
               ? `You can withdraw now`
