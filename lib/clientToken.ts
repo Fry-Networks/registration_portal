@@ -141,7 +141,17 @@ export async function getClientToken(options: { forceRefresh?: boolean } = {}): 
 
   const wrappedPromise = rawPromise
     .catch((error) => {
-      console.error('[ClientToken] Failed to resolve token', error);
+      const ua = getNavigatorUA();
+      const hasLocalStorage = typeof window !== 'undefined' && !!window.localStorage;
+      const state = typeof window !== 'undefined' ? readState() : null;
+      const tokenAgeMs = state?.createdAt ? Date.now() - state.createdAt : null;
+      console.error('[ClientToken] Failed to resolve token', error, {
+        ua,
+        hasLocalStorage,
+        tokenAgeMs,
+        hadStoredToken: Boolean(state?.token),
+        forceRefresh
+      });
       return '';
     })
     .finally(() => {

@@ -8,6 +8,7 @@ import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
 import { isNodeStaked, isRegistrationStaked } from '../../lib/utils';
 import { secureFetch } from '../../lib/api/secureFetch';
+import { parseAlgodError } from '../../lib/algorand/errorParser';
 
 export default function WithdrawAllModal({
 	modalName,
@@ -117,12 +118,15 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 			// setSelectedOption(options[0])
 			handleWithdrawAll(device);
 		} catch (error) {
-			console.error(error);
+			const parsed = parseAlgodError(error);
+			const message =
+				parsed?.userMessage ||
+				(error instanceof Error ? error.message : 'Failed to withdraw the token. Please contact us before you try again');
+			console.error('[WithdrawAll] Failed to withdraw', parsed?.rawMessage || error);
 
 			toast.error({
 				heading: 'Withdraw Error',
-				message:
-					'Failed to withdraw the token. Please contact us before you try again'
+				message
 			});
 			setIsProcessing(false);
 			return;

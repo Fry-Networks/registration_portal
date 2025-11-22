@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
 import { secureFetch } from '../../lib/api/secureFetch';
+import { parseAlgodError } from '../../lib/algorand/errorParser';
 import { useToastContext } from '../../hooks/ToastContext';
 
 const fry2AssetId = '2485314946';
@@ -114,10 +115,15 @@ export default function WithdrawModal({
       });
 
       if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const serverMessage =
+          (payload && typeof payload.message === 'string' && payload.message) ||
+          (payload && typeof payload?.response?.message === 'string' && payload.response.message) ||
+          null;
         toast.error({
           heading: 'Withdraw Error',
           message:
-            'Failed to withdraw the token. Please contact us before you try again'
+            serverMessage || 'Failed to withdraw the token. Please contact us before you try again'
         });
 
         setIsProcessing(false);
@@ -131,12 +137,15 @@ export default function WithdrawModal({
       closeModal(modalName);
       handleWithdrawUpdate(device);
     } catch (error) {
-      console.error(error);
+      const parsed = parseAlgodError(error);
+      const message =
+        parsed?.userMessage ||
+        (error instanceof Error ? error.message : 'Failed to withdraw the token. Please contact us before you try again');
+      console.error('[Withdraw] Failed to withdraw', parsed?.rawMessage || error);
 
       toast.error({
         heading: 'Withdraw Error',
-        message:
-          'Failed to withdraw the token. Please contact us before you try again'
+        message
       });
       setIsProcessing(false);
       return;

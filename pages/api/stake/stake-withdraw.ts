@@ -24,6 +24,7 @@ import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import { parseAlgodError } from '../../../lib/algorand/errorParser';
 
 const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 const DEV_MODE = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
@@ -296,7 +297,11 @@ export async function withdraw(
     return txId;
   } catch (error) {
     // Comprehensive error logging with Discord webhook notification
-    loggers.apiError('/api/stake/verification-withdraw', error, {
+    const parsedError = parseAlgodError(error);
+    const errorMessage = parsedError?.userMessage || (error instanceof Error ? error.message : 'Unknown withdrawal error');
+    const detailMessage = parsedError?.rawMessage || undefined;
+
+    loggers.apiError('/api/stake/verification-withdraw', new Error(errorMessage), {
       miner_key,
       walletAddress: address,
       asset_id,
@@ -305,7 +310,9 @@ export async function withdraw(
       part: 'withdraw.modernBroadcast',
       metadata: {
         testMode: TEST_MODE,
-        errorType: error instanceof Error ? error.constructor.name : 'Unknown'
+        errorType: error instanceof Error ? error.constructor.name : 'Unknown',
+        rawError: detailMessage,
+        algodUserMessage: parsedError?.userMessage
       }
     });
     return null;
