@@ -18,6 +18,7 @@ import { useSession } from 'next-auth/react';
 import MessageUpdate from '../messageUpdate';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
+import { parseAlgodError } from '../../lib/algorand/errorParser';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useToastContext } from '../../hooks/ToastContext';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
@@ -360,8 +361,17 @@ const StakeModal = ({
           }
         }
 
-        console.error('Modern transaction failed:', error);
-        throw error;
+        const parsed = parseAlgodError(error);
+        if (parsed) {
+          console.error('Modern transaction failed:', parsed.rawMessage);
+          if (parsed.userMessage) {
+            throw new Error(parsed.userMessage);
+          }
+        } else {
+          console.error('Modern transaction failed:', error);
+        }
+
+        throw error instanceof Error ? error : new Error('Transaction failed');
       }
     },
     [requestAssetOptIn, session?.user?.address, signAndSubmit, tokenName]
@@ -581,8 +591,10 @@ const StakeModal = ({
       closeModal(modalName);
       handleStakingUpdate(device);
     } catch (error) {
-      console.error('Staking operation failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      const parsed = parseAlgodError(error);
+      const logMessage = parsed?.rawMessage ?? (error instanceof Error ? error.message : String(error));
+      console.error('Staking operation failed:', logMessage);
+      const errorMessage = parsed?.userMessage || (error instanceof Error ? error.message : 'An unknown error occurred');
 
       if (errorMessage.includes('cancelled')) {
         toast.warning({

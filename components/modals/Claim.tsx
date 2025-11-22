@@ -10,6 +10,7 @@ import { REWARD_WALLET } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { getClientToken } from '../../lib/clientToken';
 import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
+import { parseAlgodError } from '../../lib/algorand/errorParser';
 import { buildPaymentTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
@@ -135,7 +136,16 @@ export default function ClaimModal({
         });
         return false;
       }
-      console.error ("getGasFee : ", error);
+      const parsed = parseAlgodError(error);
+      const logMessage = parsed?.rawMessage ?? (error instanceof Error ? error.message : String(error));
+      const userMessage = parsed?.userMessage;
+      console.error('[Claim] Fee payment failed:', logMessage);
+      if (userMessage) {
+        toast.error({
+          heading: 'Fee Payment Error',
+          message: userMessage
+        });
+      }
       return false;
     } finally {
       // Always release the fee lock so users can retry after clearing their wallet state.
