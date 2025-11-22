@@ -2,7 +2,15 @@ import { Button, Title } from '@tremor/react';
 import { Device, Product } from '../lib/types';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
-import { useCallback, useEffect, useMemo, useState, ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  ReactNode,
+  useRef,
+  MouseEvent as ReactMouseEvent
+} from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { isProductStakeAvailable } from '../pages/devices';
@@ -28,6 +36,7 @@ import SettingIcon from './SettingIcon';
 import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
 import { useRewardSummary } from '../lib/hooks/useRewardSummary';
+import { useToastContext } from '../hooks/ToastContext';
 
 // Env-driven portal credential requirement parsing (matches logic in pages/devices.tsx)
 const _CREDENTIALS_NEEDED_RAW = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
@@ -55,6 +64,17 @@ function isHardwareCheckRequiredForPrefix(prefix: string) {
   return isLinkRequiredForPrefix(prefix);
 }
 
+function serializeDeviceSnapshot(device: Device | undefined): string {
+  if (!device) {
+    return '';
+  }
+  try {
+    return JSON.stringify(device);
+  } catch {
+    return `${device.miner_key ?? ''}|${device.updated_at ?? ''}`;
+  }
+}
+
 type TokenConfig = {
   stake?: string;
   reward?: string;
@@ -75,6 +95,8 @@ type IssueBadgeInfo = {
   label: string;
   info?: string;
 };
+
+type RewardWalletOptInStatus = 'unknown' | 'checking' | 'missing' | 'present';
 
 export default function DeviceListItem({
   initialDevice,
@@ -115,6 +137,7 @@ export default function DeviceListItem({
   };
   // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
+  const toast = useToastContext();
   const [pendingAmount, setPendingAmount] = useState(0);
   const [claimableAmount, setClaimableAmount] = useState(0);
   const [claimedAmount, setClaimedAmount] = useState(0);
@@ -125,6 +148,7 @@ export default function DeviceListItem({
     (initialStatus as any) || {}
   );
   const [device, setDevice] = useState<Device>(initialDevice);
+  const initialDeviceSnapshot = useRef<string>('');
   const { data: session } = useSession();
   const isLegacyStake = useMemo(() => isLegacyVerificationStake(device), [device]);
   const legacyDeadlineLabel = useMemo(() => {
@@ -133,6 +157,7 @@ export default function DeviceListItem({
   }, []);
   const [expanded, setExpanded] = useState(false);
   const [isPortalReady, setIsPortalReady] = useState(false);
+  const [rewardWalletOptInStatus, setRewardWalletOptInStatus] = useState<RewardWalletOptInStatus>('unknown');
 
   useEffect(() => {
     setIsPortalReady(true);
@@ -474,6 +499,11 @@ export default function DeviceListItem({
     () => resolveTokenDetail(product?.reward?.tokens?.reward, 'reward'),
     [resolveTokenDetail, product?.reward?.tokens?.reward]
   );
+  const rewardAssetIdForOptIn =
+    rewardTokenDetail.id && rewardTokenDetail.id !== 'n/a'
+      ? rewardTokenDetail.id
+      : null;
+  const rewardWalletAddress = device.reward_wallet ?? null;
 
   const rewardTokenUnitLabel = rewardTokenDetail.id ? rewardTokenDetail.label : 'tokens';
   const boostSupported = useMemo(() => {
@@ -508,6 +538,104 @@ export default function DeviceListItem({
     if (!usdLabel) return `Stake ${nodeTokenDetail.label}`;
     return `${usdLabel} USD in ${nodeTokenDetail.label}`;
   }, [formatUsdAmount, nodeStakeUsd, nodeTokenDetail.label]);
+
+  useEffect(() => {
+    // This hook lives below the reward token helpers so the constants are defined before use (prevents TDZ errors).
+    if (!rewardWalletAddress || !rewardAssetIdForOptIn) {
+      setRewardWalletOptInStatus('unknown');
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+    setRewardWalletOptInStatus('checking');
+
+    const checkOptIn = async () => {
+      try {
+        const response = await fetch('/api/algorand/get-token-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            address: rewardWalletAddress,
+            asset_id: rewardAssetIdForOptIn
+          }),
+          signal: controller.signal
+        });
+
+        if (cancelled) return;
+
+        if (!response.ok) {
+          setRewardWalletOptInStatus('unknown');
+          return;
+        }
+
+        const result = await response.json().catch(() => null);
+        if (cancelled) return;
+        setRewardWalletOptInStatus(result?.success ? 'present' : 'missing');
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        console.error('[RewardOptIn] Failed to verify reward wallet opt-in', error);
+        if (!cancelled) setRewardWalletOptInStatus('unknown');
+      }
+    };
+
+    void checkOptIn();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [rewardAssetIdForOptIn, rewardWalletAddress]);
+
+
+  const rewardWalletNeedsOptIn =
+    Boolean(rewardWalletAddress && rewardAssetIdForOptIn) &&
+    rewardWalletOptInStatus === 'missing';
+  const rewardWalletChecking =
+    Boolean(rewardWalletAddress && rewardAssetIdForOptIn) &&
+    rewardWalletOptInStatus === 'checking';
+
+  const handleRewardOptInClick = useCallback(
+    async (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (!rewardAssetIdForOptIn) {
+        return;
+      }
+
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(rewardAssetIdForOptIn);
+          toast.success({
+            heading: 'Asset ID copied',
+            message: `ASA #${rewardAssetIdForOptIn} is ready to paste when opting in from your wallet.`
+          });
+        } else {
+          throw new Error('Clipboard unavailable');
+        }
+      } catch {
+        toast.info({
+          heading: 'Asset ID',
+          message: `Use ASA #${rewardAssetIdForOptIn} when opting in from your wallet.`
+        });
+      }
+    },
+    [rewardAssetIdForOptIn, toast]
+  );
+
+  const handleRewardOptInGuideClick = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      const guideUrl =
+        'https://support.perawallet.app/hc/en-us/articles/6826202695575-How-to-opt-in-to-an-asset';
+      if (typeof window !== 'undefined') {
+        window.open(guideUrl, '_blank', 'noopener,noreferrer');
+      }
+    },
+    []
+  );
 
 
   const baseDailyReward =
@@ -689,6 +817,12 @@ export default function DeviceListItem({
   );
 
   useEffect(() => {
+    const snapshot = serializeDeviceSnapshot(initialDevice);
+    if (snapshot === initialDeviceSnapshot.current) {
+      return;
+    }
+    initialDeviceSnapshot.current = snapshot;
+
     setDevice((prev) => {
       if (!prev) {
         return initialDevice;
@@ -1990,6 +2124,48 @@ const collapsibleSections: SectionConfig[] = useMemo(
             {device.reward_wallet && <CopyAddress address={device.reward_wallet} />}
           </div>
         </div>
+        {rewardWalletChecking && (
+          <div
+            className="mt-2 text-[0.65rem] text-gray-400"
+            onClick={(event) => event.stopPropagation()}
+          >
+            Checking reward wallet opt-in status…
+          </div>
+        )}
+        {rewardWalletNeedsOptIn && rewardAssetIdForOptIn && (
+          <div
+            className="mt-3 rounded-lg border border-amber-400/60 bg-amber-500/10 p-3 text-[0.7rem] text-amber-50"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="font-semibold text-amber-100">
+              Opt into {rewardTokenDetail.label} to receive payouts
+            </div>
+            <p className="mt-1 text-amber-100/90">
+              Reward wallet {truncateAddress(device.reward_wallet)} must opt into ASA #{rewardAssetIdForOptIn}{' '}
+              before we can send rewards. Open your Algorand wallet, search for the asset below, and approve the opt-in transaction.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] text-amber-200">
+              ASA #{rewardAssetIdForOptIn}
+              <CopyAddress address={rewardAssetIdForOptIn} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem]">
+              <button
+                type="button"
+                className="rounded border border-amber-300/60 px-3 py-1 font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-400/20"
+                onClick={handleRewardOptInClick}
+              >
+                Copy ASA ID
+              </button>
+              <button
+                type="button"
+                className="rounded border border-amber-300/60 px-3 py-1 font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-400/20"
+                onClick={handleRewardOptInGuideClick}
+              >
+                Opt-in instructions
+              </button>
+            </div>
+          </div>
+        )}
         <div
           className="mt-4 flex flex-wrap items-center gap-2"
           onClick={(event) => event.stopPropagation()}

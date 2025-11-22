@@ -23,6 +23,8 @@ import { useToastContext } from '../hooks/ToastContext';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from '../lib/wallet/manager';
 import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
+import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
+import BrowserLockerWarning from '../components/BrowserLockerWarning';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -102,6 +104,9 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
                     <NotificationProvider isEnabled={notificationsEnabled}>
                       <Navbar />
                       <div className="relative flex flex-col">
+                        {/* Block incompatible in-app browsers first, then surface extension warnings if history is blocked. */}
+                        <PeraInAppBrowserBlocker />
+                        <BrowserLockerWarning />
                         {showAnnouncementBanner && <AnnouncementBanner />}
                         <Head>
                           <title>Fry Networks Dashboard</title>

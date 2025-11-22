@@ -59,6 +59,121 @@ export default function FryConversionModal({
     | { status: 'cancelled' }
     | { status: 'error'; reason?: string };
 
+  // Detect Algod "already committed" responses so we can treat retry burns as idempotent.
+  const DUPLICATE_BURN_REGEX =
+    /TransactionPool\.Remember: transaction\s+([A-Z0-9]+).*already\s+(?:committed|on the queue)/i;
+
+  // Decode byte arrays (Buffer/Uint8Array) into readable strings so logs stay useful.
+  const decodeByteSequence = (value: ArrayLike<number>): string | undefined => {
+    if (typeof TextDecoder === 'undefined') {
+      return undefined;
+    }
+    try {
+      return new TextDecoder().decode(Uint8Array.from(value));
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Normalize the various body shapes Algod uses (Buffer, Uint8Array, JSON) into text.
+  const decodeAlgodResponseBody = (body: unknown): string | undefined => {
+    if (!body) {
+      return undefined;
+    }
+
+    if (typeof body === 'string') {
+      return body;
+    }
+
+    if (body instanceof ArrayBuffer) {
+      return decodeByteSequence(new Uint8Array(body));
+    }
+
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      ArrayBuffer.isView(body as any)
+    ) {
+      // TypedArray/Buffer body; decode directly.
+      return decodeByteSequence(body as ArrayLike<number>);
+    }
+
+    if (
+      Array.isArray(body) &&
+      body.every((value) => typeof value === 'number')
+    ) {
+      return decodeByteSequence(body as ArrayLike<number>);
+    }
+
+    if (typeof body === 'object' && body !== null) {
+      const typedBody = body as Record<string, unknown>;
+
+      if (typeof typedBody.message === 'string') {
+        return typedBody.message;
+      }
+
+      if (
+        typedBody.type === 'Buffer' &&
+        Array.isArray(typedBody.data) &&
+        typedBody.data.every((value) => typeof value === 'number')
+      ) {
+        return decodeByteSequence(typedBody.data as ArrayLike<number>);
+      }
+
+      const keys = Object.keys(typedBody);
+      const allNumeric = keys.length > 0 && keys.every((key) => /^\d+$/.test(key));
+
+      if (allNumeric) {
+        const orderedBytes: number[] = [];
+        for (const key of keys.sort((a, b) => Number(a) - Number(b))) {
+          const value = typedBody[key];
+          if (typeof value !== 'number') {
+            return undefined;
+          }
+          orderedBytes.push(value);
+        }
+        return decodeByteSequence(orderedBytes);
+      }
+    }
+
+    return undefined;
+  };
+
+  // Extract a readable error string plus duplicate transaction ids so UI logic stays clean.
+  const extractBurnErrorDetails = (
+    error: unknown
+  ): { friendlyMessage?: string; duplicateTxId?: string } => {
+    let baseMessage: string | undefined;
+    if (typeof error === 'string') {
+      baseMessage = error;
+    } else if (
+      error &&
+      typeof error === 'object' &&
+      'message' in error &&
+      typeof (error as { message?: unknown }).message === 'string'
+    ) {
+      baseMessage = (error as { message?: string }).message;
+    }
+
+    const responseBody = (error as { response?: { body?: unknown } })?.response
+      ?.body;
+    const bodyMessage = decodeAlgodResponseBody(responseBody);
+
+    // Merge the error message and Algod body for consistent parsing downstream.
+    const parts = [baseMessage, bodyMessage].filter(
+      (part): part is string =>
+        typeof part === 'string' && part.trim().length > 0
+    );
+    const combinedMessage =
+      parts.length > 0 ? parts.join(' | ') : baseMessage ?? bodyMessage;
+
+    const duplicateMatch =
+      combinedMessage && combinedMessage.match(DUPLICATE_BURN_REGEX);
+    const duplicateTxId = duplicateMatch?.[1];
+
+    return { friendlyMessage: combinedMessage, duplicateTxId };
+  };
+
   const transferToBurn = async (
     from: string | undefined,
     amount: number
@@ -111,17 +226,27 @@ export default function FryConversionModal({
         });
         return { status: 'error', reason: 'Wallet request already in progress' };
       }
-      console.error('Burn Transfer Error: ', error);
-      const message =
-        error && typeof error === 'object' && 'message' in error
-          ? String((error as { message?: unknown }).message)
-          : String(error ?? 'Unknown error');
+      const { friendlyMessage, duplicateTxId } = extractBurnErrorDetails(error);
 
-      if (/reject|denied|cancel/i.test(message)) {
+      if (duplicateTxId) {
+        // Let the user know we reused their prior burn rather than spamming a failure toast.
+        toast.info({
+          heading: 'Burn Already Submitted',
+          message: 'We found an earlier burn for this wallet and will reuse it.'
+        });
+        console.warn('Burn Transfer Already Committed: ', duplicateTxId);
+        return { status: 'success', txId: duplicateTxId };
+      }
+
+      const normalizedMessage = friendlyMessage ?? 'Unknown error';
+      // Emit the cleaned message only to keep binary payloads out of structured logs.
+      console.error('Burn Transfer Error: ', normalizedMessage);
+
+      if (/reject|denied|cancel/i.test(normalizedMessage)) {
         return { status: 'cancelled' };
       }
 
-      return { status: 'error', reason: message };
+      return { status: 'error', reason: normalizedMessage };
     }
   };
 

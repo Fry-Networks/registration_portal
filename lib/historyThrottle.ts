@@ -4,7 +4,10 @@
  * (e.g., rapid input changes) can trip that guard and surface unhandled rejections. To keep the UX smooth,
  * we throttle redundant history calls in the browser and drop duplicate calls within a tight window.
  */
+// Track installation so we only wrap the history object once.
 let historyThrottleInstalled = false;
+// Remember if a browser/extension blocked history mutations so we can bail early.
+let browserLockerBlocked = false;
 
 const MIN_INTERVAL_MS = 250;
 const WINDOW_MS = 10_000;
@@ -31,6 +34,32 @@ const serializeArgs = (state: HistoryArgs[0], url: HistoryArgs[2]) => {
   return `${url ?? ''}|${typeof state === 'string' ? state : ''}`;
 };
 
+const isBrowserLockerError = (error: unknown): boolean => {
+  if (!error) return false;
+  const message = typeof error === 'string' ? error : (error as { message?: string }).message ?? '';
+  const stack = (error as { stack?: string }).stack ?? '';
+  const haystack = `${message} ${stack}`.toLowerCase();
+  return (
+    haystack.includes('browser locker behavior') ||
+    haystack.includes('chrome-extension://ihcjicgdanjaechkgeegckofjjedodee')
+  );
+};
+
+const handleBrowserLockerDetection = () => {
+  if (browserLockerBlocked) {
+    return;
+  }
+  browserLockerBlocked = true;
+  // Persist the detection status for other scripts and raise a custom event.
+  if (typeof window !== 'undefined') {
+    (window as typeof window & { __FRY_BROWSER_LOCKER_DETECTED?: boolean }).__FRY_BROWSER_LOCKER_DETECTED = true;
+    window.dispatchEvent(new CustomEvent('fry:browser-locker-detected'));
+  }
+  console.warn(
+    '[HistoryThrottle] Browser locker/extension blocked history mutations. Navigation may be degraded until the extension is disabled.'
+  );
+};
+
 const installThrottleForMethod = (history: History, method: HistoryMethod) => {
   const original = history[method];
   if (typeof original !== 'function') {
@@ -44,6 +73,11 @@ const installThrottleForMethod = (history: History, method: HistoryMethod) => {
   let windowCount = 0;
 
   history[method] = ((state, title, url) => {
+    if (browserLockerBlocked) {
+      // Once an extension blocks us we skip further history writes to avoid cascading errors.
+      return;
+    }
+
     const now = Date.now();
     const key = serializeArgs(state, url);
 
@@ -65,7 +99,15 @@ const installThrottleForMethod = (history: History, method: HistoryMethod) => {
     windowCount += 1;
     lastKey = key;
     lastAt = now;
-    return bound(state, title, url);
+    try {
+      return bound(state, title, url);
+    } catch (error) {
+      if (isBrowserLockerError(error)) {
+        handleBrowserLockerDetection();
+        return;
+      }
+      throw error;
+    }
   }) as History['replaceState'];
 };
 

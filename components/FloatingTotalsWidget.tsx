@@ -424,10 +424,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                   </button>
                 </div>
                 {/* Prices */}
-                <div className="text-xs text-gray-300 mb-3 text-center">
-                  FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
+                <div className="text-xs text-gray-300 mb-3 text-center space-y-1">
+                  <div>
+                    FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
+                  </div>
+                  <div className="text-[0.6rem] text-amber-200/90">
+                    tFry (2681521901) is earned-only, not tradeable. Each tFry converts 1:1 into its product&rsquo;s token once that monetization tier goes live.
+                  </div>
                 </div>
-
                 {/* Expanded Totals */}
                 <div className="space-y-3 text-xs">
                   <div>

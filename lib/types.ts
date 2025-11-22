@@ -19,6 +19,8 @@ export interface Device extends mongoose.Document {
   is_registered: boolean;
   registered_portal_model?: string;
   legacy_stake_unlocked?: boolean;
+  // Allow UI diffs to compare last refresh timestamps without optional chaining explosions.
+  updated_at?: Date | string;  
   staked?: {
     type: string | null;
     amount: number | null;

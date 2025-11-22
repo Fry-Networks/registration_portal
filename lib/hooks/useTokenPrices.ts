@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export type TokenPrices = {
   fry2?: number;
   fnode?: number;
+  tfry?: number | null;
 };
 
 const PRICE_ASSETS = ['2485314946', '2485202024'];
@@ -26,7 +27,8 @@ export function useTokenPrices(refreshMs: number = 300000): TokenPrices {
         if (!active) return;
         setPrices({
           fry2: json?.prices?.[PRICE_ASSETS[0]] ?? 0,
-          fnode: json?.prices?.[PRICE_ASSETS[1]] ?? 0
+          fnode: json?.prices?.[PRICE_ASSETS[1]] ?? 0,
+          tfry: null // tFRY is earned-only; no market price
         });
       } catch (error) {
         console.error('[useTokenPrices] Failed to fetch prices', error);

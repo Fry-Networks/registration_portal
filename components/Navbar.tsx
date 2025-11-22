@@ -269,10 +269,13 @@ export default function Navbar() {
   }, [activeAccount, walletStateSignature, wallets]);
 
   useEffect(() => {
-    if ((router.pathname !== '/' && !session) || !session?.user) {
+    if (router.pathname === '/') {
+      return;
+    }
+    if (!session || !session.user) {
       router.push('/');
     }
-  }, [router.pathname, session, activeAccount, router]);
+  }, [router.pathname, session, router]);
 
   useEffect(() => {
     if (!showNotifications) {

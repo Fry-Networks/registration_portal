@@ -45,15 +45,35 @@ export default function ClaimModal({
   const [txIdState, setTxIdState] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const intervalRef = useRef<any>(null);
+  // Prevent stacking multiple fee-payment prompts; stays true until the wallet resolves.
+  const feeRequestLockRef = useRef(false);
   const { data: session } = useSession();
   const toast = useToastContext();
   const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
 
   const MIN_FEE_BUFFER = 0.002; // 0.002 ALGO ensures 0.001 fee + safety buffer
 
+  const isPeraPendingRequestError = (error: unknown): boolean => {
+    const message = typeof error === 'string' ? error : (error as { message?: string })?.message ?? '';
+    return /confirmation failed\(4100\)/i.test(message) && /pending/i.test(message);
+  };
+
+  const isPeraRejectedError = (error: unknown): boolean => {
+    const message = typeof error === 'string' ? error : (error as { message?: string })?.message ?? '';
+    return /confirmation failed\(4100\)/i.test(message) && /rejected/i.test(message);
+  };
+
   const requestGasFee = async (from: string | undefined): Promise<boolean> => {
     try {
       if (!from) {
+        return false;
+      }
+
+      if (feeRequestLockRef.current) {
+        toast.info({
+          heading: 'Fee Payment Pending',
+          message: 'Finish or cancel the existing wallet prompt before trying to pay the network fee again.'
+        });
         return false;
       }
 
@@ -78,6 +98,7 @@ export default function ClaimModal({
         useMicroAlgos: true
       });
 
+      feeRequestLockRef.current = true;
       await executeWalletRetry(
         async () => {
           const txIds = await signAndSubmit([encodedTxn], {
@@ -100,8 +121,25 @@ export default function ClaimModal({
         });
         return false;
       }
+      if (isPeraPendingRequestError(error)) {
+        toast.info({
+          heading: 'Wallet Still Processing',
+          message: 'Your wallet already has a signing request open. Approve or cancel it inside the wallet, then retry.'
+        });
+        return false;
+      }
+      if (isPeraRejectedError(error)) {
+        toast.error({
+          heading: 'Fee Payment Rejected',
+          message: 'The fee transaction was rejected in your wallet. Approve the request next time to continue claiming.'
+        });
+        return false;
+      }
       console.error ("getGasFee : ", error);
       return false;
+    } finally {
+      // Always release the fee lock so users can retry after clearing their wallet state.
+      feeRequestLockRef.current = false;
     }
   };
 
@@ -178,6 +216,9 @@ export default function ClaimModal({
             : code === 'WALLET_ASSET_NOT_OPTED_IN'
             ? previewResult?.action ||
               `Your reward wallet must opt into ${previewResult?.assetId ?? 'this asset'} before claiming.`
+            : code === 'REWARD_VAULT_DEPLETED'
+            ? previewResult?.action ||
+              'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
             : previewResult?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -230,6 +271,9 @@ export default function ClaimModal({
             : code === 'WALLET_ASSET_NOT_OPTED_IN'
             ? result?.action ||
               `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before claiming.`
+            : code === 'REWARD_VAULT_DEPLETED'
+            ? result?.action ||
+              'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
             : result?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -305,6 +349,8 @@ export default function ClaimModal({
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
             : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : code === 'REWARD_VAULT_DEPLETED'
+            ? result?.action || 'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
             : result?.message || 'Unknown error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');

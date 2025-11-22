@@ -5,7 +5,7 @@ import type { Transaction } from 'algosdk';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import type { Device } from '../../../lib/types';
-import { getAssetDecimals, fNODE, tFRY } from '../../../lib/utils';
+import { getAssetDecimals, fNODE, tFRY, getRewardsVaultAddress } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
@@ -200,6 +200,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const rewardsDoc = await rewardsCollection.findOne({ miner_key });
+      const algodClient = getAlgodClient();
+      const rewardsVaultAddress = getRewardsVaultAddress();
       const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable');
       const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable');
 
@@ -258,6 +260,62 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         decimals: decimalsCache.get(asset_id) ?? 0
       }));
 
+      // Ensure the custodial rewards vault has enough liquidity for each asset
+      for (const entry of summary) {
+        try {
+          const holding = await algodClient
+            .accountAssetInformation(rewardsVaultAddress, entry.asset_id)
+            .do()
+            .catch((error: any) => {
+              const statusCode = error?.response?.status ?? error?.status;
+              if (statusCode === 404) {
+                return null;
+              }
+              throw error;
+            });
+          const availableMicro = holding
+            ? BigInt(
+                (holding['asset-holding']?.amount ??
+                  holding.assetHolding?.amount ??
+                  0) as number | string | bigint
+              )
+            : BigInt(0);
+
+          if (availableMicro < entry.totalMicro) {
+            throw {
+              status: 503,
+              response: createApiError(
+                ErrorCodes.REWARD_VAULT_DEPLETED,
+                'Rewards vault needs to be refilled for this asset.',
+                'Admins have already been alerted. Please try again shortly.',
+                {
+                  assetId: entry.asset_id,
+                  availableMicro: availableMicro.toString(),
+                  requiredMicro: entry.totalMicro.toString()
+                }
+              )
+            };
+          }
+        } catch (error) {
+          if ((error as { status?: number })?.status === 503) {
+            throw error;
+          }
+          loggers.apiError('/api/rewards/claim', error as Error, {
+            minerKey: miner_key,
+            issueType: 'REWARD_VAULT_CHECK_FAILED',
+            part: 'vault-liquidity',
+            assetId: entry.asset_id
+          });
+          throw {
+            status: 500,
+            response: createApiError(
+              ErrorCodes.INTERNAL_ERROR,
+              'Unable to verify rewards vault balance. Please try again shortly.'
+            )
+          };
+        }
+      }
+
       // Guard: ensure the configured reward wallet is opted into each reward asset before we send funds.
       const rewardWallet = device.reward_wallet;
       if (!rewardWallet) {
@@ -303,7 +361,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Modern reward broadcast using centralized wallet infrastructure
-      const algodClient = getAlgodClient();
       // Use the custodial helper to load the reward vault + signer (respects rekey).
       const { account } = loadMnemonicAccountPair({
         mnemonicEnv: 'REWARD_MNEMONIC',
