@@ -625,30 +625,19 @@ export default function DeviceListItem({
     [rewardAssetIdForOptIn, toast]
   );
 
+  const rewardOptInSteps =
+    'Pera: Wallet/Account → + Add asset → paste the ASA ID → Opt In. Defly: Wallet/Account → … More → + Asset → paste the ASA ID → Opt In.';
+
   const handleRewardOptInGuideClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
       const assetId = rewardAssetIdForOptIn;
-      const steps =
-        'Pera: Wallet/Account → + Add asset → paste the ASA ID → Opt In. Defly: Wallet/Account → … More → + Asset → paste the ASA ID → Opt In.';
-      if (assetId) {
-        toast.info({
-          heading: 'Opt-in instructions',
-          message: `${steps} ASA #${assetId}.`
-        });
-        // Open a trustworthy, static asset explorer page instead of the broken Pera help link.
-        if (typeof window !== 'undefined') {
-          const explorerUrl = `https://explorer.perawallet.app/asset/${assetId}`;
-          window.open(explorerUrl, '_blank', 'noopener,noreferrer');
-        }
-      } else {
-        toast.info({
-          heading: 'Opt-in instructions',
-          message: steps
-        });
+      if (assetId && typeof window !== 'undefined') {
+        const explorerUrl = `https://explorer.perawallet.app/asset/${assetId}`;
+        window.open(explorerUrl, '_blank', 'noopener,noreferrer');
       }
     },
-    [rewardAssetIdForOptIn, toast]
+    [rewardAssetIdForOptIn]
   );
 
 
@@ -2156,7 +2145,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
             </div>
             <p className="mt-1 text-amber-100/90">
               Reward wallet {truncateAddress(device.reward_wallet)} must opt into ASA #{rewardAssetIdForOptIn}{' '}
-              before we can send rewards. Open your Algorand wallet, search for the asset below, and approve the opt-in transaction.
+              before we can send rewards. {rewardOptInSteps}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] text-amber-200">
               ASA #{rewardAssetIdForOptIn}
