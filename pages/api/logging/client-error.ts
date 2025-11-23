@@ -114,13 +114,16 @@ export default function handler(
       }
     }
 
+    const normalizedMessage = errorMessage.toLowerCase();
     const isExtensionError =
       source.startsWith('chrome-extension://') ||
-      errorMessage.toLowerCase().includes('disconnected port object');
+      normalizedMessage.includes('disconnected port object') ||
+      normalizedMessage.includes('metamask') ||
+      normalizedMessage.includes('chrome-extension://');
 
     const isDuplicateEthereumError =
-      errorMessage.toLowerCase().includes("can't redefine non-configurable property \"ethereum\"") ||
-      errorMessage.toLowerCase().includes('non-configurable property "ethereum"');
+      normalizedMessage.includes("can't redefine non-configurable property \"ethereum\"") ||
+      normalizedMessage.includes('non-configurable property "ethereum"');
 
     if (isExtensionError || isDuplicateEthereumError) {
       logger.warn('[client-error] Ignoring browser extension error', {
