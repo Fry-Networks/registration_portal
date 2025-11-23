@@ -26,6 +26,7 @@ import {
 } from '../../../lib/algorand/admin';
 import { Document } from 'mongodb';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import { parseAlgodError } from '../../../lib/algorand/errorParser';
 
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -320,10 +321,16 @@ export default async function handler(
       }
     }
   } catch (error) {
-    handleApiError(res, '/api/conversion/transfer_reward', error, {
+    const parsed = parseAlgodError(error);
+    const userMessage =
+      parsed?.userMessage ||
+      (error instanceof Error ? error.message : 'Unable to process FRY conversion claim');
+    const rawMessage = parsed?.rawMessage || (error instanceof Error ? error.message : String(error));
+
+    handleApiError(res, '/api/conversion/transfer_reward', new Error(userMessage), {
       response: createApiError(
         ErrorCodes.INTERNAL_ERROR,
-        'Unable to process FRY conversion claim',
+        userMessage,
         'Please try again. If the problem persists, contact support.'
       ),
       walletAddress,
@@ -332,6 +339,7 @@ export default async function handler(
       metadata: {
         address,
         convertType,
+        rawError: rawMessage,
       },
     });
   }

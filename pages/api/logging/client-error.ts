@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { loggers } from '../../../lib/logger';
+import logger, { loggers } from '../../../lib/logger';
 import {
   createApiError,
   ErrorCodes,
@@ -70,6 +70,7 @@ export default function handler(
   try {
     const body = (req.body ?? {}) as ClientErrorBody;
     const errorMessage = deriveMessage(body);
+    const source = typeof body.source === 'string' ? body.source : '';
 
     const minerKey =
       typeof body.minerKey === 'string' && body.minerKey.trim().length > 0
@@ -113,8 +114,30 @@ export default function handler(
       }
     }
 
+    const isExtensionError =
+      source.startsWith('chrome-extension://') ||
+      errorMessage.toLowerCase().includes('disconnected port object');
+
+    const isDuplicateEthereumError =
+      errorMessage.toLowerCase().includes("can't redefine non-configurable property \"ethereum\"") ||
+      errorMessage.toLowerCase().includes('non-configurable property "ethereum"');
+
+    if (isExtensionError || isDuplicateEthereumError) {
+      logger.warn('[client-error] Ignoring browser extension error', {
+        errorMessage,
+        source: body.source,
+        issueType,
+        part,
+        minerKey,
+        walletAddress,
+        url: body.url,
+      });
+      res.status(200).json({ success: true, ignored: true });
+      return;
+    }
+
     const metadata = {
-      source: body.source,
+      source,
       line: body.line,
       column: body.column,
       url: body.url,

@@ -310,11 +310,11 @@ export default function FryConversionModal({
         });
 
         if (!response.ok) {
-          const failure = await response.json();
-          toast.error({
-            heading: 'Claim Error',
-            message: failure.message
-          });
+          const failure = await response.json().catch(() => null);
+          const message =
+            (failure && typeof failure.message === 'string' && failure.message) ||
+            'Unable to process FRY conversion claim';
+          toast.error({ heading: 'Claim Error', message });
 
           setIsProcessing(false);
           return;
