@@ -628,13 +628,27 @@ export default function DeviceListItem({
   const handleRewardOptInGuideClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
-      const guideUrl =
-        'https://support.perawallet.app/hc/en-us/articles/6826202695575-How-to-opt-in-to-an-asset';
-      if (typeof window !== 'undefined') {
-        window.open(guideUrl, '_blank', 'noopener,noreferrer');
+      const assetId = rewardAssetIdForOptIn;
+      const steps =
+        'Pera: Wallet/Account → + Add asset → paste the ASA ID → Opt In. Defly: Wallet/Account → … More → + Asset → paste the ASA ID → Opt In.';
+      if (assetId) {
+        toast.info({
+          heading: 'Opt-in instructions',
+          message: `${steps} ASA #${assetId}.`
+        });
+        // Open a trustworthy, static asset explorer page instead of the broken Pera help link.
+        if (typeof window !== 'undefined') {
+          const explorerUrl = `https://explorer.perawallet.app/asset/${assetId}`;
+          window.open(explorerUrl, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        toast.info({
+          heading: 'Opt-in instructions',
+          message: steps
+        });
       }
     },
-    []
+    [rewardAssetIdForOptIn, toast]
   );
 
 
