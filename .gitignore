@@ -45,7 +45,6 @@ package-lock.json
 /logs
 .vscode
 scripts/check-vault.js
-docker-compose.dev.yml
 docker-compose.dev-inplace.yml
 /backups
 build.sh
@@ -54,3 +53,6 @@ audit-report.json
 dependency-audit.js
 pages/history.tsx.txt
 tempdashboardlogs.txt
+tests/
+docs/wallets_and_dependencies/
+WALLET_AND_DEPENDENCIES_AUDIT.md

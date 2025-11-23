@@ -5,12 +5,12 @@ set -euo pipefail
 # Ensure the service account token is available for the 1Password CLI.
 if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
   echo "Error: OP_SERVICE_ACCOUNT_TOKEN is not available. Run:" >&2
-  echo "  export OP_SERVICE_ACCOUNT_TOKEN=\"\$(op read 'op://TestersDashboard/Dash Secrets/OP_SERVICE_ACCOUNT_TOKEN')\"" >&2
+  echo "  export OP_SERVICE_ACCOUNT_TOKEN=\"\$(op read 'op://Dashboard/Dash Secrets/OP_SERVICE_ACCOUNT_TOKEN')\"" >&2
   echo "after signing in with: eval \$(op signin)" >&2
   exit 1
 fi
 
-vault="TestersDashboard"
+vault="Dashboard"
 item="Dash Secrets"
 
 read_secret() {

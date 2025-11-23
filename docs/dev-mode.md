@@ -86,6 +86,8 @@ docker compose up -d fry-dashboard-users
 
 ## When is Build Required:
 
+export OP_SERVICE_ACCOUNT_TOKEN=$(op read "op://TestersDashboard/Dash Secrets/OP_SERVICE_ACCOUNT_TOKEN")
+
 __First time running dev mode:__
 
 ```bash

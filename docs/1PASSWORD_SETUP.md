@@ -29,7 +29,7 @@ You need to create an item in your **Dashboard** vault with the following fields
 
 1. Go to your 1Password web app
 2. Navigate to the **Dashboard** vault
-3. Create a new **Password** item named: `Dashboard Secrets`
+3. Create a new **Password** item named: `Dash Secrets`
 4. Add the following custom fields (all as **password** type for security):
 
 | Field Name        | Type     | Description                               |
@@ -54,7 +54,7 @@ export OP_SERVICE_ACCOUNT_TOKEN="your-service-account-token-here"
 # Create the item (interactive - you'll be prompted for each value)
 op item create \
   --vault "Dashboard" \
-  --title "Dashboard Secrets" \
+  --title "Dash Secrets" \
   --category Password \
   NEXTAUTH_SECRET[password]="your-nextauth-secret" \
   STAKE_MNEMONIC[password]="your-stake-mnemonic" \
@@ -215,13 +215,13 @@ pm2 restart dashboard --update-env
 
 1. Field name doesn't match exactly in 1Password (case-sensitive)
 2. Service account doesn't have access to the Dashboard vault
-3. Item name is incorrect (should be "Dashboard Secrets")
+3. Item name is incorrect (should be "Dash Secrets")
 
 **Solution:** Verify the item exists and field names match:
 
 ```bash
 export OP_SERVICE_ACCOUNT_TOKEN="your-token"
-op item get "Dashboard Secrets" --vault "Dashboard" --format json
+op item get "Dash Secrets" --vault "Dashboard" --format json
 ```
 
 ### Dashboard fails to start
@@ -255,7 +255,7 @@ Should show: `-rwxr-xr-x` (executable)
 
 ```bash
 export OP_SERVICE_ACCOUNT_TOKEN="your-token"
-op item get "Dashboard Secrets" --vault "Dashboard" --fields "MONGO_URI"
+op item get "Dash Secrets" --vault "Dashboard" --fields "MONGO_URI"
 ```
 
 2. Test the wrapper script:

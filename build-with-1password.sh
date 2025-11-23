@@ -12,7 +12,7 @@ fi
 
 # 1Password vault and item names
 VAULT="Dashboard"
-ITEM="Dashboard Secrets"
+ITEM="Dash Secrets"
 
 echo "Loading secrets from 1Password vault: ${VAULT}"
 
