@@ -2145,7 +2145,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
             </div>
             <p className="mt-1 text-amber-100/90">
               Reward wallet {truncateAddress(device.reward_wallet)} must opt into ASA #{rewardAssetIdForOptIn}{' '}
-              before we can send rewards. {rewardOptInSteps}
+              before we can send rewards.
+              <span className="block mt-1">{rewardOptInSteps}</span>
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] text-amber-200">
               ASA #{rewardAssetIdForOptIn}
@@ -2164,7 +2165,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 className="rounded border border-amber-300/60 px-3 py-1 font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-400/20"
                 onClick={handleRewardOptInGuideClick}
               >
-                Opt-in instructions
+                Scan QR to Opt-in
               </button>
             </div>
           </div>
