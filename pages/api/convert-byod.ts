@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from './auth/[...nextauth]';
 import clientPromise from '../../lib/mongoclient';
 import { loggers } from '../../lib/logger';
+import { generateMinerKey } from '../../lib/minerKey';
 import {
   CommonErrors,
   createApiError,
@@ -112,6 +113,7 @@ export default async function handler(
         )
       );
     }
+    // Use the shared generator so BYOD conversions follow the same key format and entropy as new issuances.
     let minerkey = generateMinerKey(key);
     while (await devicesCollection.findOne({ miner_key: minerkey })) {
       minerkey = generateMinerKey(key);
@@ -144,12 +146,3 @@ export default async function handler(
     });
   }
 }
-
-const generateMinerKey = (key: string) => {
-  const str = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let minerKey = key + '-';
-  for (let i = 0; i < 32; i++) {
-    minerKey += str.charAt(Math.floor(Math.random() * str.length));
-  }
-  return minerKey;
-};

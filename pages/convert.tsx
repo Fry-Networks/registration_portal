@@ -104,7 +104,7 @@ export default function Convert({ products }: { products: Product[] }) {
       `Address: ${address} byod: ${byodLicense} key: ${selectedProduct}`
     );
     const response = await fetch('/api/convert-byod', {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -120,9 +120,13 @@ export default function Convert({ products }: { products: Product[] }) {
       setMinerKey(data.miner_key);
     } else {
       setByodLicense('');
+      const message =
+        typeof data?.message === 'string'
+          ? data.message
+          : 'Failed to convert BYOD license to miner key';
       toast.error({
         heading: 'Convert Error',
-        message: 'Failed to convert byod license to miner key'
+        message
       });
     }
   };

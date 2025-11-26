@@ -36,7 +36,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
 
   const handleConvert = async () => {
     const response = await fetch('/api/convert-byod', {
-      method: 'PUT',
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -51,7 +51,10 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
       setMinerKey(data.miner_key);
     } else {
       setByodLicense('');
-      toast.success({ heading: 'Byod Convert Error', message: data.message });
+      toast.error({
+        heading: 'BYOD Convert Error',
+        message: data?.message ?? 'Failed to convert BYOD license'
+      });
     }
   };
 
@@ -59,7 +62,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
     const fetchProducts = async () => {
       console.log('getminertype called');
       const response = await fetch('/api/get_miner_types', {
-        method: 'PUT',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
