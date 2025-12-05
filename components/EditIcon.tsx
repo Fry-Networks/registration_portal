@@ -7,7 +7,7 @@ export default function EditIcon() {
       width="24px"
       height="24px"
       viewBox="0 0 494.936 494.936"
-      className="fill-current text-white hover:text-red-600"
+      className="fill-current"
     >
       <g>
         <g>

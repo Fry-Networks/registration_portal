@@ -7,7 +7,7 @@ export default function DeleteIcon() {
       width="24px"
       height="24px"
       viewBox="0 0 482.428 482.429"
-      className="fill-current text-white hover:text-red-600"
+      className="fill-current"
     >
       <g>
         <g>

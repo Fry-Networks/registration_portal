@@ -5,6 +5,8 @@ import clientPromise from '../mongoclient';
 export type DeviceAction =
   | 'claim'
   | 'boost'
+  | 'dimo:claim'
+  | 'dimo:sync'
   | 'stake:registration'
   | 'stake:node'
   | 'stake:verification'

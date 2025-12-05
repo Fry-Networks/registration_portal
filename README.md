@@ -9,6 +9,7 @@ This document explains how the Fry user dashboard works end‑to‑end: authenti
 - Server RTSP validation endpoint: `/api/credentials/camera/rtsp` (canonical for camera credential checks).
 - MongoDB for all state: users, devices, products, rewards, etc.
 - Algorand network for staking/claims. Wallets via `@txnlab/use-wallet(-react)`.
+- DIMO AEM airdrop using the hosted Login with DIMO UserJWT flow to issue miner keys for eligible subscriptions.
 - Rewards modeled weekly (with support for historical pre‑cutoff daily entries).
 - FRY 1.0 reward buckets are retired; any legacy FRY 1.0 entries are aggregated into the tFry totals, and conversions remain available via the `fry-conversions` flow.
 - Device credential intake and validation handled in-app (`/api/credentials/*`, `/api/devices/save-credentials`), replacing the legacy AirAPI dependency.
@@ -190,6 +191,7 @@ Feature flags
 - `NEXT_PUBLIC_DEV_MODE=true|false` — relaxes some timing/asset checks
 - `WEEKLY_REWARDS_ENABLED=true|false` or `NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED`
 - `WEEKLY_CUTOFF_UTC=YYYY-MM-DDTHH:mm:ss.sssZ`
+- Seasonal overrides: `NEXT_PUBLIC_FORCE_SEASONAL_THEME`, `NEXT_PUBLIC_DISABLE_SEASONAL_AUTO`
 
 Bug reporting
 - `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives submitted bug reports (required to enable the UI button)
@@ -199,6 +201,13 @@ Hardware DB (optional)
 - `MONGO_CREDS_DB`, `MONGO_CREDS_COLLECTION`
 - Validator endpoints live under `/api/credentials/hardware/*`; MAC-specific logic in `pages/api/credentials/hardware/mac.ts:1`
 
+DIMO (server)
+- `DIMO_CLIENT_ID`, `DIMO_CLIENT_SECRET`, `DIMO_REDIRECT_URI`, `DIMO_HASH_SECRET` (>=32 chars), `DIMO_LOGIN_BASE`, `DIMO_JWKS_URL`, `DIMO_API_BASE`
+- Policy knobs: `DIMO_ANNOUNCE_UTC`, `DIMO_GRACE_DAYS`, `DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE`, `DIMO_ALLOW_POST_GRACE`, `DIMO_SNAPSHOT_TTL_MINUTES`, `DIMO_MINER_PREFIX`
+
+DIMO (public)
+- `NEXT_PUBLIC_DIMO_CLIENT_ID`, `NEXT_PUBLIC_DIMO_REDIRECT_URI`, `NEXT_PUBLIC_DIMO_ENV`
+
 
 ## Key UI Entry Points
 
@@ -207,6 +216,32 @@ Hardware DB (optional)
 - Registration wizard & staking modals: `pages/register.tsx:1` and device actions in `pages/devices.tsx:1`
 - Hardware portal: `pages/nodeportal.tsx:1`
 - Sign in: `pages/signin.tsx:1`
+
+
+## DIMO Airdrop Integration
+
+- Login with DIMO uses the hosted SDK (UserJWT) with CSRF state.
+  - Start: `/api/dimo/start` sets a short-lived `dimo_oauth_state` cookie and returns the login URL built from `DIMO_LOGIN_BASE`.
+  - Callback/sync: `/api/dimo/callback` verifies state, validates the UserJWT against JWKS (`DIMO_JWKS_URL`, `aud=DIMO_CLIENT_ID`, `iss=https://auth.dimo.zone`), fetches account + `/subscription/status/all`, hashes identifiers (`hashDimoId`), runs eligibility (`lib/dimo/eligibility.ts`), and upserts `main.dimo-subscriptions` (test collection when `NEXT_PUBLIC_TEST_MODE=true`).
+  - Eligibility surface: `/api/dimo/eligible` returns cached verdicts for the session wallet; all `/api/dimo/*` handlers reuse the standard client token + HMAC + fingerprint + session stack.
+- Claim flow issues one free AEM miner key per eligible subscription:
+  - `/api/dimo/claim` guards with `enforceWalletApiSecurity`, rate limits, and `withDeviceActionLock`.
+  - Ensures the DIMO snapshot is fresh (`DIMO_SNAPSHOT_TTL_MINUTES`), generates a unique miner key (`DIMO_MINER_PREFIX`, default `AEM`), inserts the device stub (order derived from wallet), and stores hashed key + checksum on the subscription.
+- Eligibility policy:
+  - Requires active/trial status and a valid start date.
+  - Pre-announcement subscriptions are eligible; within the grace window (`DIMO_GRACE_DAYS`) requires annual unless `DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE=false`; post-grace is blocked unless `DIMO_ALLOW_POST_GRACE=true`.
+  - Grace expiry is stored on the subscription for UI messaging.
+- UI: `pages/dimo.tsx` with `DimoLoginSection` (SDK wrapper), signed requests to `/api/dimo/*`, eligibility grid, claim CTA, and rate-limited sync (`dimo:sync`).
+
+
+## Seasonal Themes
+
+- SeasonalThemeProvider auto-enables holiday accents one month before through the day after each holiday (Christmas, Valentine’s Day, Easter, July 4th, Thanksgiving) and writes `data-holiday-theme` on `<html>` for CSS.
+- Overrides:
+  - `NEXT_PUBLIC_FORCE_SEASONAL_THEME` can force a holiday or disable with `off|none|disable`.
+  - `NEXT_PUBLIC_DISABLE_SEASONAL_AUTO` disables automatic detection; user toggle still works unless forced off.
+  - User preference persists in `localStorage` (`seasonal-theme-enabled`).
+- UI controls: `components/ThemeControls.tsx` (light/dark/seasonal toggle) and `components/SeasonalThemeBadge.tsx` (badge for active holiday).
 
 
 ## Security Notes
@@ -239,7 +274,8 @@ The script prints a structured result and exits with:
 This CLI calls the same `lib/rtspCheck.ts` implementation used by the server APIs so results match what the backend would report.
 
 
-# November 16th 2025 Codex findings : 
+# Codex Findings :
+## November 16th 2025 : 
 ### Reward Flows
 
 Claim modal preps signed requests client-side, including preview + fee payment, before calling /api/rewards/claim (components/modals/Claim.tsx (lines 95-205)). The endpoint layers client token, HMAC signature, fingerprint, and NextAuth session checks (pages/api/rewards/claim.ts (lines 95-158)), then wraps execution in withDeviceActionLock/Mongo locks to serialize actions and emit journals (lib/api/deviceAction.ts (lines 70-174), lib/db/requestLocks.ts (lines 5-162)). It loads the device + device-rewards doc, ensures the reward wallet is set and opted-in (pages/api/rewards/claim.ts (lines 187-236)), aggregates weekly + legacy daily records, and broadcasts grouped ASA transfers via the custodial reward vault (pages/api/rewards/claim.ts (lines 238-330)). Post-broadcast it updates weekly_rewards/daily_rewards, total counters (total_*), and logs monitoring events (pages/api/rewards/claim.ts (lines 332-414)). Claim confirmations backfill on-chain timestamps via /api/rewards/confirm (pages/api/rewards/confirm.ts (lines 74-135)).
@@ -271,3 +307,24 @@ Concurrency/audit data lives in main.device_request_locks and main.device_transa
 Every sensitive endpoint stacks: client token HMAC (browser-only), HMAC request signature with 5‑minute TTL, fingerprint binding to the login device, and NextAuth session ownership (see claim/boost/summary/totals handlers cited above). Server-side actions then enter withDeviceActionLock to enforce idempotency + rate limiting before touching Mongo or Algorand (lib/api/deviceAction.ts (lines 48-156), lib/api/operationRateLimit.ts (lines 5-86)), and important broadcasts are monitored via Discord webhooks (lib/monitoring/walletHealth.ts (lines 1-86), lib/monitoring/transactionMonitor.ts (lines 1-52)).
 Custodial wallets and env secrets are supplied via Docker Compose: Algorand signer mnemonics/rekeys, Mongo URIs, NextAuth secrets, Discord webhooks, weekly cutoff flags, and legacy force timestamps (docker-compose.yml (lines 5-41)). FINAL_DEP_WALLET_PLAN.md tracks the completed security/wallet hardening work and remaining backlog for future PRs.
 I’ve walked the full reward → staking → withdrawal → totals pipeline, mapped their code paths, and noted every collection touched. Let me know what questions you have or which issue you’d like to tackle first.
+
+
+## December 1st 2025 updated findings : 
+
+### Reward flows: 
+Claim modal signs with client token + HMAC and enforces the 0.001 ALGO top-up. /api/rewards/claim stacks session + fingerprint + signature + client token, wraps in withDeviceActionLock/Mongo locks, enforces reward wallet opt-in, aggregates weekly + legacy daily entries, broadcasts grouped custodial ASA transfers, updates weekly_rewards/daily_rewards totals, and logs monitoring/Discord events. /api/rewards/confirm backfills on-chain timestamps. Boost works on pending rewards; /api/rewards/boost validates ownership, computes per-asset fee maps, charges 30% (tFry direct to FRYALGO_WALLET; fNODE/fVPN swap to FRY 2.0 via Tinyman), flips to claimable at 70%, adjusts totals atomically, journals to reward-boosts, and notifies Discord.
+
+### Staking & withdrawals: 
+components/modals/Stake.tsx does rate-limit precheck (/api/stake/precheck), balance/opt-in checks, signs ASA transfers, and posts tx metadata. /api/stake/verification|registration|node-staking revalidate headers, ensure opt-in to product token, update device stake blocks + history, and set verified while clearing legacy flags on verification stake. Withdrawals (/api/stake/stake-withdraw, /api/stake/r-withdraw, /api/stake/n-withdraw) re-check opt-in and locks/timers (legacy bypass where flagged), broadcast from custodial vaults, append history, clear active stake fields, and log monitoring events. /api/stake/withdrawable exposes availability and legacy unlock metadata.
+
+### Totals & history surfaces: 
+Device cards and floating totals poll /api/rewards/get-reward-summary and /api/rewards/get-asset-totals with the full security stack, merging pending/claimable/claimed totals, weekly accrual previews, next unlocks, and legacy FRY snapshots. History SSR + pagination (pages/history.tsx, /api/rewards/get-rewards-page) blend weekly and historical daily rewards with fiat estimates and stake timelines from lib/history/collectStakeHistory.js.
+
+### DIMO integration: 
+/api/dimo/start sets CSRF state + hosted Login with DIMO URL. /api/dimo/callback verifies state, validates UserJWT via JWKS (DIMO_JWKS_URL, aud=DIMO_CLIENT_ID, iss=https://auth.dimo.zone), fetches account + /subscription/status/all, hashes IDs (hashDimoId), evaluates eligibility (lib/dimo/eligibility.ts), and upserts main.dimo-subscriptions (test collections when NEXT_PUBLIC_TEST_MODE=true) with audit trail and wallet/user conflict checks. /api/dimo/eligible returns cached verdicts. /api/dimo/claim locks per subscription, enforces fresh snapshot (DIMO_SNAPSHOT_TTL_MINUTES), generates a unique miner key (DIMO_MINER_PREFIX, default AEM), inserts a device stub, and stores hashed key + checksum (one free AEM per eligible sub). Eligibility: active/trial + start date; pre-announce allowed; grace window (DIMO_GRACE_DAYS) requires annual unless DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE=false; post-grace blocked unless DIMO_ALLOW_POST_GRACE=true. Grace expiry persisted for UI copy.
+
+### Seasonal themes: 
+SeasonalThemeProvider auto-activates holiday accents one month before through the day after Christmas, Valentine’s, Easter, July 4th, and Thanksgiving (lib/holidays.ts), writing data-holiday-theme on <html>. Overrides: NEXT_PUBLIC_FORCE_SEASONAL_THEME (force/disable), NEXT_PUBLIC_DISABLE_SEASONAL_AUTO (stop auto detection); user toggle persists in localStorage (seasonal-theme-enabled). UI surfaced via ThemeControls (light/dark/seasonal) and SeasonalThemeBadge.
+
+### Key collections & concurrency: 
+Authoritative collections: main.devices, main.products, main.device-rewards, main.reward-boosts, main.registration-users, main.dimo-subscriptions; creds in creds.*. Locks/journals: main.device_request_locks, main.device_transactions; wallet UX locks: main.wallet_operation_locks; security telemetry: main.security-events. Custodial secrets + policy flags (Algorand mnemonics/rekeys, Mongo URIs, NextAuth, Discord, weekly cutoff, legacy force timestamps, DIMO secrets) are sourced via docker-compose/1Password.

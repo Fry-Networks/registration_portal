@@ -34,3 +34,6 @@ declare module 'next-auth/jwt' {
     admin?: boolean;
   }
 }
+
+// External modules without bundled types
+declare module '@dimo-network/login-with-dimo';

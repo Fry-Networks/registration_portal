@@ -18,6 +18,10 @@ const OPERATION_LIMITS: Partial<Record<DeviceAction, OperationRateLimitConfig>> 
   'withdraw:verification': { windowMs: 60 * 60 * 1000, max: 10, burst: 2 },
   'withdraw:registration': { windowMs: 60 * 60 * 1000, max: 10, burst: 2 },
   'withdraw:node': { windowMs: 60 * 60 * 1000, max: 10, burst: 2 },
+  // DIMO airdrop claims are short-lived bursts; keep conservative to deter farming.
+  'dimo:claim': { windowMs: 5 * 60 * 1000, max: 5, burst: 1 },
+  // Sync/login with DIMO should be burst-protected to avoid hammering their API.
+  'dimo:sync': { windowMs: 5 * 60 * 1000, max: 6, burst: 2 },
   // Users need to sweep dozens of devices during the FRY1 → FRY2 migration, so allow a high per-miner cadence.
   // 'withdraw:verification_check': { windowMs: 30 * 60 * 1000, max: 6, burst: 2 }
   'withdraw:verification_check': { windowMs: 5 * 60 * 1000, max: 60, burst: 10 }

@@ -3,11 +3,83 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light dark;
-  color: rgba(158, 158, 158, 0.87);
-  background-color: #121212;
-  --text-secondary: var(--gray-2);
-  --gray-2: #7e7e7e;
+  color-scheme: light;
+  --bg: #f8fafc;
+  --bg-strong: #e2e8f0;
+  --card: #ffffff;
+  --text: #0f172a;
+  --muted: #475569;
+  --text-secondary: #475569;
+  --border: #e2e8f0;
+  --accent: #dc2626;
+  --accent-strong: #b91c1c;
+  --accent-soft: rgba(220, 38, 38, 0.12);
+}
+
+:root.dark {
+  color-scheme: dark;
+  --bg: #0c0f16;
+  --bg-strong: #111827;
+  --card: #0f172a;
+  --text: #e5e7eb;
+  --muted: #94a3b8;
+  --text-secondary: #94a3b8;
+  --border: #1f2937;
+  --accent: #f97316;
+  --accent-strong: #fb7185;
+  --accent-soft: rgba(251, 113, 133, 0.15);
+}
+
+/* Holiday-specific accent overrides for quick visual theming */
+html[data-holiday-theme='christmas'] {
+  --accent: #0f766e;
+  --accent-strong: #b91c1c;
+  --accent-soft: rgba(15, 118, 110, 0.14);
+}
+
+html[data-holiday-theme='valentines'] {
+  --accent: #ec4899;
+  --accent-strong: #be123c;
+  --accent-soft: rgba(236, 72, 153, 0.16);
+}
+
+html[data-holiday-theme='easter'] {
+  --accent: #a78bfa;
+  --accent-strong: #22c55e;
+  --accent-soft: rgba(167, 139, 250, 0.16);
+}
+
+html[data-holiday-theme='july4'] {
+  --accent: #1d4ed8;
+  --accent-strong: #ef4444;
+  --accent-soft: rgba(37, 99, 235, 0.14);
+}
+
+html[data-holiday-theme='thanksgiving'] {
+  --accent: #d97706;
+  --accent-strong: #92400e;
+  --accent-soft: rgba(217, 119, 6, 0.16);
+}
+
+body {
+  min-height: 100vh;
+  background: radial-gradient(circle at 15% 20%, var(--accent-soft) 0, transparent 38%),
+    radial-gradient(circle at 85% 10%, var(--accent-soft) 0, transparent 30%),
+    var(--bg);
+  color: var(--text);
+}
+
+#main {
+  background: transparent;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-strong);
 }
 
 .logo {
@@ -18,10 +90,6 @@
   transition: filter 300ms;
 }
 
-body {
-  background-color: #121212;
-}
-
 .logo_wallet {
   width: 10rem;
   height: auto;
@@ -30,24 +98,9 @@ body {
   transition: filter 300ms;
 }
 
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+@media (max-width: 640px) {
+  .logo {
+    width: 5.5rem;
+    padding: 0.5rem 0.75rem;
   }
 }

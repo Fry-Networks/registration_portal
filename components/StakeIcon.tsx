@@ -8,7 +8,7 @@ export default function StakingIcon() {
       height="24px"
       viewBox="0 0 32 32"
       enableBackground="new 0 0 32 32"
-      className="fill-current text-white hover:text-red-600"
+      className="fill-current"
     >
       <g>
         <path
