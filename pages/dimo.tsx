@@ -3,11 +3,13 @@ import { useRouter } from 'next/router';
 import { Title, Card, Button, Badge, Text, Flex, Grid, Metric } from '@tremor/react';
 import { useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet-react';
+import { useTheme } from 'next-themes';
 import { getClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import dynamic from 'next/dynamic';
 import HeroBanner from '../components/HeroBanner';
 import bgImg from '../assets/background.png';
+import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider';
 
 const DimoLoginSection = dynamic(() => import('../components/DimoLoginSection'), { ssr: false });
 
@@ -48,6 +50,10 @@ const fetchWithSignature = async (endpoint: string, method: 'GET' | 'POST', payl
 export default function DimoPerksPage() {
   const { data: session, status } = useSession();
   const { activeAccount } = useWallet();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const { activeHoliday } = useSeasonalTheme();
+  const holidayKey = activeHoliday?.key ?? null;
   const router = useRouter();
   const sdkCardRef = useRef<HTMLDivElement | null>(null);
   const [dimoAuthenticated, setDimoAuthenticated] = useState(true);
@@ -258,30 +264,41 @@ export default function DimoPerksPage() {
       setDimoAuthenticated(false);
     }
   }, [needsWallet]);
-  const panelClass =
-    'relative overflow-hidden border border-red-500/30 bg-[#0b0b0f] bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)]';
+  const panelClass = isDark
+    ? 'relative overflow-hidden border border-red-500/30 bg-[#0b0b0f] bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)] text-white'
+    : 'relative overflow-hidden border border-red-200 bg-white shadow-[0_18px_30px_rgba(15,23,42,0.12)] text-slate-900';
   const subCardClass =
     'group relative overflow-hidden border border-red-500/40 bg-[#0b0b0f] bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] p-4 sm:p-5 shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)] hover:border-red-400/60 hover:-translate-y-0.5 transition-all duration-300';
+  const subCardClassLight =
+    'group relative overflow-hidden border border-red-200 bg-white p-4 sm:p-5 shadow-[0_18px_30px_rgba(15,23,42,0.12)] hover:border-red-300 hover:-translate-y-0.5 transition-all duration-300 text-slate-900';
+  const heroOffsetClass = holidayKey === 'christmas' ? 'mt-10 sm:mt-14' : 'mt-2';
 
   return (
-    <main className="p-4 md:p-10 mx-auto max-w-6xl space-y-6 text-white">
-      <HeroBanner
-        title="DIMO Airdrop · Fry AI Edge Miner"
-        subtitle="Link your DIMO account, sync eligible subscriptions, and claim your free AEM miner key."
-        backgroundImage={bgImg}
-        showPrices={false}
-        rightSlot={
-          connectedFlag ? (
-            <Badge color="green" className="bg-green-500/20 text-green-100 border border-green-400/50">
-              DIMO connected
-            </Badge>
-          ) : null
-        }
-      />
+    <main className={`p-4 md:p-10 mx-auto max-w-6xl space-y-6 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+      <div className={heroOffsetClass}>
+        <HeroBanner
+          title="DIMO Airdrop · Fry AI Edge Miner"
+          subtitle="Link your DIMO account, sync eligible subscriptions, and claim your free AEM miner key."
+          backgroundImage={bgImg}
+          showPrices={false}
+          mode={isDark ? 'dark' : 'light'}
+          holidayKey={holidayKey}
+          rightSlot={
+            connectedFlag ? (
+              <Badge
+                color="green"
+                className={`border ${isDark ? 'bg-green-500/20 text-green-100 border-green-400/50' : 'bg-green-100 text-green-800 border-green-300'}`}
+              >
+                DIMO connected
+              </Badge>
+            ) : null
+          }
+        />
+      </div>
 
       {needsWallet && (
-        <Card className={`${panelClass} text-white`}>
-          <Text className="text-red-100/80">
+        <Card className={panelClass}>
+          <Text className={isDark ? 'text-red-100/80' : 'text-slate-800'}>
             Connect the wallet you plan to use. DIMO claims are bound to your session wallet.
           </Text>
         </Card>
@@ -300,59 +317,62 @@ export default function DimoPerksPage() {
       </div>
 
       {syncMessage && (
-        <Card className={`${panelClass} text-white`}>
-          <Text>{syncMessage}</Text>
+        <Card className={panelClass}>
+          <Text className={isDark ? 'text-white' : 'text-slate-800'}>{syncMessage}</Text>
         </Card>
       )}
 
-      <Card className={`${panelClass} text-white`}>
+      <Card className={panelClass}>
         <Flex justifyContent="between" alignItems="center" className="mb-4">
-          <Metric className="text-white dark:text-white">Eligible subscriptions</Metric>
+          <Metric className={isDark ? 'text-white dark:text-white' : 'text-slate-900'}>Eligible subscriptions</Metric>
           <Button
             onClick={loadEligible}
             loading={loading}
             disabled={needsWallet}
-            className="border border-red-500 bg-red-600 text-white hover:bg-red-500 hover:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`border bg-red-600 text-white hover:bg-red-500 hover:border-red-400 disabled:opacity-50 disabled:cursor-not-allowed ${isDark ? 'border-red-500' : 'border-red-500'}`}
           >
             Refresh
           </Button>
         </Flex>
         {subs.length === 0 && (
-          <Text className="text-gray-200 dark:text-gray-200">
+          <Text className={isDark ? 'text-gray-200' : 'text-slate-800'}>
             No eligible DIMO subscriptions detected yet. Only active monthly or annual subscriptions prior to December 4th 2025 are eligible for this airdrop. New Annual DIMO subscriptions only that enroll between December 5th to December 12th 2025 will be eligible as well. Post December 12th, no new subscriptions will be eligible anymore. Please ensure you have synced your DIMO account above.
           </Text>
         )}
         <Grid numItemsSm={1} numItemsMd={2} className="gap-4">
           {subs.map((sub) => (
-            <Card key={sub.subscriptionId} className={`${subCardClass} space-y-3`}>
+            <Card
+              key={sub.subscriptionId}
+              className={`${isDark ? subCardClass : subCardClassLight} space-y-3`}
+            >
               <Flex alignItems="center" justifyContent="start" className="gap-2 flex-wrap">
-                <Text className="text-white">Subscription:</Text>
+                <Text className={isDark ? 'text-white' : 'text-slate-900'}>Subscription:</Text>
                 <Badge color={sub.plan === 'annual' || sub.plan === 'monthly' ? 'green' : 'gray'}>
                   {sub.plan === 'annual' || sub.plan === 'monthly' ? sub.plan : 'Not eligible'}
                 </Badge>
               </Flex>
               <Flex alignItems="center" justifyContent="start" className="gap-2 flex-wrap">
-                <Text className="text-white">Status:</Text>
+                <Text className={isDark ? 'text-white' : 'text-slate-900'}>Status:</Text>
                 <Badge color="blue">{sub.status}</Badge>
               </Flex>
               {sub.startedAt && (
                 <Flex alignItems="center" justifyContent="start" className="gap-2 flex-wrap">
-                  <Text className="text-white">Started:</Text>
+                  <Text className={isDark ? 'text-white' : 'text-slate-900'}>Started:</Text>
                   <Badge color="indigo">{new Date(sub.startedAt).toLocaleDateString()}</Badge>
                 </Flex>
               )}
               {sub.graceExpiresAt && (
                 <div className="space-y-1">
-                  <Text className="text-white">
+                  <Text className={isDark ? 'text-white' : 'text-slate-900'}>
                     Grace window ends: {new Date(sub.graceExpiresAt).toLocaleDateString()}
                   </Text>
-                  <Text className="text-xs text-gray-500 dark:text-gray-300">
+                  <Text className={`text-xs ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
                     7 days after announcement. Existing monthly/yearly subs are eligible; New users that subscribe between now and the end of the grace window, will need to have a yearly plan to qualify. New monthly plans do not qualify. Anything after this date isn’t eligible for this drop.
                   </Text>
                 </div>
               )}
               {sub.claimed && sub.minerKeyChecksum ? (
-                <Badge color="amber" className="text-white">Claimed</Badge>
+                <Badge color="amber" className={isDark ? 'text-white' : 'text-slate-900'}>Claimed</Badge>
               ) : (
                 <Button
                   onClick={() => claimKey(sub.subscriptionId)}
@@ -364,7 +384,11 @@ export default function DimoPerksPage() {
                     !sub.plan ||
                     sub.plan === 'unknown'
                   }
-                  className="bg-red-600 text-white border border-red-500 hover:bg-red-500 hover:border-red-400 disabled:opacity-60"
+                  className={
+                    isDark
+                      ? 'bg-red-600 text-white border border-red-500 hover:bg-red-500 hover:border-red-400 disabled:opacity-60'
+                      : 'bg-red-100 text-slate-900 border border-red-200 hover:bg-red-200 hover:border-red-300 disabled:opacity-60'
+                  }
                 >
                   Claim free AEM key
                 </Button>
@@ -379,15 +403,21 @@ export default function DimoPerksPage() {
                 const registered = regState?.registered;
                 return (
                   <div className="mt-3 space-y-2 w-full">
-                    <Text className="text-white">Your AEM miner key:</Text>
-                    <div className="rounded-lg border border-red-400/60 bg-black/30 px-3 py-2 font-mono text-white break-all">
+                    <Text className={isDark ? 'text-white' : 'text-slate-900'}>Your AEM miner key:</Text>
+                    <div
+                      className={`rounded-lg border px-3 py-2 font-mono break-all ${
+                        isDark ? 'border-red-400/60 bg-black/30 text-white' : 'border-red-200 bg-white text-slate-900'
+                      }`}
+                    >
                       {stored.minerKey}
                     </div>
                     <Button
                       disabled={registered === true}
-                      className={`bg-red-600 text-white border border-red-500 hover:bg-red-500 hover:border-red-400 ${
-                        registered ? 'opacity-70 cursor-not-allowed' : ''
-                      }`}
+                      className={`border ${
+                        isDark
+                          ? 'bg-red-600 text-white border-red-500 hover:bg-red-500 hover:border-red-400'
+                          : 'bg-red-100 text-slate-900 border-red-200 hover:bg-red-200 hover:border-red-300'
+                      } ${registered ? 'opacity-70 cursor-not-allowed' : ''}`}
                       onClick={() => {
                         if (registered) return;
                         // Use SPA navigation to preserve session/fingerprint while onboarding.

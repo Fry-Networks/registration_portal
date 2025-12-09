@@ -9,6 +9,7 @@ import { useToastContext } from '../../hooks/ToastContext';
 import { isNodeStaked, isRegistrationStaked } from '../../lib/utils';
 import { secureFetch } from '../../lib/api/secureFetch';
 import { parseAlgodError } from '../../lib/algorand/errorParser';
+import { useTheme } from 'next-themes';
 
 export default function WithdrawAllModal({
 	modalName,
@@ -21,6 +22,8 @@ export default function WithdrawAllModal({
 	product: Product;
 	handleWithdrawAll: (device: Device) => Promise<void>;
 }) {
+	const { resolvedTheme } = useTheme();
+	const isDark = resolvedTheme !== 'light';
 	const { modals, closeModal } = useModal();
 	const [isProcessing, setIsProcessing] = useState(false);
 	const { data: session } = useSession();
@@ -145,10 +148,14 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 					}
 				}
 				static={true}
-				className="z-[100]"
+				className="z-[200]"
 			>
 				{/* Mirror withdraw modal palette so registration/node unstake dialogs stay consistent. */}
-				<DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100">
+				<DialogPanel
+					/* Keep the sheet below the navbar and above holiday overlays. */
+					className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+					style={{ marginTop: 'calc(var(--navbar-height, 64px) + 12px)' }}
+				>
 					<div className="absolute right-0 top-0 pr-3 pt-3">
 						<button
 							type="button"
@@ -175,11 +182,11 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 					>
 						<p>Do you want to withdraw registration and node staking?</p>
 					</Flex> */}
-					<div className="rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 mb-4">
-						<p className="font-semibold text-amber-50">
+					<div className={`rounded border px-4 py-3 text-sm mb-4 ${isDark ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-amber-300 bg-amber-50 text-slate-900'}`}>
+						<p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>
 							Withdrawing registration or node stakes stops rewards.
 						</p>
-						<p className="text-xs mt-1 text-amber-100/90">
+						<p className={`text-xs mt-1 ${isDark ? 'text-amber-100/90' : 'text-slate-800'}`}>
 							Remove the stake only if you understand the device (or node) will stop earning until you re-stake and rejoin reward cycles.
 						</p>
 					</div>					
@@ -218,13 +225,13 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 						</div>
 					</Card>
 					{selectedOption && warningCopy[selectedOption] && (
-						<div className="mt-4 rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-							<p className="font-semibold text-amber-50">{warningCopy[selectedOption].title}</p>
-							<p className="text-xs mt-1 text-amber-100/90">{warningCopy[selectedOption].body}</p>
-							<label className="mt-3 flex items-center gap-2 text-xs text-amber-50">
+						<div className={`mt-4 rounded border px-4 py-3 text-sm ${isDark ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-amber-300 bg-amber-50 text-slate-900'}`}>
+							<p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>{warningCopy[selectedOption].title}</p>
+							<p className={`text-xs mt-1 ${isDark ? 'text-amber-100/90' : 'text-slate-800'}`}>{warningCopy[selectedOption].body}</p>
+							<label className={`mt-3 flex items-center gap-2 text-xs ${isDark ? 'text-amber-50' : 'text-slate-900'}`}>
 								<input
 									type="checkbox"
-									className="h-4 w-4 rounded border-amber-200 text-amber-200 focus:ring-amber-400"
+									className={`h-4 w-4 rounded focus:ring-amber-400 ${isDark ? 'border-amber-200 text-amber-200' : 'border-amber-400 text-amber-600'}`}
 									checked={acknowledged}
 									onChange={(event) => setAcknowledged(event.target.checked)}
 								/>
@@ -239,7 +246,7 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 					>
 						{/* Align action buttons with the withdraw modal colors for a unified experience. */}
 						<Button
-							className="bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600"
+							className={`bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-black'}`}
 							onClick={() => {
 									if(!isProcessing) {
 										// setSelectedOption(options[0])
@@ -251,7 +258,7 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 							Close
 						</Button>
 						<Button
-							className={`relative flex items-center justify-center bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600 ${
+							className={`relative flex items-center justify-center bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-black'} ${
 								isProcessing || !acknowledged || !selectedOption ? 'cursor-not-allowed opacity-60' : 'cursor-default'
 							}`}
 							disabled={isProcessing || !acknowledged || !selectedOption}

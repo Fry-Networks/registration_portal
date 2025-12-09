@@ -8,6 +8,7 @@ import clientPromise from '../lib/mongoclient';
 import { useToastContext } from '../hooks/ToastContext';
 import { isNodeStakingNeeded, isRegistrationNeeded } from '../lib/utils';
 import { findProductByMinerKey } from './devices';
+import { useTheme } from 'next-themes';
 import SectionBanner from '../components/SectionBanner';
 import PasteAddress from '../components/PasteAddress';
 import bgImg from '../assets/background.png';
@@ -333,10 +334,13 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   const lastAttemptRef = useRef<string | null>(null);
   const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
   const resolvedMinerKey = useMemo(() => {
-    if (typeof minerKey === 'string') return minerKey;
-    if (Array.isArray(minerKey) && minerKey.length > 0) return minerKey[0];
+    const fallbackCamel = router.query?.minerKey;
+    const fallbackSnake = router.query?.miner_key;
+    const candidate = minerKey ?? fallbackCamel ?? fallbackSnake;
+    if (typeof candidate === 'string') return candidate;
+    if (Array.isArray(candidate) && candidate.length > 0) return candidate[0];
     return undefined;
-  }, [minerKey]);
+  }, [minerKey, router.query?.minerKey, router.query?.miner_key]);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -362,6 +366,41 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   const [product, setProduct] = useState<Product | undefined>(undefined);
   const toast = useToastContext();
   const { data: session } = useSession();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const pageBgClass = isDark ? 'bg-gray-950 text-white' : 'bg-slate-50 text-slate-900';
+  const panelClass = isDark
+    ? 'rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5'
+    : 'rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:p-5';
+  const panelSlimClass = isDark
+    ? 'rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col'
+    : 'rounded-2xl border border-slate-200 bg-white shadow-sm p-1 md:p-2 w-full h-full flex flex-col';
+  const labelClass = isDark ? 'block text-sm mb-1 text-gray-200' : 'block text-sm mb-1 text-slate-700';
+  const inputClass = isDark
+    ? 'w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none'
+    : 'w-full p-2 rounded-xl bg-white text-slate-900 ring-1 ring-slate-200 focus:ring-red-400/60 outline-none border border-slate-200';
+  const helperTextClass = isDark ? 'mt-1 text-xs text-gray-400' : 'mt-1 text-xs text-slate-600';
+  const errorTextClass = isDark ? 'mt-1 text-xs text-red-400' : 'mt-1 text-xs text-red-600';
+
+  const fromDimo = useMemo(() => {
+    const flag = router.query?.from_dimo;
+    if (typeof flag === 'string') return flag === '1' || flag.toLowerCase() === 'true';
+    if (Array.isArray(flag) && flag.length > 0) {
+      const v = flag[0];
+      return v === '1' || v.toLowerCase() === 'true';
+    }
+    return false;
+  }, [router.query?.from_dimo]);
+
+  const safeNavigateToDevices = useCallback(
+    (options?: { force?: boolean }) => {
+      const force = options?.force === true;
+      // Allow explicit user exits when force=true; otherwise keep DIMO guard to prevent auto redirects.
+      if (!force && fromDimo) return;
+      router.push('/devices');
+    },
+    [fromDimo, router]
+  );
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -369,6 +408,7 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   const [selectedSubtype, setSelectedSubtype] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [credentialsValidated, setCredentialsValidated] = useState(false);
+  const [registrationCompleted, setRegistrationCompleted] = useState(false); // track successful registration so DIMO flow can exit
 
   // Check if credentials are needed based on env variable
   const credentialsNotNeeded = useMemo(() => {
@@ -529,6 +569,9 @@ export default function RegisterPage({ products }: { products: Product[] }) {
         if (res.ok) {
           const data = await res.json();
           setDevice(data.device as Device);
+          if (data?.device?.is_registered) {
+            setRegistrationCompleted(true);
+          }
         } else {
           setDevice(undefined);
         }
@@ -989,7 +1032,7 @@ const sections = [
           if (isMacDevice) {
             heading = 'MAC Address verified';
             if (!message || message.toLowerCase() === 'validation successful') {
-              message = 'Your MAC has been verified successfully. Remember to save to finish linking.';
+              message = 'Your MAC has been verified successfully. Click next to continue onboarding and remember to save at the end to make sure it links correctly.';
             }
           } else if (deviceCount > 0) {
             heading = 'Devices discovered';
@@ -1173,8 +1216,8 @@ const sections = [
       setCredentialsPrefilled(true);
   toast.success({ heading: 'Success', message: 'Credentials updated.' });
   setCredentialsJustUpdated(true);
-      // After successful save, return to devices list
-      router.push('/devices');
+      // After successful save, return to devices list (DIMO users can force-exit via CTA)
+      safeNavigateToDevices({ force: true });
     } catch (err) {
       console.error('Failed to update credentials', err);
       toast.error({ heading: 'Error', message: 'Failed to save credentials' });
@@ -1380,6 +1423,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
     if (!stepsSucceeded) return;
 
     // Registration step + persist credentials (same as before)
+    let registrationSucceeded = registrationCompleted || device?.is_registered || false;
     if (!clickable) {
       if (!session?.user.address) {
         toast.error({ heading: 'Error', message: 'Your wallet session has expired.' });
@@ -1416,6 +1460,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
               const j = await response.json().catch(() => ({}));
               console.error('Registration endpoint failed after save:', j);
               toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
+            } else {
+              setRegistrationCompleted(true);
+              setDevice((prev) => ({ ...(prev ?? {} as Device), miner_key: resolvedMinerKey, is_registered: true } as Device));
+              registrationSucceeded = true;
             }
           } catch (e) {
             console.error('Failed to call registration endpoint after save', e);
@@ -1449,7 +1497,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
       }
     }
 
-    router.push(evaluatePostRegistrationRoute());
+    // Avoid kicking DIMO users back to devices until the device is registered.
+    if (!(fromDimo && !registrationSucceeded)) {
+      router.push(evaluatePostRegistrationRoute());
+    }
   };
 
   const handleSyncHexOrSave = async () => {
@@ -1496,6 +1547,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
     // If already synced: perform the actual save action
     try {
+      let registrationSucceeded = registrationCompleted || device?.is_registered || false;
       // First save personal information (nickname, reward wallet)
       const personalSaved = await savePersonalInformation();
       if (!personalSaved) {
@@ -1558,6 +1610,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
               const j = await r.json().catch(() => ({}));
               console.error('Registration endpoint failed after save:', j);
               toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
+            } else {
+              setRegistrationCompleted(true);
+              setDevice((prev) => ({ ...(prev ?? {} as Device), miner_key: resolvedMinerKey, is_registered: true } as Device));
+              registrationSucceeded = true;
             }
           }
         } catch (e) {
@@ -1566,7 +1622,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
         }
       }
 
-      router.push(evaluatePostRegistrationRoute());
+      // Avoid kicking DIMO users back to devices until the device is registered.
+      if (!(fromDimo && !registrationSucceeded)) {
+        router.push(evaluatePostRegistrationRoute());
+      }
       return;
     } catch (err: any) {
       console.error('Failed to save location/credentials', err);
@@ -1610,7 +1669,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
         // swallow cancel errors
       }
     }
-    router.push('/devices');
+    safeNavigateToDevices({ force: true });
   };
 
   const handleSkip = () => {
@@ -1622,7 +1681,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
     if (currentSection > 0) {
       setCurrentSection((prev) => prev - 1);
     } else {
-      router.push('/devices');
+      safeNavigateToDevices({ force: true });
     }
   };
 
@@ -1761,7 +1820,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
         >
           {/* Credentials / Portal intro page (index 0) */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white">
+            <div className={`flex h-full flex-col ${pageBgClass}`}>
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
                 <SectionBanner
                   image={bgImg}
@@ -1769,11 +1828,12 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   subtitle="Select the subtype and provide credentials. You can validate and save before continuing."
                   height={160}
                   darkOverlay={0.45}
+                  mode={isDark ? 'dark' : 'light'}
                 />
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left column */}
                 <div className="lg:col-span-1">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
+                  <div className={panelClass}>
                     <h3 className="font-semibold mb-3">Available Subtypes</h3>
                     {availableSubtypes.length > 0 ? (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1789,9 +1849,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               disabled={disabled}
                               className={`group flex flex-col items-center justify-center rounded-xl border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
                                 selectedSubtype === opt.id
-                                  ? 'border-red-500 bg-red-600/10 shadow-md'
-                                  : 'border-white/10 bg-gray-900/70 hover:border-red-400/70 hover:bg-gray-900'
-                              } ${disabled ? 'opacity-50 cursor-not-allowed hover:border-white/10 hover:bg-gray-900/70' : ''}`}
+                                  ? isDark
+                                    ? 'border-red-500 bg-red-600/10 shadow-md'
+                                    : 'border-red-500 bg-red-50 shadow-sm'
+                                  : isDark
+                                    ? 'border-white/10 bg-gray-900/70 hover:border-red-400/70 hover:bg-gray-900'
+                                    : 'border-slate-200 bg-white hover:border-red-300 hover:bg-red-50'
+                              } ${disabled ? (isDark ? 'opacity-50 cursor-not-allowed hover:border-white/10 hover:bg-gray-900/70' : 'opacity-50 cursor-not-allowed hover:border-slate-200 hover:bg-white') : ''}`}
                               onClick={() => {
                                 if (disabled) return;
                                 setSelectedSubtype(opt.id);
@@ -1813,7 +1877,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                  height={56}
                                />
                              ) : (
-                               <span className="px-3 py-2 text-sm font-medium text-gray-100">{opt.name}</span>
+                               <span className={`px-3 py-2 text-sm font-medium ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>{opt.name}</span>
                              )}
                               {existingCredentials?.api_type === opt.id ? (
                                 <span className="mt-2 text-[11px] text-red-200 text-center px-2">
@@ -1825,9 +1889,9 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         })}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-300">No subtypes available for this portal.</p>
+                      <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>No subtypes available for this portal.</p>
                     )}
-                    <div className="mt-4 text-xs text-gray-400 space-y-1">
+                    <div className={`mt-4 text-xs space-y-1 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
                       <p>Your credentials are kept local until you complete registration.</p>
                       <p>Use the Validate button to check credentials before moving on.</p>
                     </div>
@@ -1836,7 +1900,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                 {/* Right column: credentials card */}
                 <div className="lg:col-span-2">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5">
+                  <div className={panelClass}>
                     {credentialsNotNeeded ? (
                       /* Temporary page for devices that don't need credentials */
                       <div className="text-center py-8">
@@ -1846,11 +1910,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
-                          <h3 className="text-xl font-semibold text-white mb-2">No Credentials Required</h3>
-                          <p className="text-gray-300 mb-4">
+                          <h3 className={`text-xl font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No Credentials Required</h3>
+                          <p className={isDark ? 'text-gray-300 mb-4' : 'text-slate-700 mb-4'}>
                             This device type ({resolvedMinerKey?.split('-')[0]}) does not require credentials configuration at this time.
                           </p>
-                          <p className="text-sm text-gray-400">
+                          <p className={isDark ? 'text-sm text-gray-400' : 'text-sm text-slate-600'}>
                             You can proceed directly to the next step to complete your device registration.
                           </p>
                         </div>
@@ -1858,9 +1922,9 @@ const savePersonalInformation = async (): Promise<boolean> => {
                     ) : (
                       /* Original credentials form */
                       <>
-                        {loadingStoredCredentials ? <p className="text-sm text-gray-400 mb-3">Loading stored credentials…</p> : null}
+                        {loadingStoredCredentials ? <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>Loading stored credentials…</p> : null}
                         {existingCredentials?.api_type ? (
-                          <p className="text-xs text-red-300 mb-2">
+                          <p className={`text-xs mb-2 ${isDark ? 'text-red-300' : 'text-red-600'}`}>
                             Stored credentials are linked to subtype{' '}
                             {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
                           </p>
@@ -1882,7 +1946,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           const { pattern, maxLength, placeholder } = getSubtypeConstraints(field, selectedSubtype);
                           return (
                             <div key={field} className="mb-3">
-                              <label className="block text-sm mb-1 text-gray-200">{FIELD_LABELS[field] ?? field}</label>
+                              <label className={labelClass}>{FIELD_LABELS[field] ?? field}</label>
                               <input
                                 disabled={credentialActionLoading || loadingStoredCredentials}
                                 value={value}
@@ -1957,11 +2021,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 autoCapitalize="off"
                                 autoCorrect="off"
                                 spellCheck={false}
-                                className={`w-full p-2 rounded-xl bg-gray-900 text-white outline-none ring-1 disabled:cursor-not-allowed disabled:bg-gray-900/60 ${
-                                  err ? 'ring-red-500' : 'ring-white/10 focus:ring-red-500/50'
+                                className={`w-full p-2 rounded-xl outline-none ring-1 disabled:cursor-not-allowed ${isDark ? 'bg-gray-900 text-white disabled:bg-gray-900/60' : 'bg-white text-slate-900 border border-slate-200 disabled:bg-slate-100'} ${
+                                  err ? (isDark ? 'ring-red-500' : 'ring-red-500') : isDark ? 'ring-white/10 focus:ring-red-500/50' : 'ring-slate-200 focus:ring-red-400/60'
                                 }`}
                               />
-                              {err ? <p className="mt-1 text-xs text-red-400">{err}</p> : hint ? <p className="mt-1 text-xs text-gray-400">{hint}</p> : null}
+                              {err ? <p className={errorTextClass}>{err}</p> : hint ? <p className={helperTextClass}>{hint}</p> : null}
                             </div>
                           );
                         })}
@@ -1970,7 +2034,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           <div className="mt-4">
                             <div className="flex flex-wrap gap-2 mb-2">
                               <button
-                                className="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50"
+                                className={isDark ? 'px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50' : 'px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-red-50 disabled:opacity-50'}
                                 disabled={switchbotLoading || !switchbotPrereqsOk}
                                 onClick={async () => {
                                   setSwitchbotError(null);
@@ -2061,7 +2125,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 {switchbotLoading ? 'Discovering devices...' : 'Discover devices'}
                               </button>
                               <button
-                                className="px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800"
+                                className={isDark ? 'px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800' : 'px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100'}
                                 onClick={() => {
                                   setSwitchbotDevices([]);
                                   setSwitchbotError(null);
@@ -2077,21 +2141,25 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   <p className="text-xs text-red-400">{switchbotError}</p>
                                 )}
                                 {switchbotLoading && (
-                                  <p className="text-xs text-gray-400">Discovering devices…</p>
+                                  <p className={helperTextClass}>Discovering devices…</p>
                                 )}
                                 {!switchbotLoading && switchbotDevices.length === 0 && !switchbotError && (
-                                  <p className="text-xs text-gray-400">
+                                  <p className={helperTextClass}>
                                     Use “Discover devices” to pull available SwitchBot plugs linked to this token and secret.
                                   </p>
                                 )}
                                 {switchbotDevices.length > 0 && (
                                   <div>
-                                    <h5 className="text-sm font-semibold text-gray-100 mb-2">
+                                    <h5 className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
                                       Select the device you want to link
                                     </h5>
                                     <div className="relative">
                                       <select
-                                        className="w-full appearance-none rounded-xl border border-white/10 bg-gray-900/70 px-3 py-2 pr-10 text-sm text-gray-100 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                                        className={`w-full appearance-none rounded-xl border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 ${
+                                          isDark
+                                            ? 'border-white/10 bg-gray-900/70 text-gray-100 focus:border-red-500 focus:ring-red-500/50'
+                                            : 'border-slate-200 bg-white text-slate-900 focus:border-red-500 focus:ring-red-400/60'
+                                        }`}
                                         value={credentials['deviceId'] ?? ''}
                                         onChange={(e) => {
                                           setSwitchbotError(null);
@@ -2107,11 +2175,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                           </option>
                                         ))}
                                       </select>
-                                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                                      <span className={`pointer-events-none absolute inset-y-0 right-3 flex items-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
                                         ▼
                                       </span>
                                     </div>
-                                    <p className="mt-2 text-xs text-gray-400">
+                                    <p className={`${helperTextClass} mt-2`}>
                                       Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
                                     </p>
                                   </div>
@@ -2125,7 +2193,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           <div className="mt-4">
                             <div className="flex flex-wrap gap-2 mb-2">
                               <button
-                                className="px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50"
+                                className={isDark ? 'px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50' : 'px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-red-50 disabled:opacity-50'}
                                 disabled={shellyLoading || !shellyPrereqsOk}
                                 onClick={async () => {
                                   setShellyError(null);
@@ -2210,7 +2278,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 {shellyLoading ? 'Discovering devices...' : 'Discover devices'}
                               </button>
                               <button
-                                className="px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800"
+                                className={isDark ? 'px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800' : 'px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100'}
                                 onClick={() => {
                                   setShellyDevices([]);
                                   setShellyError(null);
@@ -2226,21 +2294,25 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   <p className="text-xs text-red-400">{shellyError}</p>
                                 )}
                                 {shellyLoading && (
-                                  <p className="text-xs text-gray-400">Discovering devices…</p>
+                                  <p className={helperTextClass}>Discovering devices…</p>
                                 )}
                                 {!shellyLoading && shellyDevices.length === 0 && !shellyError && (
-                                  <p className="text-xs text-gray-400">
+                                  <p className={helperTextClass}>
                                     Use &ldquo;Discover devices&rdquo; to pull available Shelly devices linked to this auth key and server URL.
                                   </p>
                                 )}
                                 {shellyDevices.length > 0 && (
                                   <div>
-                                    <h5 className="text-sm font-semibold text-gray-100 mb-2">
+                                    <h5 className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
                                       Select the device you want to link
                                     </h5>
                                     <div className="relative">
                                       <select
-                                        className="w-full appearance-none rounded-xl border border-white/10 bg-gray-900/70 px-3 py-2 pr-10 text-sm text-gray-100 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                                        className={`w-full appearance-none rounded-xl border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 ${
+                                          isDark
+                                            ? 'border-white/10 bg-gray-900/70 text-gray-100 focus:border-red-500 focus:ring-red-500/50'
+                                            : 'border-slate-200 bg-white text-slate-900 focus:border-red-500 focus:ring-red-400/60'
+                                        }`}
                                         value={credentials['deviceId'] ?? ''}
                                         onChange={(e) => {
                                           setShellyError(null);
@@ -2256,11 +2328,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                           </option>
                                         ))}
                                       </select>
-                                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                                      <span className={`pointer-events-none absolute inset-y-0 right-3 flex items-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
                                         ▼
                                       </span>
                                     </div>
-                                    <p className="mt-2 text-xs text-gray-400">
+                                    <p className={`${helperTextClass} mt-2`}>
                                       Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
                                     </p>
                                   </div>
@@ -2273,7 +2345,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         <div className="flex gap-2 mt-5">
                           <button
                             type="button"
-                            className="px-4 py-2 rounded-xl border border-gray-700 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className={isDark ? 'px-4 py-2 rounded-xl border border-gray-700 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed'}
                             disabled={credentialActionLoading || loadingStoredCredentials || Boolean(existingCredentials)}
                             onClick={() => {
                               if (existingCredentials) return;
@@ -2304,7 +2376,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                             <>
                               <button
                                 type="button"
-                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled={credentialActionLoading || loadingStoredCredentials || !selectedSubtype || !credentialsChanged}
                                 onClick={handleCredentialUpdate}
                               >
@@ -2312,7 +2384,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               </button>
                               <button
                                 type="button"
-                                className="px-4 py-2 rounded-xl border border-gray-500 hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className={isDark ? 'px-4 py-2 rounded-xl border border-gray-500 hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed'}
                                 disabled={credentialActionLoading || loadingStoredCredentials}
                                 onClick={handleCredentialUnlink}
                               >
@@ -2322,7 +2394,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           ) : (
                             <button
                               type="button"
-                              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                               disabled={credentialActionLoading || loadingStoredCredentials || credentialsInvalid}
                               onClick={async () => await submitCredentials()}
                             >
@@ -2332,7 +2404,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                         </div>
                       </>
                         ) : (
-                          <div className="text-sm text-gray-300">Choose a subtype on the left to enter credentials.</div>
+                          <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Choose a subtype on the left to enter credentials.</div>
                         )}
                       </>
                     )}
@@ -2341,8 +2413,8 @@ const savePersonalInformation = async (): Promise<boolean> => {
               </div>
               </div>
               {/* Footer nav for section 0 */}
-              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
-                <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
+              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
+                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
                   Cancel
                 </button>
                 {credentialsJustUpdated && (
@@ -2354,7 +2426,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   </button>
                 )}
                 <button
-                  className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
                   onClick={() => {
                     if (!credentialsNotNeeded && credentialsInvalid) {
                       setFieldErrors((prev) => ({
@@ -2383,88 +2455,88 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
           {/* Personal Information (index 1) - unchanged layout from earlier */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white">
+            <div className={`flex h-full flex-col ${pageBgClass}`}>
               <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
-                <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} />
+                <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
 
-                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5 w-full flex flex-col gap-4">
+                <div className={`${panelClass} w-full flex flex-col gap-4`}>
                 {/* Email */}
                 <div>
-                  <label className="block text-sm mb-1 text-gray-200">Email</label>
+                  <label className={labelClass}>Email</label>
                   <input
                     value={personalInfoData.email}
                     onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, email: e.target.value }))}
-                    className="w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none"
+                    className={inputClass}
                     placeholder="example@domain.tld"
                   />
-                  {fieldErrors.email && <p className="mt-1 text-xs text-red-400">{fieldErrors.email}</p>}
+                  {fieldErrors.email && <p className={errorTextClass}>{fieldErrors.email}</p>}
                 </div>
 
                 {/* First / Last */}
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm mb-1 text-gray-200">First Name</label>
+                    <label className={labelClass}>First Name</label>
                     <input
                       value={personalInfoData.firstName}
                       onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, firstName: e.target.value }))}
-                      className="w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none"
+                      className={inputClass}
                       placeholder="Samuel"
                     />
-                    {fieldErrors.firstName && <p className="mt-1 text-xs text-red-400">{fieldErrors.firstName}</p>}
+                    {fieldErrors.firstName && <p className={errorTextClass}>{fieldErrors.firstName}</p>}
                   </div>
                   <div>
-                    <label className="block text-sm mb-1 text-gray-200">Last Name</label>
+                    <label className={labelClass}>Last Name</label>
                     <input
                       value={personalInfoData.lastName}
                       onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, lastName: e.target.value }))}
-                      className="w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none"
+                      className={inputClass}
                       placeholder="Fry"
                     />
-                    {fieldErrors.lastName && <p className="mt-1 text-xs text-red-400">{fieldErrors.lastName}</p>}
+                    {fieldErrors.lastName && <p className={errorTextClass}>{fieldErrors.lastName}</p>}
                   </div>
                 </div>
 
                 {/* Device Nickname */}
                 <div>
-                  <label className="block text-sm mb-1 text-gray-200">Device Nickname</label>
+                  <label className={labelClass}>Device Nickname</label>
                   <input
                     value={personalInfoData.nickname}
                     onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, nickname: e.target.value }))}
-                    className="w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none"
-                    placeholder="Kitchen Tempest"
+                    className={inputClass}
+                    placeholder="Basement Bandwidth Miner 1 / Office Energy Miner 2..."
                   />
-                  {fieldErrors.nickname && <p className="mt-1 text-xs text-red-400">{fieldErrors.nickname}</p>}
+                  {fieldErrors.nickname && <p className={errorTextClass}>{fieldErrors.nickname}</p>}
                 </div>
 
                 {/* Rewards Wallet (Algorand) */}
                 <div className="space-y-2">
-                  <label className="block text-sm mb-1 text-gray-200">Rewards Wallet (Algorand)</label>
+                  <label className={labelClass}>Rewards Wallet (Algorand)</label>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <input
                       value={personalInfoData.reward_wallet}
                       onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, reward_wallet: e.target.value.trim() }))}
-                      className="w-full sm:flex-1 p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none"
+                      className={`${inputClass} sm:flex-1`}
                       placeholder="58-char Algorand address"
                     />
                     <PasteAddress handlePaste={handleRewardWalletPaste} />
                   </div>
 
-                  {fieldErrors.reward_wallet && <p className="mt-1 text-xs text-red-400">{fieldErrors.reward_wallet}</p>}
-                  <p className="mt-1 text-xs text-gray-400">{FIELD_HINT.reward_wallet}</p>
+                  {fieldErrors.reward_wallet && <p className={errorTextClass}>{fieldErrors.reward_wallet}</p>}
+                  <p className={helperTextClass}>{FIELD_HINT.reward_wallet}</p>
                 </div>
               </div>
               </div>
 
               {/* Footer nav for Personal */}
-              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
-                <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
+              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
+                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
                   Cancel
                 </button>
-                <button className="px-4 py-2 border border-gray-500 rounded" onClick={() => setCurrentSection(0)}>
+                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded' : 'px-4 py-2 border border-slate-300 rounded'} onClick={() => setCurrentSection(0)}>
                   Back
                 </button>
                 <button
-                  className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
                   onClick={() => {
                     // Only enforce credential validity when credentials are required by env
                     if (rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)) {
@@ -2486,18 +2558,18 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
           {/* Localization (index 2) – AUTOFIT VERSION (v9: toolbar grid + HexMap auto-resolution) */}
           <div className="flex-shrink-0 w-full h-full">
-            <div className="flex h-full flex-col bg-gray-950 text-white">
+            <div className={`flex h-full flex-col ${pageBgClass}`}>
               <div className="flex-1 overflow-y-auto p-1 sm:p-2 md:p-3 space-y-3">
-                <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} />
+                <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
 
                 {/* Autofit card: fills available width/height */}
-                <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col">
+                <div className={panelSlimClass}>
                 {/* Toolbar (search + lon/lat) — responsive grid that aligns labels + inputs */}
                 <div className="flex flex-col gap-1 mt-0.5">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
                     {/* Search: spans 6 columns on md+ */}
                     <div className="md:col-span-6 flex flex-col">
-                      <label className="text-sm mb-1 text-white">Search</label>
+                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Search</label>
                       <div className="w-full">
                         <MapboxAutocomplete
                           accessToken={mapboxgl.accessToken!}
@@ -2537,10 +2609,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                     {/* Longitude: spans 3 columns on md+ */}
                     <div className="md:col-span-3 flex flex-col">
-                      <label className="text-sm mb-1 text-white">Longitude</label>
+                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Longitude</label>
                       <input
                         type="text"
-                        className="w-full p-2 h-10 rounded border border-red-600 text-black"
+                        className={`w-full p-2 h-10 rounded border ${isDark ? 'border-red-600 text-white bg-gray-900' : 'border-red-500 text-slate-900 bg-white'}`}
                         placeholder="Longitude"
                         value={mapInfoData.longitude ?? ''}
                         onChange={(e) => {
@@ -2553,15 +2625,15 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           }
                         }}
                       />
-                      <span className="min-h-[1.25rem] text-red-500 text-sm mt-1">{fieldErrors.longitude ?? ''}</span>
+                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.longitude ? 'text-red-500' : isDark ? 'text-gray-400' : 'text-slate-600'}`}>{fieldErrors.longitude ?? ''}</span>
                     </div>
 
                     {/* Latitude: spans 3 columns on md+ */}
                     <div className="md:col-span-3 flex flex-col">
-                      <label className="text-sm mb-1 text-white">Latitude</label>
+                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Latitude</label>
                       <input
                         type="text"
-                        className="w-full p-2 h-10 rounded border border-red-600 text-black"
+                        className={`w-full p-2 h-10 rounded border ${isDark ? 'border-red-600 text-white bg-gray-900' : 'border-red-500 text-slate-900 bg-white'}`}
                         placeholder="Latitude"
                         value={mapInfoData.latitude ?? ''}
                         onChange={(e) => {
@@ -2574,7 +2646,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                           }
                         }}
                       />
-                      <span className="min-h-[1.25rem] text-red-500 text-sm mt-1">{fieldErrors.latitude ?? ''}</span>
+                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.latitude ? 'text-red-500' : isDark ? 'text-gray-400' : 'text-slate-600'}`}>{fieldErrors.latitude ?? ''}</span>
                     </div>
                   </div>
                 </div>
@@ -2584,7 +2656,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                   <div className="flex-1 min-h-0 flex flex-col">
                   <div className="relative flex-1 min-h-0">
                     {displayedHex && displayedHexRes !== null && (
-                      <div className="absolute bottom-3 left-3 z-[500] bg-gray-900/80 px-3 py-1 rounded text-xs text-gray-200 shadow">
+                      <div className={`absolute bottom-3 left-3 z-[500] px-3 py-1 rounded text-xs shadow ${isDark ? 'bg-gray-900/80 text-gray-200' : 'bg-white/95 text-slate-800 border border-slate-200'}`}>
                         Res {displayedHexRes} · {displayedHex}
                       </div>
                     )}
@@ -2615,16 +2687,16 @@ const savePersonalInformation = async (): Promise<boolean> => {
               </div>
 
               {/* Footer nav for Localization */}
-              <div className="border-t border-white/10 bg-gray-950 px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 text-white">
-                <button className="px-4 py-2 border border-gray-500 rounded hover:bg-gray-500" onClick={() => router.push('/devices')}>
+              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
+                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
                   Cancel
                 </button>
-                <button className="px-4 py-2 border border-gray-500 rounded" onClick={() => setCurrentSection(1)}>
+                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded' : 'px-4 py-2 border border-slate-300 rounded'} onClick={() => setCurrentSection(1)}>
                   Back
                 </button>
                 <div className="flex flex-col items-end">
                   <button
-                    className="px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
                     type="button"
                     onClick={handleSyncHexOrSave}
                     disabled={( !credentialsNotNeeded && credentialsInvalid) || rewardWalletInvalid}

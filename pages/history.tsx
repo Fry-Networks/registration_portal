@@ -12,6 +12,7 @@ import DailyRow, { DailyRewardView } from '../components/DailyRow';
 import Link from 'next/link';
 import { type ElementType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
+import { useTheme } from 'next-themes'; // Use theme to align hero styling with other pages
 import { useModal } from '../app/modalcontext';
 import ClaimModal from '../components/modals/Claim';
 import BoostModal from '../components/modals/Boost';
@@ -25,10 +26,12 @@ import {
   type StakeHistoryMap
 } from '../lib/history/collectStakeHistory';
 import Tooltip from '../components/Tooltip';
+import StatusPill from '../components/StatusPill';
 import { REWARD_STATUS_DESCRIPTIONS, getAssetDisplay } from '../lib/utils';
 import { isLegacyVerificationStake } from '../lib/legacyStake';
 import { useToastContext } from '../hooks/ToastContext';
 import { secureFetch } from '../lib/api/secureFetch';
+import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -181,6 +184,12 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     );
   }, [stakeHistoryData]);
 
+  // Align hero palette with other pages by matching the current theme.
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const { activeHoliday } = useSeasonalTheme();
+  const holidayKey = activeHoliday?.key ?? null;
+  const heroOffsetClass = holidayKey === 'christmas' ? 'mt-10 sm:mt-14' : 'mt-2'; // Xmas: push hero down to clear garland
 
   const { miner_key } = router.query;
   const minerKey = typeof miner_key === 'string' ? miner_key : undefined;
@@ -242,35 +251,6 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   const formatLegacyAmount = (value: number) => {
     if (!Number.isFinite(value)) return '0';
     return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
-  const StatusPill = ({
-    label,
-    value,
-    colorClass,
-    tooltip
-  }: {
-    label: string;
-    value: unknown;
-    colorClass: string;
-    tooltip?: string;
-  }) => {
-    const pill = (
-      <span
-        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[0.7rem] font-semibold ${colorClass}`}
-      >
-        <span className="uppercase tracking-wide text-[0.68rem]">{label}</span>
-        <span className="text-white text-sm font-semibold tracking-normal normal-case">
-          {formatSummaryValue(value)}
-        </span>
-      </span>
-    );
-
-    if (!tooltip) {
-      return pill;
-    }
-
-    return <Tooltip text={tooltip}>{pill}</Tooltip>;
   };
 
   const unlockMessaging = useMemo(() => {
@@ -848,7 +828,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
 
   return (
     <div className="w-full space-y-6">
-      <div className="px-2 sm:px-20 mt-2">
+      <div className={`px-2 sm:px-20 ${heroOffsetClass}`}>
         <HeroBanner
           title="Reward History"
           subtitle="Explore detailed payouts, confirm on-chain settlements, and keep Fry earnings aligned across devices."
@@ -859,11 +839,13 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
               href: 'https://vote.frynetworks.com/allvotes'
             }
           ]}
+          mode={isDark ? 'dark' : 'light'} // Match devices/main page palette for consistency
+          holidayKey={holidayKey}
         />
       </div>
       <div className="px-2 sm:px-20">
         <Link href="/devices">
-          <Button className="mt-6 min-w-[150px] bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
+          <Button className="mt-6 min-w-[150px] bg-transparent border-red-600 text-slate-900 dark:text-white hover:bg-red-600 hover:border-red-600 hover:text-white">
             Back
           </Button>
         </Link>
@@ -876,59 +858,61 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
       </div>
       {/* Device identity */}
   {deviceMeta && (
-    <div className="px-2 sm:px-20 mt-3 text-gray-300">
-      <div className="text-white text-lg sm:text-xl font-semibold">
+    <div className="px-2 sm:px-20 mt-3 text-gray-900 dark:text-gray-300">
+      <div className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">
         {deviceMeta.nickname || deviceMeta.name || '-'}
         {typeof miner_key === 'string' && (
-              <span className="text-gray-400 font-normal"> {' '}({miner_key})</span>
-            )}
-          </div>
-          {deviceMeta.productName && (
-            <div className="text-sm mt-1">
-              Product: <span className="text-white">{deviceMeta.productName}</span>
-            </div>
-          )}
+          <span className="text-gray-700 dark:text-gray-400 font-normal"> {' '}({miner_key})</span>
+        )}
+      </div>
+      {deviceMeta.productName && (
+        <div className="text-sm mt-1 text-gray-700 dark:text-gray-400">
+          Product: <span className="font-semibold text-gray-900 dark:text-white">{deviceMeta.productName}</span>
+        </div>
+      )}
     </div>
   )}
   <div className="px-2 sm:px-20 mt-4 text-white border-b border-white/10 py-3">
     {summary && (
       <>
       <div className="flex flex-wrap gap-2">
+        {/* Summary chips reuse shared StatusPill for consistent styling */}
         <StatusPill
           label="Accruing (weekly preview)"
-          value={summary.accruing ?? 0}
-          colorClass="border-sky-500/60 bg-sky-500/15 text-sky-200"
+          value={formatSummaryValue(summary.accruing ?? 0)}
+          tone="info"
           tooltip={REWARD_STATUS_DESCRIPTIONS.accruing}
         />
         <StatusPill
           label="Pending"
-          value={summary.pending ?? 0}
-          colorClass="border-amber-500/60 bg-amber-500/15 text-amber-200"
+          value={formatSummaryValue(summary.pending ?? 0)}
+          tone="warning"
           tooltip={REWARD_STATUS_DESCRIPTIONS.pending}
         />
         <StatusPill
           label="Claimable"
-          value={summary.claimable ?? 0}
-          colorClass="border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+          value={formatSummaryValue(summary.claimable ?? 0)}
+          tone="success"
           tooltip={REWARD_STATUS_DESCRIPTIONS.claimable}
         />
         {typeof summary.claimed === 'number' && (
           <StatusPill
             label="Claimed"
-            value={summary.claimed}
-            colorClass="border-gray-600 bg-gray-800 text-gray-300"
+            value={formatSummaryValue(summary.claimed)}
+            tone="muted"
           />
         )}
       </div>
       {isTFryMiner && typeof summary.legacyFryClaimedSnapshot === 'number' && (
-        <div className="mt-4 rounded-2xl border border-yellow-400/40 bg-yellow-500/10 p-4">
-          <div className="text-xs uppercase tracking-wide text-yellow-200/80 font-semibold">
+        // Light-mode friendly legacy card while keeping dark-mode contrast.
+        <div className="mt-4 rounded-2xl border border-amber-400/60 bg-amber-50 text-amber-900 p-4 shadow-sm dark:border-yellow-400/40 dark:bg-yellow-500/10 dark:text-yellow-100">
+          <div className="text-xs uppercase tracking-wide font-semibold text-amber-800 dark:text-yellow-200/80">
             Legacy Fry 1.0 Claimed - 12/13/2024 to 10/08/2025
           </div>
-          <div className="mt-1 text-2xl font-semibold text-yellow-100">
+          <div className="mt-1 text-2xl font-semibold">
             {formatLegacyAmount(summary.legacyFryClaimedSnapshot)} FRY 1.0
           </div>
-          <p className="mt-1 text-xs text-yellow-200/80">
+          <p className="mt-1 text-xs text-amber-800/80 dark:text-yellow-200/80">
             Historical FRY 1.0 payouts claimed before the tFry migration. These are shown for context only and are not included in the tFry totals above.
           </p>
         </div>
@@ -953,6 +937,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         availability={stakeAvailability}
         onWithdraw={handleWithdrawRequest}
         withdrawLoading={withdrawLoading}
+        isDark={isDark}
       />
     </div>
   )}
@@ -960,20 +945,23 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     open={Boolean(withdrawPrompt)}
     onClose={closeWithdrawPrompt}
     static={true}
-    className="z-[120]"
+    className="z-[200]"
   >
     {withdrawPrompt && activeWithdrawWarning && (
-      <DialogPanel className="sm:max-w-xl bg-gray-900 text-gray-100">
-        <Title className="mb-4 text-gray-100">
+      <DialogPanel
+        className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+        style={{ marginTop: 'calc(var(--navbar-height, 64px) + 12px)' }}
+      >
+        <Title className={`mb-4 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
           Withdraw {STAKE_LABELS[withdrawPrompt]}
         </Title>
-        <div className="rounded-2xl border border-amber-400/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          <p className="font-semibold text-amber-50">{activeWithdrawWarning.title}</p>
-          <p className="text-xs mt-1 text-amber-100/90">{activeWithdrawWarning.body}</p>
-          <label className="mt-3 flex items-center gap-2 text-xs text-amber-50">
+        <div className={`rounded-2xl border px-4 py-3 text-sm ${isDark ? 'border-amber-400/50 bg-amber-500/10 text-amber-100' : 'border-amber-300 bg-amber-50 text-slate-900'}`}>
+          <p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>{activeWithdrawWarning.title}</p>
+          <p className={`text-xs mt-1 ${isDark ? 'text-amber-100/90' : 'text-slate-800'}`}>{activeWithdrawWarning.body}</p>
+          <label className={`mt-3 flex items-center gap-2 text-xs ${isDark ? 'text-amber-50' : 'text-slate-900'}`}>
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-amber-200 text-amber-200 focus:ring-amber-400"
+              className={`h-4 w-4 rounded focus:ring-amber-400 ${isDark ? 'border-amber-200 text-amber-200' : 'border-amber-400 text-amber-600'}`}
               checked={withdrawAcknowledged}
               onChange={(event) => setWithdrawAcknowledged(event.target.checked)}
             />
@@ -986,7 +974,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           className="gap-3 w-full mt-5"
         >
           <Button
-            className="bg-transparent text-white border-red-600 hover:bg-red-600 hover:border-red-600"
+            className={`bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-black'}`}
             onClick={closeWithdrawPrompt}
             disabled={withdrawPromptLoading}
           >
@@ -1030,7 +1018,13 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     {/* Tabs + Status on left; compact date filters on right */}
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1 rounded-full bg-gray-900/40 p-1 shadow-sm shadow-black/30 ring-1 ring-gray-800/60">
+            <div
+              className={`flex items-center gap-1 rounded-full p-1 shadow-sm ${
+                isDark
+                  ? 'bg-gray-900/40 ring-1 ring-gray-800/60 shadow-black/30'
+                  : 'bg-white/90 ring-1 ring-slate-200 shadow-slate-200/80'
+              }`}
+            >
               {tabOptions.map(({ key, label, icon: Icon }) => {
                 const active = tab === key;
                 return (
@@ -1042,12 +1036,20 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
                     className={`group relative flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold tracking-wide transition-all ${
                       active
                         ? 'bg-red-500/90 text-white shadow-lg shadow-red-500/30'
-                        : 'text-gray-400 hover:text-white hover:bg-red-500/10'
+                        : isDark
+                          ? 'text-gray-300 hover:text-white hover:bg-red-500/10'
+                          : 'text-slate-700 hover:text-slate-900 hover:bg-red-50'
                     }`}
                   >
                     <Icon className="h-4 w-4 opacity-80" />
                     <span className="whitespace-nowrap">{label}</span>
-                    {active && <span className="absolute inset-0 rounded-full ring-2 ring-red-400/60 ring-offset-2 ring-offset-gray-950/80" />}
+                    {active && (
+                      <span
+                        className={`absolute inset-0 rounded-full ring-2 ring-red-400/60 ring-offset-2 ${
+                          isDark ? 'ring-offset-gray-950/80' : 'ring-offset-white'
+                        }`}
+                      />
+                    )}
                   </button>
                 );
               })}
@@ -1063,8 +1065,10 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
                     onClick={() => setStatus(key)}
                     className={`group relative flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.7rem] font-semibold uppercase tracking-wide transition-all ${
                       active
-                        ? 'border-red-500/80 bg-red-500/20 text-white shadow-md shadow-red-500/30'
-                        : 'border-gray-700/80 text-gray-400 hover:border-red-400/50 hover:text-white hover:bg-red-500/10'
+                        ? 'border-red-500/80 bg-red-500/20 text-red-900 shadow-md shadow-red-500/20 dark:text-white'
+                        : isDark
+                          ? 'border-gray-700/80 text-gray-300 hover:border-red-400/50 hover:text-white hover:bg-red-500/10'
+                          : 'border-slate-300 text-slate-700 hover:border-red-400/60 hover:bg-red-50 hover:text-slate-900'
                     }`}
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
@@ -1115,7 +1119,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           {!isAllDataLoaded && (
             // Users opt-in to fetching the full history, sidestepping the previous auto-scroll thrash.
             <Button
-              className="self-center bg-transparent border border-gray-700 hover:bg-red-600 hover:border-red-600 hover:text-white"
+              className="self-center bg-transparent border border-gray-700 text-slate-900 dark:text-gray-200 hover:bg-red-600 hover:border-red-600 hover:text-white"
               onClick={handleLoadAll}
               disabled={isFetchingNextPage || isLoadingAll}
             >
@@ -1150,7 +1154,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
 function MinerSelect() {
   const router = useRouter();
   const current = typeof router.query.miner_key === 'string' ? router.query.miner_key : '';
-  const [list, setList] = useState<string[]>(current ? [current] : []);
+  const [list, setList] = useState<Array<{ miner_key: string; label: string }>>(current ? [{ miner_key: current, label: current }] : []);
   const [val, setVal] = useState<string>(current);
   const { refresh: refreshFingerprint } = useFingerprintReady();
   useEffect(() => {
@@ -1164,23 +1168,41 @@ function MinerSelect() {
         if (!res.ok) return;
         const json = await res.json();
         if (!active) return;
-        const keys: string[] = json?.miner_keys || [];
-        setList(keys);
-        if (!val && keys.length > 0) setVal(keys[0]);
+        const items = (json?.miner_keys || []) as Array<string | { miner_key: string; nickname?: string | null; productName?: string | null }>;
+        const normalized = items
+          .map((item) => {
+            if (typeof item === 'string') return { miner_key: item, label: item };
+            const mk = item?.miner_key;
+            if (!mk) return null;
+            const nickname = item.nickname || null;
+            const productLabel = item.productName || null;
+            const label = nickname && nickname.length > 0
+              ? `${nickname} (${mk})`
+              : productLabel
+                ? `${productLabel} (${mk})`
+                : mk;
+            return { miner_key: mk, label };
+          })
+          .filter(Boolean) as Array<{ miner_key: string; label: string }>;
+        setList(normalized);
+        if (!val && normalized.length > 0) setVal(normalized[0].miner_key);
       } catch {}
     };
     run();
     return () => { active = false; };
   }, [refreshFingerprint, val]);
   return (
+    // Modernized selector: clearer contrast + padding while keeping native select for accessibility.
     <select
       value={val}
       onChange={(e)=>{ const v = e.target.value; setVal(v); if (v) router.push(`/history?miner_key=${encodeURIComponent(v)}`); }}
-      className="w-full bg-transparent border border-gray-700 rounded px-3 py-2 text-sm sm:text-base"
+      className="w-full rounded-xl border border-slate-300/80 bg-white/80 px-4 py-2 text-sm sm:text-base text-slate-900 shadow-sm shadow-slate-200/60 ring-1 ring-slate-200/70 dark:border-white/10 dark:bg-gray-950/70 dark:text-slate-100 dark:shadow-none"
     >
       {list.length === 0 && <option value="">No devices</option>}
-      {list.map(k => (
-        <option key={k} value={k}>{k}</option>
+      {list.map((item) => (
+        <option key={item.miner_key} value={item.miner_key}>
+          {item.label}
+        </option>
       ))}
     </select>
   );
@@ -1190,12 +1212,14 @@ function StakeHistorySection({
   history,
   availability,
   onWithdraw,
-  withdrawLoading
+  withdrawLoading,
+  isDark
 }: {
   history: StakeHistoryMap | null;
   availability: StakeAvailabilityMap;
   onWithdraw: (type: StakeCategory) => void;
   withdrawLoading: Partial<Record<StakeCategory, boolean>>;
+  isDark: boolean;
 }) {
   const sections: Array<{ key: keyof StakeHistoryMap; label: string; entries: StakeEvent[] }> = [
     { key: 'verification', label: 'Verification Stake History', entries: history?.verification ?? [] },
@@ -1238,8 +1262,8 @@ function StakeHistorySection({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white">Stake Activity</h2>
-        <p className="mt-1 text-sm text-gray-400">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Stake Activity</h2>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
           Track every stake and withdrawal for this device across verification, registration, and node operation.
         </p>
       </div>
@@ -1252,41 +1276,53 @@ function StakeHistorySection({
               return (
                 <div
                   key={entry.type}
-                  className="rounded-lg border border-gray-800 bg-gray-900/40 p-4 shadow-inner shadow-black/20 flex flex-col gap-2"
+                  className={`rounded-lg border p-4 shadow-sm flex flex-col gap-2 ${
+                    isDark
+                      ? 'border-gray-800 bg-gray-900/40 text-white shadow-inner shadow-black/20'
+                      : 'border-slate-200 bg-white text-slate-900'
+                  }`}
                 >
-                  <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  <div className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
                     Active {STAKE_LABELS[entry.type]}
                   </div>
-                  <div className="text-2xl font-semibold text-white">
+                  <div className="text-2xl font-semibold">
                     {entry.amount ? entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
                     {entry.assetId ? getAssetDisplay(entry.assetId) : 'Asset unknown'}
                   </div>
                   {entry.type === 'verification' && entry.lockType && (
-                    <div className="text-xs text-gray-500">
+                    <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
                       Lock: {entry.lockType === 'two' ? 'Type 2 (6 month)' : 'Type 1 (24 hour)'}
                     </div>
                   )}
                   {entry.available ? (
-                    <p className="text-xs text-emerald-300">
+                    <p className={`text-xs ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
                       {entry.type === 'verification' ? 'Lock complete. Ready to withdraw.' : 'Ready to withdraw.'}
                     </p>
                   ) : entry.type === 'verification' && entry.availableAt ? (
-                    <p className="text-xs text-gray-400">
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
                       Unlocks on {entry.availableAt.toLocaleString()} ({formatCountdown(entry.availableAt)})
                     </p>
                   ) : entry.type === 'verification' ? (
-                    <p className="text-xs text-gray-500">Waiting for lock completion.</p>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>Waiting for lock completion.</p>
                   ) : null}
                   {notice && (
-                    <div className="rounded border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.7rem] text-amber-100">
-                      <p className="font-semibold text-amber-50">{notice.title}</p>
-                      <p className="text-xs mt-1 text-amber-100/90">{notice.body}</p>
+                    <div className={`rounded border px-3 py-2 text-[0.7rem] ${
+                      isDark
+                        ? 'border-amber-400/40 bg-amber-500/10 text-amber-100'
+                        : 'border-amber-200 bg-amber-50 text-amber-900'
+                    }`}>
+                      <p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>{notice.title}</p>
+                      <p className="text-xs mt-1">{notice.body}</p>
                     </div>
                   )}
                   <Button
-                    className="mt-auto bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 disabled:opacity-40"
+                    className={`mt-auto bg-transparent hover:bg-red-600 hover:border-red-600 disabled:opacity-40 ${
+                      entry.available
+                        ? 'border-red-600 text-red-600 hover:text-white dark:text-red-200'
+                        : 'border-slate-300 dark:border-gray-700 text-slate-400 cursor-not-allowed'
+                    }`}
                     disabled={!entry.available || withdrawLoading[entry.type]}
                     onClick={() => onWithdraw(entry.type)}
                   >
@@ -1300,12 +1336,19 @@ function StakeHistorySection({
       {sections.map((section) => {
         if (section.entries.length === 0) return null;
         return (
-          <div key={section.key} className="rounded-lg border border-gray-800 bg-black/40 p-4 shadow-inner shadow-black/20">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">{section.label}</h3>
+          <div
+            key={section.key}
+            className={`rounded-lg border p-4 ${
+              isDark
+                ? 'border-gray-800 bg-black/40 text-gray-100 shadow-inner shadow-black/20'
+                : 'border-slate-200 bg-white text-slate-900 shadow-sm'
+            }`}
+          >
+            <h3 className={`mb-3 text-sm font-semibold uppercase tracking-wide ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>{section.label}</h3>
             <div className="overflow-x-auto text-xs">
-              <table className="min-w-full divide-y divide-gray-800">
+              <table className={`min-w-full divide-y ${isDark ? 'divide-gray-800' : 'divide-slate-200'}`}>
                 <thead>
-                  <tr className="text-left text-[0.7rem] uppercase tracking-wide text-gray-500">
+                  <tr className={`text-left text-[0.7rem] uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
                     <th className="py-2 pr-4">Action</th>
                     <th className="py-2 pr-4">Amount</th>
                     <th className="py-2 pr-4">Asset</th>
@@ -1314,14 +1357,14 @@ function StakeHistorySection({
                     <th className="py-2 pr-4">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-900/60 text-gray-300">
+                <tbody className={`divide-y ${isDark ? 'divide-gray-900/60 text-gray-300' : 'divide-slate-200 text-slate-800'}`}>
                   {section.entries.map((event, idx) => (
                     <tr key={`${event.txId}-${idx}`}>
                       <td className="py-2 pr-4 font-semibold">
                         {event.action === 'staked' ? (
-                          <span className="text-emerald-300">Staked</span>
+                          <span className={isDark ? 'text-emerald-300' : 'text-emerald-700'}>Staked</span>
                         ) : (
-                          <span className="text-amber-300">Withdrawn</span>
+                          <span className={isDark ? 'text-amber-300' : 'text-amber-700'}>Withdrawn</span>
                         )}
                       </td>
                       <td className="py-2 pr-4">{formatAmount(event.amount)}</td>
@@ -1339,7 +1382,7 @@ function StakeHistorySection({
                             href={`https://explorer.perawallet.app/tx/${event.txId}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sky-400 hover:text-sky-300"
+                            className={isDark ? 'text-sky-400 hover:text-sky-300' : 'text-sky-700 hover:text-sky-600'}
                           >
                             {formatTx(event.txId)}
                           </a>

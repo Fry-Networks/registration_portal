@@ -11,6 +11,7 @@ import { useToastContext } from '../hooks/ToastContext';
 import { useWalletActions } from '../lib/wallet/useWalletActions';
 import { buildPaymentTxn } from '../lib/wallet/transactions';
 import { WalletRequestInFlightError, isWalletRequestActive } from '../lib/wallet/requestCoordinator.client';
+import { useTheme } from 'next-themes';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
 interface SignInProps {
@@ -28,6 +29,8 @@ export default function SignIn({ signed }: SignInProps) {
   const { activeAddress: walletAddress, signTransactions } = useWalletActions();
   const activeWallet = wallets.find((wallet) => wallet.isActive);
   const { data: session, status } = useSession();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNew, setIsNew] = useState(false);
   const [email, setEmail] = useState('');
@@ -347,7 +350,7 @@ export default function SignIn({ signed }: SignInProps) {
       style={{ maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' }}
     >
       <Flex flexDirection="col" className="w-full">
-        <Title className="text-white px-2 text-center">
+        <Title className={`${isDark ? 'text-white' : 'text-slate-900'} px-2 text-center`}>
           {!session || !isSessionWallet
             ? 'Please click the Sign in button to sign with the currently connected wallet.'
             : 'You are signed in successfully, click "Go to Dashboard" to continue.'}
@@ -355,12 +358,12 @@ export default function SignIn({ signed }: SignInProps) {
         {isNew && (
           <div className="mt-4">
             <div>
-              <label className="block mb-2 text-white">
+              <label className={`block mb-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
                 Email <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
-                className="w-full p-2 border border-red-600 rounded"
+                className="w-full p-2 border border-red-600 rounded text-slate-900"
                 placeholder="Enter Email Address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -370,12 +373,12 @@ export default function SignIn({ signed }: SignInProps) {
               )}
             </div>
             <div>
-              <label className="block mb-2 mt-2 text-white">
+              <label className={`block mb-2 mt-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
                 First Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                className="w-full p-2 border border-red-600 rounded"
+                className="w-full p-2 border border-red-600 rounded text-slate-900"
                 placeholder="Enter First Name"
                 value={first_name}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -385,12 +388,12 @@ export default function SignIn({ signed }: SignInProps) {
               )}
             </div>
             <div>
-              <label className="block mb-2 mt-2 text-white">
+              <label className={`block mb-2 mt-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
                 Last Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                className="w-full p-2 border border-red-600 rounded sm:min-w-[400px]"
+                className="w-full p-2 border border-red-600 rounded sm:min-w-[400px] text-slate-900"
                 placeholder="Enter Last Name"
                 value={last_name}
                 onChange={(e) => setLastName(e.target.value)}
@@ -405,7 +408,11 @@ export default function SignIn({ signed }: SignInProps) {
         <div className="mt-10">
           {!session || !isSessionWallet ? (
             <Button
-              className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+              className={
+                isDark
+                  ? 'bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 text-white'
+                  : 'bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700'
+              }
               onClick={() => handleWalletAuth()}
               disabled={isAuthenticating || !connectedWalletAddress}
             >
@@ -413,7 +420,13 @@ export default function SignIn({ signed }: SignInProps) {
             </Button>
           ) : (
             <Link href="/devices">
-              <Button className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600">
+              <Button
+                className={
+                  isDark
+                    ? 'bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 text-white'
+                    : 'bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700'
+                }
+              >
                 Go to Dashboard
               </Button>
             </Link>

@@ -87,24 +87,63 @@ export default async function handler(
     }
     const productsCollection = db.collection('products');
     const products = await productsCollection.find({}).toArray();
-    const data = products.map((product) => {
-      return { name: product.name, key: product.key };
-    });
-    if (!data.find((product) => product.key === key)) {
-      return res.status(404).json(
-        createApiError(
-          ErrorCodes.PRODUCT_NOT_FOUND,
-          'Product not found',
-          'Please select a valid product for conversion.'
-        )
-      );
-    }
-    const product = data.find((product) => product.key === key)!;
+  const data = products.map((product) => {
+    return { name: product.name, key: product.key };
+  });
+  // Allowlist BYOD-convertible products (must match docs/products.md names exactly).
+  const allowedNames = new Set([
+    '$FRY Bandwidth Miner',
+    '$FRY Indoor Decibel Miner',
+    '$FRY Outdoor Decibel Miner',
+    '$FRY Indoor Satellite Miner',
+    '$FRY Outdoor Satellite Miner',
+    '$FRY AI Edge Miner',
+    '$FRY Energy Miner',
+    '$FRY Indoor Radiation Miner',
+    '$FRY Outdoor Low-End Water Quality Miner',
+    '$FRY Outdoor High-End Water Quality Miner',
+    '$FRY High-End Weather Miner',
+    '$FRY Low-End Weather Miner',
+    '$FRY AI Outdoor Wildlife Camera Miner',
+    '$FRY AI Outdoor Traffic Camera Miner',
+    '$FRY AI Outdoor Weather Station Camera Miner',
+    '$FRY AI Indoor Wildlife Camera Miner',
+    '$FRY AI Indoor Weather Station Camera Miner',
+    '$FRY AI Indoor Sky Camera Miner',
+    '$FRY AI Outdoor Sky Camera Miner',
+    '$FRY AI Indoor Traffic Camera Miner',
+    '$FRY Outdoor High-End Air Quality Miner',
+    '$FRY Outdoor Mid-End Air Quality Miner',
+    '$FRY Indoor High-End Air Quality Miner',
+    '$FRY Indoor Mid-End Air Quality Miner',
+    '$FRY Indoor Low-End Air Quality Miner'
+  ]);
+  const allowedProduct = data.find(
+    (product) => product.key === key && allowedNames.has(product.name)
+  );
+  if (!allowedProduct) {
+    return res.status(404).json(
+      createApiError(
+        ErrorCodes.PRODUCT_NOT_FOUND,
+        'Product not found',
+        'Please select a valid product for conversion.'
+      )
+    );
+  }
+  const product = allowedProduct;
     const devicesCollection = db.collection(
       testMode ? 'test-devices' : 'devices'
     );
     const byodAlreadyUsed = await devicesCollection.findOne({ byod: byod });
     if (byodAlreadyUsed) {
+      const sameProduct =
+        byodAlreadyUsed.name === product.name ||
+        (typeof byodAlreadyUsed.miner_key === 'string' &&
+          byodAlreadyUsed.miner_key.startsWith(`${key}-`));
+      // Allow users to re-fetch the miner key if they previously converted but have not completed onboarding yet.
+      if (!byodAlreadyUsed.is_registered && sameProduct && byodAlreadyUsed.miner_key) {
+        return res.status(200).json({ message: 'ok', miner_key: byodAlreadyUsed.miner_key, existing: true });
+      }
       return res.status(400).json(
         createApiError(
           ErrorCodes.ALREADY_REGISTERED,

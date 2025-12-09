@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -8,15 +8,18 @@ import {
   Select,
   SelectItem
 } from '@tremor/react';
+import Image, { StaticImageData } from 'next/image';
 import { FryConversion } from '../../lib/types';
 import { useModal } from '../../app/modalcontext';
 import { RiCloseLine } from '@remixicon/react';
 import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
+import { useTheme } from 'next-themes';
 import {
   BURN_WALLET,
   FRY_1,
   FRY_2,
+  fNODE,
   CORE_RELEASE_DATE,
   ALL_RELEASE_DATE,
   MODS_RELEASE_DATE
@@ -26,6 +29,9 @@ import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import CopyAddress from '../CopyAddress';
+import fry2OptInQr from '../../opt-in-qrcodes/FRY2-Opt-in.png';
+import fNodeOptInQr from '../../opt-in-qrcodes/fNode-Opt-in.png';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
@@ -44,6 +50,12 @@ export default function FryConversionModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
   const [selectedTokenType, setSelectedTokenType] = useState('2485314946');
+  // When wallet opt-in is missing, capture a guide (ASA id + QR) to unblock the user directly.
+  const [optInGuide, setOptInGuide] = useState<{
+    assetId: string;
+    label: string;
+    src: StaticImageData;
+  } | null>(null);
   
   // Support-driven reconcile UI state
   const [showReconcile, setShowReconcile] = useState(false);
@@ -52,6 +64,8 @@ export default function FryConversionModal({
   const { data: session } = useSession();
   const toast = useToastContext();
   const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
 
 
   type BurnResult =
@@ -174,6 +188,19 @@ export default function FryConversionModal({
     return { friendlyMessage: combinedMessage, duplicateTxId };
   };
 
+  // Map ASA ids to opt-in guidance so the UI can surface QR codes + ASA IDs when claims fail.
+  const getOptInGuide = (assetId?: string | number) => {
+    const normalized = String(assetId ?? '');
+    if (!normalized) return null;
+    if (normalized === FRY_2.id) {
+      return { assetId: FRY_2.id, label: 'FRY 2.0', src: fry2OptInQr };
+    }
+    if (normalized === fNODE.id) {
+      return { assetId: fNODE.id, label: 'fNODE', src: fNodeOptInQr };
+    }
+    return null;
+  };
+
   const transferToBurn = async (
     from: string | undefined,
     amount: number
@@ -250,9 +277,10 @@ export default function FryConversionModal({
     }
   };
 
-  // Remove fetchConversionStatus and related logic from here. Instead, expect a prop like `availabilityChecked` and `csvData` to be passed in, and only show conversion UI if availabilityChecked is true. The modal should not fetch or check availability itself anymore.
+  const modalOpen = Boolean(modals[modalName]);
+
   const fetchConversionStatus = useCallback(async () => {
-    if (modals[modalName] === false) {
+    if (!modalOpen) {
       return;
     }
 
@@ -285,13 +313,32 @@ export default function FryConversionModal({
       setIsConverted(result.user.status === 'pending' ? true : false);
       setAccount(result.user);
     } catch (error) {}
-  }, [modalName, modals, selectedTokenType, session, toast]);
+  }, [modalOpen, selectedTokenType, session, toast]);
+
+  const prevModalOpen = useRef<boolean>(modalOpen);
+  const prevSelectedToken = useRef<string>(selectedTokenType);
 
   useEffect(() => {
-    // This useEffect is no longer needed as availability is passed as a prop.
-    // Keeping it for now, but it will be removed if not used elsewhere.
-    fetchConversionStatus();
-  }, [fetchConversionStatus]);
+    // Only clear opt-in hints when the modal newly opens or the target asset changes, not on every render.
+    const justOpened = modalOpen && !prevModalOpen.current;
+    const tokenChanged = modalOpen && prevSelectedToken.current !== selectedTokenType;
+
+    if (justOpened || tokenChanged) {
+      setOptInGuide(null);
+      prevSelectedToken.current = selectedTokenType;
+      void fetchConversionStatus();
+    }
+
+    // Reset state when the modal closes so the next open starts clean.
+    if (!modalOpen) {
+      setOptInGuide(null);
+    }
+
+    prevModalOpen.current = modalOpen;
+    if (modalOpen) {
+      prevSelectedToken.current = selectedTokenType;
+    }
+  }, [modalOpen, selectedTokenType, fetchConversionStatus]);
 
   const handleConvert = async () => {
     setIsProcessing(true);
@@ -311,9 +358,23 @@ export default function FryConversionModal({
 
         if (!response.ok) {
           const failure = await response.json().catch(() => null);
+          const failureCode = failure?.code as string | undefined;
+          const failureAssetId = (failure?.assetId ?? failure?.asset_id ?? selectedTokenType) as string;
+          const optInHint =
+            failureCode === 'WALLET_ASSET_NOT_OPTED_IN' ||
+            /opt\s*in/i.test(failure?.action || '') ||
+            /opt\s*in/i.test(failure?.message || '');
+          const guide = optInHint ? getOptInGuide(failureAssetId) : null;
+          if (guide) {
+            setOptInGuide(guide); // Show inline opt-in QR/ASA guidance for desktop/mobile.
+          }
           const message =
-            (failure && typeof failure.message === 'string' && failure.message) ||
-            'Unable to process FRY conversion claim';
+            guide
+              ? failure?.action ||
+                `Your wallet must opt into ${guide.label} (ASA ${guide.assetId}) before claiming. Scan the QR below or paste the ASA ID in your wallet, then retry.`
+              : failure?.action ||
+                (failure && typeof failure.message === 'string' && failure.message) ||
+                'Unable to process FRY conversion claim';
           toast.error({ heading: 'Claim Error', message });
 
           setIsProcessing(false);
@@ -321,15 +382,26 @@ export default function FryConversionModal({
         }
 
         const result = await response.json();
-        if (result.success)
+        if (result.success) {
           toast.success({
             heading: 'Claim Successful',
             message: `${result.message}`
           });
-        else {
+          setOptInGuide(null);
+        } else {
+          const failedAssetId = result?.assetId ?? result?.asset_id ?? selectedTokenType;
+          const failedGuide =
+            result?.code === 'WALLET_ASSET_NOT_OPTED_IN' ||
+            /opt\s*in/i.test(result?.action || '') ||
+            /opt\s*in/i.test(result?.message || '')
+              ? getOptInGuide(failedAssetId)
+              : null;
+          if (failedGuide) {
+            setOptInGuide(failedGuide);
+          }
           toast.error({
             heading: 'Claim Error',
-            message: `${result.message}`
+            message: result?.action ? `${result.message} — ${result.action}` : `${result.message}`
           });
         }
 
@@ -337,12 +409,12 @@ export default function FryConversionModal({
         closeModal(modalName);
         return;
       } catch (error) {
-        console.error(error);
+        console.error('[FryConversion] Claim flow failed', error);
 
         toast.error({
           heading: 'Claim Error',
           message:
-            'Failed to try the claim. Please contact us before you try again'
+            'We could not finalize your FRY conversion. Check your wallet for pending prompts, ensure the destination is opted in, then retry.'
         });
         setIsProcessing(false);
         return;
@@ -420,7 +492,7 @@ export default function FryConversionModal({
         await fetchConversionStatus();
         return;
       } catch (error) {
-        console.error(error);
+        console.error('[FryConversion] Burn/convert flow failed', error);
 
         toast.error({
           heading: 'Conversion Error',
@@ -484,7 +556,13 @@ export default function FryConversionModal({
         static={true}
         className="z-[100]"
       >
-        <DialogPanel className="max-w-xs sm:max-w-3xl">
+        <DialogPanel
+          className={`max-w-xs sm:max-w-3xl ${
+            isDark
+              ? 'bg-[#0b0b0f] text-white border border-gray-800 shadow-[0_18px_45px_rgba(0,0,0,0.6)]'
+              : 'bg-white text-slate-900 border border-slate-200 shadow-[0_18px_45px_rgba(15,23,42,0.12)]'
+          }`}
+        >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -495,38 +573,116 @@ export default function FryConversionModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5">{isConverted ? 'Conversion' : 'Conversion Preview'}</Title>
+          <Title className={`mb-5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{isConverted ? 'Conversion' : 'Conversion Preview'}</Title>
           <Flex flexDirection="row" justifyContent="start" alignItems="end">
-            <p className="text-slate-900 hidden sm:block">
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} hidden sm:block`}>
               <strong>{`Conversion Type: `}</strong>
             </p>
-            <p className="text-slate-900 block sm:hidden mr-4">
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} block sm:hidden mr-4`}>
               <strong>{`Type: `}</strong>
             </p>
             <Select
               value={selectedTokenType}
               onValueChange={(val) => setSelectedTokenType(val)}
-              className="ml-1 mb-1 max-w-4"
-              // disabled={isConverted ? true : false}
+              className="ml-1 mb-1 max-w-4 conversion-select"
             >
               <SelectItem value="2485314946">FRY 2.0</SelectItem>
               <SelectItem value="2485202024">fNODE</SelectItem>
             </Select>
+            {isDark && (
+              <style jsx global>{`
+                /* Dark mode select overrides for conversion modal (Headless UI listbox + trigger). */
+                /* Keep the trigger scoped to the conversion select so other selects stay untouched. */
+                html.dark .conversion-select button[aria-haspopup='listbox'] {
+                  background-color: #0b0f1a !important;
+                  color: #ffffff !important;
+                  border: 1px solid #4b5563 !important;
+                }
+                html.dark .conversion-select button[aria-haspopup='listbox']:focus-visible {
+                  outline: none !important;
+                  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.6) !important;
+                  border-color: #ef4444 !important;
+                }
+                html.dark .conversion-select button[aria-haspopup='listbox'] svg {
+                  color: #d1d5db !important;
+                }
+                /* Listbox panel can render outside the select container; target both scoped and global dark modes. */
+                html.dark .conversion-select [role='listbox'],
+                html.dark [data-headlessui-state][role='listbox'] {
+                  background-color: #0b0f1a !important;
+                  color: #ffffff !important;
+                  border: 1px solid #4b5563 !important;
+                }
+                html.dark .conversion-select [role='option'],
+                html.dark [data-headlessui-state][role='option'] {
+                  color: #ffffff !important;
+                }
+                html.dark .conversion-select [role='option'][data-headlessui-state~='active'],
+                html.dark [data-headlessui-state][role='option'][data-headlessui-state~='active'] {
+                  background-color: rgba(239, 68, 68, 0.25) !important;
+                }
+                html.dark .conversion-select [role='option'][data-headlessui-state~='selected'],
+                html.dark [data-headlessui-state][role='option'][data-headlessui-state~='selected'] {
+                  background-color: rgba(239, 68, 68, 0.35) !important;
+                }
+              `}</style>
+            )}
           </Flex>
-          <p className="text-slate-900 hidden sm:block">
+          {optInGuide && (
+            <div
+              className={`mt-3 rounded-lg border p-3 text-sm ${
+                isDark
+                  ? 'border-amber-300/50 bg-amber-500/10 text-amber-50'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              }`}
+            >
+              {/* Surface a self-serve opt-in helper when conversion claims fail due to missing ASA opt-in. */}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex-1 space-y-2">
+                  <div className={isDark ? 'font-semibold text-amber-50' : 'font-semibold text-amber-900'}>
+                    Opt in to {optInGuide.label} (ASA #{optInGuide.assetId}) to claim
+                  </div>
+                  <p className={isDark ? 'text-amber-50/90' : 'text-amber-800'}>
+                    Desktop: open Pera/Defly, search the ASA ID below, and opt in. Mobile: tap the scan
+                    icon in your wallet and scan the QR to opt in instantly.
+                  </p>
+                  <div
+                    className={`flex flex-wrap items-center gap-2 font-mono text-xs ${
+                      isDark ? 'text-amber-100' : 'text-amber-900'
+                    }`}
+                  >
+                    ASA #{optInGuide.assetId}
+                    <CopyAddress address={optInGuide.assetId} />
+                  </div>
+                </div>
+                <div className="flex justify-center">
+                  <div className="rounded-2xl bg-white p-2 shadow">
+                    <Image
+                      src={optInGuide.src}
+                      alt={`Opt-in QR for ${optInGuide.label}`}
+                      width={180}
+                      height={180}
+                      className="h-40 w-40 object-contain"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} hidden sm:block`}>
             <strong>{'Wallet address: '}</strong>
             {`${account?.address.slice(0, 12)} ... ${account?.address.slice(-12)}`}
           </p>
-          <p className="text-slate-900 block sm:hidden">
+          <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} block sm:hidden`}>
             <strong>{'Address: '}</strong>
             {`${account?.address.slice(0, 6)} ... ${account?.address.slice(-6)}`}
           </p>
-          <p className="text-slate-900">
+          <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
             <strong>{`FRY1.0 Amount: `}</strong>
             {account?.amount}
           </p>
           {account && account.status === 'valid' && (
-            <p className="text-slate-900">
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
               <strong>{`${selectedTokenType === FRY_2.id ? 'FRY2.0' : 'fNODE'} Amount After Conversion: `}</strong>
               {(selectedTokenType === FRY_2.id
                     ? account.amount /
@@ -544,7 +700,7 @@ export default function FryConversionModal({
                 alignItems="start"
                 className="mt-3 w-full sm:auto"
               >
-                <p className="text-slate-900">
+                <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                   <strong>Remaining Converted Amount: </strong>
                   {(selectedTokenType === FRY_2.id
                     ? (account.pendingAmount /
@@ -553,7 +709,7 @@ export default function FryConversionModal({
                       (account?.ratio ? account.ratio[1] : 40)).toFixed(5) + ' fNODE'
                   )} 
                 </p>
-                <p className="text-slate-900">
+                <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                   <strong>Claimable Amount: </strong>
                   {/* {account.claimableAmount.toFixed(5)} */}
                   {(selectedTokenType === FRY_2.id
@@ -610,9 +766,7 @@ export default function FryConversionModal({
           >
             {!isConverted && (account && (account as any).supportReconcile === true) && (
               <Button
-                className={`bg-transparent text-slate-900 border-slate-500 hover:bg-slate-500 hover:border-slate-500 ${
-                  isProcessing ? 'cursor-not-allowed' : 'cursor-default'
-                }`}
+                className={`bg-transparent ${isDark ? 'text-white border-gray-500 hover:bg-gray-800 hover:border-gray-500' : 'text-slate-900 border-slate-400 hover:bg-slate-100 hover:border-slate-500'} ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
                 disabled={isProcessing}
                 onClick={() => setShowReconcile(true)}
               >
@@ -620,16 +774,14 @@ export default function FryConversionModal({
               </Button>
             )}
             <Button
-              className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+              className={`bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'}`}
               onClick={() => !isProcessing && onClose()}
             >
               Close
             </Button>
             {isConversionOpen() && (
               <Button
-                className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
-                  isProcessing ? 'cursor-not-allowed' : 'cursor-default'
-                }`}
+                className={`relative flex items-center justify-center bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'} ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
                 disabled={
                   isConverted === false
                     ? account && account?.amount > 0
@@ -693,30 +845,30 @@ export default function FryConversionModal({
                 <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
               </button>
             </div>
-            <Title className="mb-2 text-red-600">Reconcile Previous Burn</Title>
-            <p className="text-slate-900 mb-4">
+            <Title className={`mb-2 ${isDark ? 'text-red-400' : 'text-red-600'}`}>Reconcile Previous Burn</Title>
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} mb-4`}>
               Support has enabled reconciliation for your account. If you know the FRY 1.0 burn transaction ID, paste it below. Otherwise, leave it blank and we will auto-detect a matching burn.
             </p>
             <div className="space-y-2">
-              <label className="text-slate-800 text-sm">Burn Transaction ID (optional)</label>
+              <label className={`${isDark ? 'text-gray-200' : 'text-slate-800'} text-sm`}>Burn Transaction ID (optional)</label>
               <input
                 type="text"
                 value={reconcileTxId}
                 onChange={(e) => setReconcileTxId(e.target.value)}
                 placeholder="e.g. ABCD1234..."
-                className="w-full rounded-md border border-red-600/60 bg-transparent px-3 py-2 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-red-600"
+                className={`w-full rounded-md border border-red-600/60 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-600 ${isDark ? 'bg-gray-900 text-white placeholder:text-gray-500' : 'bg-white text-slate-900 placeholder:text-slate-500'}`}
               />
               <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent" />
             </div>
             <Flex flexDirection="row" justifyContent="end" className="gap-3 mt-5">
               <Button
-                className="bg-transparent text-slate-900 border-slate-500 hover:bg-slate-500 hover:border-slate-500"
+                className={`bg-transparent ${isDark ? 'text-white border-gray-500 hover:bg-gray-800 hover:border-gray-500' : 'text-slate-900 border-slate-400 hover:bg-slate-100 hover:border-slate-500'}`}
                 onClick={() => !isProcessing && setShowReconcile(false)}
               >
                 Cancel
               </Button>
               <Button
-                className={`bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
+                className={`bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'} ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
                 onClick={handleReconcile}
                 disabled={isProcessing}
               >

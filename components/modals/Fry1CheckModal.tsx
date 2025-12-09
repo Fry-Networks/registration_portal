@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useToastContext } from '../../hooks/ToastContext';
 import { FryConversion } from '../../lib/types';
 import { FC_CHECKED, FC_STARTED, FC_UNCHECKED } from '../../lib/utils';
+import { useTheme } from 'next-themes';
 
 export default function Fry1CheckModal({
   modalName,
@@ -21,6 +22,8 @@ export default function Fry1CheckModal({
   const [isAvailable, setIsAvailable] = useState(false);
   const [csvData, setCsvData] = useState<FryConversion | null>(null);
   const [now, setNow] = useState(new Date());
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
 
   useEffect(() => {
     if (isOpen && session?.user?.address) {
@@ -94,18 +97,24 @@ export default function Fry1CheckModal({
 
   return (
     <Dialog open={isOpen} onClose={onClose} static={true} className="z-[100]">
-      <DialogPanel className="sm:max-w-2xl">
-        <Title className="mb-5">Fry 1.0 Conversion</Title>
+      <DialogPanel
+        className={`sm:max-w-2xl ${
+          isDark
+            ? 'bg-[#0b0b0f] text-white border border-gray-800 shadow-[0_18px_45px_rgba(0,0,0,0.6)]'
+            : 'bg-white text-slate-900 border border-slate-200 shadow-[0_18px_45px_rgba(15,23,42,0.12)]'
+        }`}
+      >
+        <Title className={`mb-5 ${isDark ? 'text-white' : 'text-slate-900'}`}>Fry 1.0 Conversion</Title>
         <Flex flexDirection="col" className="gap-4">
           <Button
-            className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+            className={`bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'}`}
             onClick={handleCheck}
             disabled={isChecking || isChecked}
           >
             Check Availability
           </Button>
           <Button
-            className="bg-transparent text-slate-900 border-green-500 hover:bg-green-500 hover:border-green-500"
+            className={`bg-transparent ${isDark ? 'text-white border-green-500 hover:bg-green-600 hover:border-green-600' : 'text-slate-900 border-green-600 hover:bg-green-50 hover:border-green-600'}`}
             onClick={handleStart}
             disabled={!isAvailable}
           >
@@ -114,10 +123,10 @@ export default function Fry1CheckModal({
         </Flex>
         {csvData && (
             <div className="mt-4">
-              <Title className="mb-2">Your Fry 1.0 Conversion Data</Title>
+              <Title className={`mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Your Fry 1.0 Conversion Data</Title>
               <div className="hidden md:block">
-                <table className="min-w-full text-sm shadow border-separate border-spacing-2">
-                  <thead>
+                <table className={`min-w-full text-sm shadow border-separate border-spacing-2 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
+                  <thead className={isDark ? 'bg-gray-900/60 text-gray-200' : 'bg-slate-100 text-slate-800'}>
                     <tr>
                       <th>Fry 1.0 Held</th>
                       <th>Fry Staked (Verification)</th>
@@ -127,7 +136,7 @@ export default function Fry1CheckModal({
                       <th>TOTAL Fry 1.0 Available</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className={isDark ? 'bg-gray-900/40' : 'bg-white'}>
                     <tr>
                       <td>{csvData.held}</td>
                       <td>{csvData.verification}</td>
@@ -140,7 +149,7 @@ export default function Fry1CheckModal({
                 </table>
               </div>
               <div className="block md:hidden space-y-4">
-                <div className="bg-white shadow p-4 rounded-md">
+                <div className={`${isDark ? 'bg-gray-900/60 text-gray-100 border border-gray-800' : 'bg-white text-slate-900 shadow'} p-4 rounded-md`}>
                   <div><strong>Fry 1.0 Held:</strong> {csvData.held}</div>
                   <div><strong>Fry Staked (Verification):</strong> {csvData.verification}</div>
                   <div><strong>Fry 1.0 Staked (Cometa):</strong> {csvData.cometaStaking}</div>
@@ -152,7 +161,7 @@ export default function Fry1CheckModal({
             </div>
         )}
         <Button
-          className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 mt-4"
+          className={`bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'} mt-4`}
           onClick={onClose}
         >
           Close

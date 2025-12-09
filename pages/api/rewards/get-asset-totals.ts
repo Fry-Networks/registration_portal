@@ -18,6 +18,7 @@ const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' ||
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
 const CUTOFF_DATE = new Date(CUTOFF_ISO);
 const round2 = (value: number) => Math.round(value * 100) / 100;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
 const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
@@ -56,6 +57,24 @@ function getCurrentWeekDates(): { dateStrings: string[]; nextUnlockAt: Date } {
 
 type RewardBucket = { pending: number; claimable: number; claimed: number; accruing: number };
 const createBucket = (): RewardBucket => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
+
+function formatWeekRangeFromUnlock(unlockAt: Date, weekStart?: Date | string | null, weekEnd?: Date | string | null): string | null {
+  const unlock = unlockAt instanceof Date ? unlockAt : new Date(unlockAt);
+  if (Number.isNaN(unlock.getTime())) return null;
+
+  const start =
+    weekStart && !Number.isNaN(new Date(weekStart).getTime())
+      ? new Date(weekStart)
+      : new Date(getThisFridayStartUTC(unlock).getTime() - 7 * DAY_MS);
+  const end =
+    weekEnd && !Number.isNaN(new Date(weekEnd).getTime())
+      ? new Date(weekEnd)
+      : new Date(start.getTime() + 6 * DAY_MS);
+
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const session = await getServerSession(req, res, authOptions);
@@ -155,6 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }
       },
       nextUnlockAt: null,
+      nextClaimableAt: null,
       legacyFryClaimedSnapshot: 0
     });
       return;
@@ -168,8 +188,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fnode = createBucket();
     const tfry = createBucket();
     let legacyFryClaimedSnapshot = 0;
+    let nextClaimableAt: Date | null = null;
+    let nextClaimableRange: string | null = null;
 
     const { dateStrings, nextUnlockAt } = getCurrentWeekDates();
+    const nowMs = Date.now();
 
     for (const doc of devRewards) {
       const deviceKey = doc?.miner_key as string | undefined;
@@ -198,6 +221,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         }
       }
+
+      if (Array.isArray(doc.weekly_rewards)) {
+        for (const wr of doc.weekly_rewards) {
+          if (wr?.status !== 'pending' || !wr?.unlock_at) continue;
+          const unlockMs = new Date(wr.unlock_at).getTime();
+          if (!Number.isFinite(unlockMs)) continue;
+          const maturityMs = unlockMs + 30 * DAY_MS;
+          if (!Number.isFinite(maturityMs)) continue;
+          // Keep the earliest pending → claimable maturity so we can show users when pending clears.
+          if (!nextClaimableAt || maturityMs < nextClaimableAt.getTime()) {
+            nextClaimableAt = new Date(Math.max(maturityMs, nowMs));
+            nextClaimableRange =
+              formatWeekRangeFromUnlock(new Date(wr.unlock_at), wr.week_start, wr.week_end) ?? null;
+          }
+        }
+      }
     }
 
     res.status(200).json({
@@ -207,6 +246,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tfry
       },
       nextUnlockAt: nextUnlockAt.toISOString(),
+      nextClaimableAt: nextClaimableAt ? nextClaimableAt.toISOString() : null,
+      pendingWindowLabel: nextClaimableRange,
       legacyFryClaimedSnapshot: round2(legacyFryClaimedSnapshot)
     });
   } catch (error) {

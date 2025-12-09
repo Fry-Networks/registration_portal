@@ -321,6 +321,27 @@ export default async function handler(
       }
     }
   } catch (error) {
+    // Bubble up standardized API errors (e.g., wallet not opted in) so the UI can show actionable guidance.
+    if (error && typeof error === 'object' && 'response' in (error as any)) {
+      const typed = error as { status?: number; response?: any };
+      const apiError = typed.response ?? createApiError(
+        ErrorCodes.INTERNAL_ERROR,
+        'Unable to process FRY conversion claim',
+        'Please try again. If the problem persists, contact support.'
+      );
+      return handleApiError(res, '/api/conversion/transfer_reward', new Error(apiError.message ?? 'Conversion failed'), {
+        status: typed.status ?? 400,
+        response: apiError,
+        walletAddress,
+        issueType: 'FRY_CONVERSION_TRANSFER_ERROR',
+        part: 'transfer-reward.handler',
+        metadata: {
+          address,
+          convertType,
+        },
+      });
+    }
+
     const parsed = parseAlgodError(error);
     const userMessage =
       parsed?.userMessage ||

@@ -35,6 +35,23 @@ html[data-holiday-theme='christmas'] {
   --accent: #0f766e;
   --accent-strong: #b91c1c;
   --accent-soft: rgba(15, 118, 110, 0.14);
+  --holiday-glow: rgba(239, 68, 68, 0.16); /* Soft red glow for hover/focus */
+  --holiday-card: rgba(255, 255, 255, 0.7); /* Light card glass for Xmas */
+  --holiday-ink: #0f172a; /* Text ink for light Xmas overlays */
+  /* Xmas: Neon palette for futuristic garlands and hero borders. */
+  --xmas-neon-red: #ff073a;
+  --xmas-neon-green: #10b981;
+  --xmas-neon-gold: #fbbf24;
+  --xmas-cyber-cyan: #06b6d4;
+  --xmas-glow-soft: rgba(255, 7, 58, 0.32);
+  --xmas-wire: linear-gradient(
+    90deg,
+    rgba(255, 7, 58, 0.78),
+    rgba(16, 185, 129, 0.78),
+    rgba(251, 191, 36, 0.9),
+    rgba(6, 182, 212, 0.85),
+    rgba(255, 7, 58, 0.78)
+  );
 }
 
 html[data-holiday-theme='valentines'] {
@@ -82,10 +99,425 @@ a:hover {
   color: var(--accent-strong);
 }
 
+/* =========================
+   Christmas theme polish
+   ========================= */
+/* Shared overlay that softly tints the canvas; keeps pointer events off. */
+html[data-holiday-theme='christmas'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 10% 10%, rgba(220, 38, 38, 0.08), transparent 40%),
+    radial-gradient(circle at 90% 15%, rgba(16, 185, 129, 0.08), transparent 42%),
+    radial-gradient(circle at 30% 80%, rgba(234, 179, 8, 0.06), transparent 35%);
+  z-index: 5;
+}
+
+/* Snowfall layer — kept subtle and disabled when the user prefers reduced motion. */
+@keyframes holidaySnowDrift {
+  0% { transform: translateY(-10%); opacity: 0.8; }
+  50% { opacity: 0.55; }
+  100% { transform: translateY(110%); opacity: 0.0; }
+}
+
+.holiday-snow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(2px 2px at 20% 20%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(2px 2px at 60% 40%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(1.5px 1.5px at 80% 10%, rgba(255, 255, 255, 0.5), transparent 60%),
+    radial-gradient(1.5px 1.5px at 35% 75%, rgba(255, 255, 255, 0.55), transparent 60%);
+  animation: holidaySnowDrift 18s linear infinite;
+  z-index: 6;
+  opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holiday-snow {
+    animation: none;
+    background-image: radial-gradient(2px 2px at 20% 20%, rgba(255, 255, 255, 0.35), transparent 60%),
+      radial-gradient(2px 2px at 60% 40%, rgba(255, 255, 255, 0.3), transparent 60%);
+    opacity: 0.25;
+  }
+}
+
+/* Light parallax sparkle layer for hero sections (Christmas only) */
+.holiday-hero-sparkle {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(3px 3px at 20% 10%, rgba(255, 255, 255, 0.7), transparent 60%),
+    radial-gradient(4px 4px at 70% 20%, rgba(255, 255, 255, 0.5), transparent 65%),
+    radial-gradient(2.5px 2.5px at 45% 70%, rgba(255, 255, 255, 0.6), transparent 60%);
+  mix-blend-mode: screen;
+  animation: sparkleDrift 14s ease-in-out infinite alternate;
+  opacity: 0.35;
+}
+
+@keyframes sparkleDrift {
+  0% { transform: translate3d(-4px, -2px, 0); }
+  50% { transform: translate3d(4px, 3px, 0); }
+  100% { transform: translate3d(-3px, 2px, 0); }
+}
+
+/* Small holly corner badge to sprinkle on festive cards without extra markup */
+.holiday-card-badge::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 34px;
+  height: 34px;
+  background-image: radial-gradient(circle at 50% 50%, rgba(220, 38, 38, 0.8) 0, transparent 55%),
+    radial-gradient(circle at 14px 18px, rgba(16, 185, 129, 0.9) 0, transparent 50%),
+    radial-gradient(circle at 22px 10px, rgba(34, 197, 94, 0.8) 0, transparent 50%);
+  opacity: 0.75;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(0,0,0,0.18));
+}
+
+/* Decorative string-light edge for containers that opt in (hero/nav). */
+.holiday-lights {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 5% 5%, rgba(239, 68, 68, 0.35), transparent 14%),
+    radial-gradient(circle at 15% 6%, rgba(34, 197, 94, 0.35), transparent 14%),
+    radial-gradient(circle at 25% 4%, rgba(234, 179, 8, 0.35), transparent 14%),
+    radial-gradient(circle at 35% 7%, rgba(14, 165, 233, 0.35), transparent 14%),
+    radial-gradient(circle at 45% 5%, rgba(248, 113, 113, 0.35), transparent 14%),
+    radial-gradient(circle at 55% 6%, rgba(132, 204, 22, 0.35), transparent 14%),
+    radial-gradient(circle at 65% 4%, rgba(234, 179, 8, 0.35), transparent 14%),
+    radial-gradient(circle at 75% 7%, rgba(14, 165, 233, 0.35), transparent 14%),
+    radial-gradient(circle at 85% 5%, rgba(248, 113, 113, 0.35), transparent 14%),
+    radial-gradient(circle at 95% 6%, rgba(132, 204, 22, 0.35), transparent 14%);
+  mask: linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.1) 30%, rgba(0,0,0,0));
+}
+
+/* Xmas: Futuristic garland + hero overlays keep animations lightweight and respect reduced-motion. */
+.christmas-garland {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: calc(var(--navbar-height, 64px) - 6px);
+  height: 128px;
+  pointer-events: none;
+  z-index: 100; /* Keep below modals and nav controls but above content */
+  display: flex;
+  justify-content: center;
+  isolation: isolate;
+}
+
+.holiday-lottie-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 12px;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.holiday-lottie-ornaments {
+  flex: 1 1 240px;
+  max-width: 360px;
+  min-width: 220px;
+  opacity: 0.75;
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.16));
+}
+
+.holiday-lottie-ornaments svg {
+  width: 100% !important;
+  height: 110px !important;
+}
+
+.christmas-garland-track {
+  position: relative;
+  width: min(1200px, 100%);
+  height: 128px;
+}
+
+.christmas-garland-wire {
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  top: 14px;
+  height: 3px;
+  background: var(--xmas-wire, linear-gradient(90deg, rgba(255, 7, 58, 0.8), rgba(16, 185, 129, 0.8), rgba(251, 191, 36, 0.85), rgba(6, 182, 212, 0.85)));
+  border-radius: 999px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25), 0 0 14px rgba(255, 255, 255, 0.16);
+  opacity: 0.95;
+}
+
+.christmas-ornament {
+  position: absolute;
+  top: 18px;
+  transform-origin: 50% 0;
+  animation: ornamentSway var(--ornament-duration, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.christmas-ornament-string {
+  width: 2px;
+  height: var(--ornament-string, 50px);
+  margin: 0 auto;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.22));
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  transform: translateY(4px);
+}
+
+.christmas-ornament-body {
+  position: relative;
+  width: var(--ornament-size, 46px);
+  height: var(--ornament-size, 46px);
+  display: grid;
+  place-items: center;
+  transform: translateY(10px);
+}
+
+.christmas-ornament-cap {
+  position: absolute;
+  top: -8px;
+  width: calc(var(--ornament-size, 46px) * 0.35);
+  height: 8px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #e5e7eb, #94a3b8);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.22);
+}
+
+.christmas-ornament-core {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at 65% 65%, rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.55) 60%),
+    radial-gradient(circle at 30% 30%, #ff073a 0%, #7f1d1d 95%);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 12px var(--xmas-glow-soft, rgba(255, 7, 58, 0.32));
+  animation: ornamentSpin 14s linear infinite;
+}
+
+.christmas-ornament-glow {
+  position: absolute;
+  width: 120%;
+  height: 120%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 7, 58, 0.55), transparent 68%);
+  filter: blur(12px);
+  opacity: 0.8;
+  animation: glowPulse 2.6s ease-in-out infinite;
+}
+
+.christmas-ornament[data-variant='bauble-green'] .christmas-ornament-core {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at 65% 65%, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.45) 60%),
+    radial-gradient(circle at 30% 30%, var(--xmas-neon-green), #065f46 95%);
+}
+
+.christmas-ornament[data-variant='bauble-gold'] .christmas-ornament-core {
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0) 32%),
+    radial-gradient(circle at 65% 65%, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.38) 60%),
+    radial-gradient(circle at 30% 30%, var(--xmas-neon-gold), #92400e 95%);
+}
+
+.christmas-ornament[data-variant='cyber-hex'] .christmas-ornament-core {
+  border-radius: 16%;
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.9), rgba(16, 185, 129, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 14px rgba(6, 182, 212, 0.55);
+}
+
+.christmas-ornament[data-variant='cyber-star'] .christmas-ornament-core {
+  border-radius: 12%;
+  clip-path: polygon(50% 0%, 61% 38%, 98% 38%, 68% 59%, 79% 97%, 50% 74%, 21% 97%, 32% 59%, 2% 38%, 39% 38%);
+  background: linear-gradient(135deg, rgba(255, 7, 58, 0.9), rgba(251, 191, 36, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 14px rgba(251, 191, 36, 0.45);
+}
+
+.christmas-ornament[data-variant='cyber-pyramid'] .christmas-ornament-core {
+  border-radius: 10%;
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(6, 182, 212, 0.9) 55%, rgba(16, 185, 129, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 14px rgba(16, 185, 129, 0.55);
+}
+
+.christmas-ornament[data-variant='bauble-green'] .christmas-ornament-glow {
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.5), transparent 70%);
+}
+
+.christmas-ornament[data-variant='bauble-gold'] .christmas-ornament-glow {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.5), transparent 70%);
+}
+
+.christmas-ornament[data-variant='cyber-hex'] .christmas-ornament-glow,
+.christmas-ornament[data-variant='cyber-pyramid'] .christmas-ornament-glow {
+  background: radial-gradient(circle, rgba(6, 182, 212, 0.48), transparent 70%);
+}
+
+.christmas-ornament[data-variant='cyber-star'] .christmas-ornament-glow {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.45), transparent 72%);
+}
+
+@keyframes ornamentSway {
+  0% { transform: rotate(-4deg); }
+  50% { transform: rotate(2.5deg); }
+  100% { transform: rotate(4deg); }
+}
+
+@keyframes ornamentSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glowPulse {
+  0% { opacity: 0.7; transform: scale(0.96); }
+  50% { opacity: 0.95; transform: scale(1); }
+  100% { opacity: 0.7; transform: scale(0.96); }
+}
+
+.hero-neon-frame {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.4), rgba(255, 7, 58, 0.35), rgba(251, 191, 36, 0.35));
+  box-shadow:
+    inset 0 0 24px rgba(255, 255, 255, 0.12),
+    0 0 30px rgba(16, 185, 129, 0.35),
+    0 0 30px rgba(255, 7, 58, 0.25),
+    0 0 30px rgba(251, 191, 36, 0.25);
+  opacity: 0.85;
+}
+
+.hero-holo-sheen {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0) 100%);
+  mix-blend-mode: screen;
+  background-size: 220% 220%;
+  animation: heroHoloSweep 10s ease-in-out infinite;
+  opacity: 0.7;
+}
+
+.hero-christmas-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hero-christmas-particles::before,
+.hero-christmas-particles::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 140%;
+  background-size: 260px 260px;
+  background-repeat: repeat;
+  opacity: 0.55;
+  animation: heroOrnamentFall 24s linear infinite;
+}
+
+.hero-christmas-particles::before {
+  top: -20%;
+  background-image:
+    radial-gradient(14px 16px at 10% 0, rgba(255, 7, 58, 0.55), transparent 60%),
+    radial-gradient(12px 14px at 40% 10%, rgba(16, 185, 129, 0.55), transparent 60%),
+    radial-gradient(10px 10px at 70% 5%, rgba(6, 182, 212, 0.55), transparent 60%),
+    radial-gradient(8px 10px at 90% 12%, rgba(251, 191, 36, 0.55), transparent 60%);
+}
+
+.hero-christmas-particles::after {
+  top: -10%;
+  background-image:
+    radial-gradient(12px 12px at 25% 0, rgba(16, 185, 129, 0.45), transparent 60%),
+    radial-gradient(10px 12px at 55% 6%, rgba(251, 191, 36, 0.45), transparent 60%),
+    radial-gradient(9px 10px at 80% 2%, rgba(255, 7, 58, 0.45), transparent 60%);
+  animation-duration: 28s;
+  filter: blur(1px);
+}
+
+@keyframes heroOrnamentFall {
+  0% { transform: translate3d(-6px, -12%, 0); }
+  50% { transform: translate3d(6px, 45%, 0); }
+  100% { transform: translate3d(-4px, 110%, 0); }
+}
+
+@keyframes heroHoloSweep {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@media (max-width: 768px) {
+  .christmas-garland {
+    height: 96px;
+    top: calc(var(--navbar-height, 56px) - 4px);
+  }
+
+  .christmas-garland-track {
+    height: 96px;
+  }
+
+  .holiday-lottie-ornaments {
+    min-width: 180px;
+    flex-basis: 200px;
+    opacity: 0.6;
+  }
+
+  .christmas-garland-wire {
+    top: 10px;
+  }
+
+  .christmas-ornament {
+    top: 12px;
+  }
+
+  .christmas-ornament-body {
+    transform: translateY(6px);
+  }
+
+  .christmas-ornament:nth-child(n+9) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .christmas-ornament,
+  .christmas-ornament-core,
+  .christmas-ornament-glow,
+  .hero-holo-sheen,
+  .hero-christmas-particles::before,
+  .hero-christmas-particles::after {
+    animation: none !important;
+  }
+
+  .christmas-ornament {
+    transform: none !important;
+  }
+
+  .christmas-ornament-glow {
+    opacity: 0.55;
+  }
+}
+
 .logo {
-  width: 8rem;
-  height: auto;
-  padding: 1.5em;
+  width: auto;
+  height: 48px;
+  padding: 0;
+  object-fit: contain;
+  background: transparent !important;
   will-change: filter;
   transition: filter 300ms;
 }
@@ -100,7 +532,6 @@ a:hover {
 
 @media (max-width: 640px) {
   .logo {
-    width: 5.5rem;
-    padding: 0.5rem 0.75rem;
+    height: 40px;
   }
 }

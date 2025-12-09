@@ -8,6 +8,7 @@ import { useToastContext } from '../../hooks/ToastContext';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { getClientToken } from '../../lib/clientToken';
 import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
+import { useTheme } from 'next-themes';
 
 export default function BoostModal({
   modalName,
@@ -28,6 +29,8 @@ export default function BoostModal({
   const [txIdState, setTxIdState] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const intervalRef = useRef<any>(null);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
 
   const boostRewards = async () => {
     console.log('Boosting');
@@ -182,9 +185,12 @@ export default function BoostModal({
           closeModal(modalName);
         }}
         static={true}
-        className="z-[100]"
+        className="z-[180]"
       >
-        <DialogPanel className="sm:max-w-xl">
+        <DialogPanel
+          className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+          style={{ marginTop: 'calc(var(--navbar-height, 64px) + 12px)' }}
+        >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -197,25 +203,25 @@ export default function BoostModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5">Instant Claim</Title>
+          <Title className={`mb-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>Instant Claim</Title>
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5 text-slate-900"
+            className={`gap-3 w-full mt-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}
           >
-            <div className="space-y-2 text-sm text-gray-800">
+            <div className={`space-y-2 text-sm ${isDark ? 'text-gray-100' : 'text-gray-800'}`}>
               <p>
                 Are you sure you want to claim this reward instantly? A <span className="font-semibold text-red-600">30% fee</span> is deducted, while the remaining 70% moves straight to your Claimable.
               </p>
-              <p className="text-xs text-gray-600">
+              <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                 This action cannot be undone.
               </p>
             </div>
             {isProcessing && (
               <>
-                <p className="text-sm text-gray-700">{statusText}</p>
-                <p className="text-xs text-gray-500">
+                <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>{statusText}</p>
+                <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-500'}`}>
                   Please wait until you see the TxID notification. Do not close this window — it will close automatically after confirmation.
                 </p>
               </>
@@ -227,7 +233,7 @@ export default function BoostModal({
             className="gap-3 w-full mt-5"
           >
             <Button
-              className="bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600"
+              className={`bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'}`}
               disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
               aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
               onClick={() => {
@@ -238,7 +244,7 @@ export default function BoostModal({
               Close
             </Button>
             <Button
-              className={`relative flex items-center justify-center bg-transparent text-slate-900 border-red-600 hover:bg-red-600 hover:border-red-600 ${
+              className={`relative flex items-center justify-center bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'} ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
               disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}

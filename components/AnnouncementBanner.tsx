@@ -9,6 +9,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from '../app/notificationcontext';
 import type { Notification } from './NotificationCenter';
+import { useTheme } from 'next-themes';
+import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider';
 
 const VARIANT_THEMES: Record<
   NonNullable<Notification['variant']>,
@@ -57,6 +59,10 @@ const VARIANT_THEMES: Record<
 
 export default function AnnouncementBanner() {
   const { bannerAnnouncements, dismissAnnouncementBanner } = useNotifications();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const { activeHoliday } = useSeasonalTheme();
+  const isChristmas = activeHoliday?.key === 'christmas';
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [glowActive, setGlowActive] = useState(false);
 
@@ -126,7 +132,8 @@ export default function AnnouncementBanner() {
   return (
     <div
       ref={containerRef}
-      className="border-b border-white/5 bg-transparent py-4 text-white"
+      className={`border-b py-4 ${isDark ? 'border-white/5 bg-transparent text-white' : 'border-slate-200/80 bg-white/80 text-slate-900 backdrop-blur'}`}
+      style={isChristmas ? { marginTop: '1in' } : undefined}
     >
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 sm:px-8">
         {itemsToRender.map((announcement) => {
@@ -154,31 +161,47 @@ export default function AnnouncementBanner() {
                 className={`relative rounded-3xl bg-gradient-to-r ${theme.accent} p-[1.25px] transition-shadow duration-700`}
                 style={{ boxShadow: cardShadow }}
               >
-                <div className="relative overflow-hidden rounded-[calc(1.5rem-1.25px)] bg-black/50 p-5 backdrop-blur-2xl sm:p-6">
+                <div
+                  className={`relative overflow-hidden rounded-[calc(1.5rem-1.25px)] p-5 sm:p-6 backdrop-blur-2xl ${
+                    isDark ? 'bg-black/50' : 'bg-white'
+                  }`}
+                >
                   <div
                     aria-hidden
-                    className={`absolute inset-0 opacity-70 bg-gradient-to-r ${theme.gradient}`}
+                    className={`absolute inset-0 opacity-70 bg-gradient-to-r ${theme.gradient} ${isDark ? '' : 'mix-blend-multiply'}`}
                   />
                   <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
-                    <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-white shadow-[0_0_25px_rgba(255,255,255,0.15)]">
+                    <div
+                      className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl border ${
+                        isDark
+                          ? 'border-white/20 bg-white/10 text-white shadow-[0_0_25px_rgba(255,255,255,0.15)]'
+                          : 'border-slate-200 bg-white text-slate-800 shadow-[0_10px_30px_rgba(15,23,42,0.12)]'
+                      }`}
+                    >
                       <Icon className="h-7 w-7" />
                     </div>
                     <div className="flex-1 text-sm sm:text-base">
                       <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-lg font-semibold tracking-wide text-white sm:text-xl">
+                        <span className={`text-lg font-semibold tracking-wide sm:text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
                           {announcement.title || 'Announcement'}
                         </span>
-                        <span className="rounded-full border border-white/30 bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest">
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-widest ${
+                            isDark
+                              ? 'border-white/30 bg-white/10 text-white'
+                              : 'border-slate-200 bg-slate-100 text-slate-800'
+                          }`}
+                        >
                           Announcement
                         </span>
                         {publishedAtLabel && (
-                          <span className="text-[11px] font-medium uppercase tracking-wider text-white/70 sm:text-xs">
+                          <span className={`text-[11px] font-medium uppercase tracking-wider sm:text-xs ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
                             {publishedAtLabel}
                           </span>
                         )}
                       </div>
                       {announcement.message && (
-                        <div className="mt-3 whitespace-pre-line text-sm leading-relaxed text-white/90 sm:text-base">
+                        <div className={`mt-3 whitespace-pre-line text-sm leading-relaxed sm:text-base ${isDark ? 'text-white/90' : 'text-slate-800'}`}>
                           {announcement.message}
                         </div>
                       )}
@@ -187,7 +210,9 @@ export default function AnnouncementBanner() {
                           href={announcement.cta.href}
                           target="_blank"
                           rel="noreferrer"
-                          className={`mt-4 inline-flex items-center justify-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-lg transition hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:text-sm ${theme.chipBg} ${theme.chipText}`}
+                          className={`mt-4 inline-flex items-center justify-center rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wide shadow-lg transition hover:scale-[1.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:text-sm ${theme.chipBg} ${
+                            isDark ? `${theme.chipText} focus-visible:outline-white` : 'text-slate-900 focus-visible:outline-slate-500 bg-white'
+                          }`}
                         >
                           {announcement.cta.label}
                         </a>
@@ -196,7 +221,11 @@ export default function AnnouncementBanner() {
                     <button
                       type="button"
                       onClick={() => dismissAnnouncementBanner(announcement.id)}
-                      className="self-start rounded-full border border-white/30 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/80 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                      className={`self-start rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                        isDark
+                          ? 'border-white/30 text-white/80 hover:bg-white/10 focus-visible:outline-white'
+                          : 'border-slate-200 text-slate-800 hover:bg-slate-100 focus-visible:outline-slate-500'
+                      }`}
                     >
                       <span className="inline-flex items-center gap-1">
                         <XIcon className="h-4 w-4" />

@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import Lottie from 'lottie-react';
 import { usePathname } from 'next/navigation';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet-react';
@@ -21,6 +22,14 @@ import { RiBugLine } from '@remixicon/react';
 import BugReportModal, { BugReportPayload } from './BugReportModal';
 import { useToastContext } from '../hooks/ToastContext';
 import { runWithWalletRequest, WalletRequestInFlightError } from '../lib/wallet/requestCoordinator.client';
+import ThemeControls from './ThemeControls';
+import dimoIcon from '../lib/dimo/Dimo.png';
+import { useTheme } from 'next-themes';
+import fryLogoLight from '../assets/Logo_lightmode.png';
+import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Seasonal chrome
+import fryLogoXmasLight from '../assets/Logo_xmas_light.png'; // Festive logo for Christmas (light)
+import fryLogoXmasDark from '../assets/Logo_xmas_dark.png'; // Festive logo for Christmas (dark)
+import merryChristmasAnimation from '../public/holiday/Merry Christmas.json'; // Xmas: Centered Lottie banner for navbar
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -31,13 +40,19 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
 export default function Navbar() {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
   const pathname = usePathname();
+  const { activeHoliday } = useSeasonalTheme();
+  const isChristmas = activeHoliday?.key === 'christmas';
   const { data: session, status } = useSession();
   const { wallets, activeAccount, algodClient } = useWallet();
   const activeWallet = wallets.find(w => w.isActive);
   const { devConnect, devAccount, algodClient: devAlgodClient, setDevConnect } = useDevWallet();
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [address, setAddress] = useState('');
+  // Xmas: Respect reduced motion for navbar Lottie overlays.
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const [algoBalance, setAlgoBalance] = useState('0.00');
   const [fryBalance, setFryBalance] = useState('0.00');
   const router = useRouter();
@@ -54,6 +69,59 @@ export default function Navbar() {
   const toast = useToastContext();
   const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
 
+  const modalStyles = useMemo(() => {
+    if (isDark) {
+      return {
+        content: {
+          top: '50%',
+          left: '50%',
+          right: 'auto',
+          bottom: 'auto',
+          marginRight: '-50%',
+          transform: 'translate(-50%, -50%)',
+          backgroundColor: 'black',
+          color: '#e5e7eb',
+          padding: '20px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+          borderColor: '#D00000',
+          borderRadius: '40px',
+          paddingBottom: '40px'
+        },
+        overlay: {
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(5px)'
+        }
+      };
+    }
+    return {
+      content: {
+        top: '50%',
+        left: '50%',
+        right: 'auto',
+        bottom: 'auto',
+        marginRight: '-50%',
+        transform: 'translate(-50%, -50%)',
+        backgroundColor: '#e3e7ed',
+        color: '#0f172a',
+        padding: '20px',
+        boxShadow: '0 8px 20px rgba(0,0,0,0.15)',
+        borderColor: '#d92b3c',
+        borderRadius: '40px',
+        paddingBottom: '40px'
+      },
+      overlay: {
+        backgroundColor: 'rgba(0, 0, 0, 0.45)',
+        backdropFilter: 'blur(5px)'
+      }
+    };
+  }, [isDark]);
+  const actionButtonClass = isDark
+    ? 'flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+    : 'flex h-11 w-11 items-center justify-center rounded-full border border-red-400 bg-red-50 text-red-700 shadow-md transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
+  const pillLinkClass = isDark
+    ? 'flex h-11 items-center rounded-full border border-red-500/60 bg-red-500/15 px-4 text-sm font-semibold text-red-100 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+    : 'flex h-11 items-center rounded-full border border-red-400 bg-red-50 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
+
   useEffect(() => {
     console.log('[Wallet] hook activeAccount', activeAccount);
   }, [activeAccount]);
@@ -62,16 +130,17 @@ export default function Navbar() {
     console.log('[Wallet] hook activeWallet', activeWallet);
   }, [activeWallet]);
 
+  // Xmas: Track reduced motion to pause navbar Lottie animations when requested.
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => setPrefersReducedMotion(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
-
-    const updateHeight = () => {
-      const height = headerRef.current?.offsetHeight ?? 0;
-      root.style.setProperty('--navbar-height', `${height}px`);
-    };
-
-    updateHeight();
-
     const el = headerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') {
       return () => {
@@ -79,10 +148,37 @@ export default function Navbar() {
       };
     }
 
-    const observer = new ResizeObserver(() => updateHeight());
+    let rafId: number | null = null;
+    let lastHeight = 0;
+
+    const scheduleHeightUpdate = (nextHeight: number) => {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+      rafId = requestAnimationFrame(() => {
+        if (nextHeight !== lastHeight) {
+          root.style.setProperty('--navbar-height', `${nextHeight}px`);
+          lastHeight = nextHeight;
+        }
+      });
+    };
+
+    const observer = new ResizeObserver(() => {
+      try {
+        const height = el.offsetHeight ?? 0;
+        scheduleHeightUpdate(height);
+      } catch (err) {
+        console.warn('[Navbar] resize observer failed', err);
+      }
+    });
+
     observer.observe(el);
+    scheduleHeightUpdate(el.offsetHeight ?? 0);
 
     return () => {
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
       observer.disconnect();
       root.style.removeProperty('--navbar-height');
     };
@@ -363,23 +459,61 @@ export default function Navbar() {
     <Fragment>
       <header
         ref={headerRef}
-        className="sticky top-0 left-0 right-0 z-[150] border-b border-white/10 bg-[#08080b]/90 backdrop-blur"
+        className={`sticky top-0 left-0 right-0 z-[150] border-b backdrop-blur relative overflow-visible ${
+          isDark
+            ? 'border-white/10 bg-black/95'
+            : isChristmas
+              ? 'border-transparent bg-[#e5e9ed] text-slate-900'
+              : 'border-transparent bg-[#e5e9ed] text-slate-900'
+        }`}
       >
-        <div className="mx-auto flex h-24 w-full max-w-[1600px] items-center justify-between px-3 sm:px-20">
-          <div className="flex">
+        {/* Xmas: Centered “Merry Christmas” Lottie overlay, paused when reduced-motion is requested. */}
+        {isChristmas && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-[151]" aria-hidden>
+            <div className="w-full max-w-[170px] sm:max-w-[210px] max-h-[120px] opacity-80 mix-blend-screen drop-shadow-[0_12px_30px_rgba(0,0,0,0.25)]">
+              <Lottie
+                animationData={merryChristmasAnimation}
+                loop={!prefersReducedMotion}
+                autoplay={!prefersReducedMotion}
+                rendererSettings={{ preserveAspectRatio: 'xMidYMid meet' }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:flex-nowrap sm:gap-4 sm:px-6 lg:px-10">
+          <div className="flex items-center relative">
             <Link
               href="https://frynetworks.com"
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Image src={fryLogo} className="logo" alt="Fry logo" priority />
+              <Image
+                src={
+                  isChristmas
+                    ? isDark
+                      ? fryLogoXmasDark
+                      : fryLogoXmasLight
+                    : isDark
+                      ? fryLogo
+                      : fryLogoLight
+                }
+                className="logo m-0"
+                alt="Fry logo"
+                priority
+              />
             </Link>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3 relative z-[200]">
+            <ThemeControls />
             {!address || address.length === 0 ? (
               <Button
-                className="bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600"
+                className={
+                  isDark
+                    ? 'bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 text-white'
+                    : 'bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700'
+                }
                 onClick={() => {
                   if (devMode) {
                     setDevConnect(true);
@@ -393,10 +527,30 @@ export default function Navbar() {
             ) : (
               <Fragment>
                 <DownMenu address={address} disconnect={handleDisconnect} />
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
+                  <Link
+                    href="/dimo"
+                    className={
+                      isDark
+                        ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+                        : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
+                    }
+                    aria-label="Login with DIMO"
+                  >
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
+                      <Image
+                        src={dimoIcon}
+                        alt="DIMO"
+                        width={36}
+                        height={36}
+                        className="h-9 w-9"
+                        priority={false}
+                      />
+                    </div>
+                  </Link>
                   <Link
                     href="/devices"
-                    className="flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
+                    className={actionButtonClass}
                     aria-label="Go to devices"
                   >
                     <HomeIcon className="h-5 w-5" />
@@ -405,7 +559,7 @@ export default function Navbar() {
                     type="button"
                     onClick={openBugModal}
                     aria-label="Report a bug"
-                    className="flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80"
+                    className={actionButtonClass}
                   >
                     <RiBugLine className="h-5 w-5" />
                   </button>
@@ -420,7 +574,7 @@ export default function Navbar() {
                       }}
                       aria-expanded={showNotifications}
                       aria-label="View device notifications"
-                      className="relative flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`${actionButtonClass} relative disabled:cursor-not-allowed disabled:opacity-60`}
                       disabled={notifications.length === 0}
                     >
                       <BellIcon className="h-5 w-5" aria-hidden="true" />
@@ -431,11 +585,18 @@ export default function Navbar() {
                       )}
                     </button>
                     {showNotifications && notifications.length > 0 && (
-                      <div className="absolute right-0 mt-3 max-h-[70vh] w-[26rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 shadow-2xl shadow-red-900/40 z-[200]">
+                      <div
+                        className={`absolute right-0 mt-3 max-h-[70vh] w-[26rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border shadow-2xl z-[200] ${
+                          isDark
+                            ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
+                            : 'border-red-200 bg-white shadow-red-200/60'
+                        }`}
+                      >
                         <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
                           <NotificationCenter
                             notifications={notifications}
                             onDismiss={dismiss}
+                            isDark={isDark}
                           />
                         </div>
                       </div>
@@ -459,13 +620,17 @@ export default function Navbar() {
 
       <Modal
         isOpen={isWalletModalOpen}
-        style={customStyles}
+        style={modalStyles as any}
         contentLabel="Connect Wallet"
       >
         <div className="max-w-md sm:w-[415px] w-[320px]">
           <div className="flex justify-end">
             <Button
-              className="text-white bg-transparent p-2 right-2 rounded border-transparent hover:bg-red-600 hover:border-transparent hover:rounded hover:bg-opacity-10"
+              className={
+                isDark
+                  ? 'text-white bg-transparent p-2 right-2 rounded border-transparent hover:bg-red-600 hover:border-transparent hover:rounded hover:bg-opacity-10'
+                  : 'text-slate-900 bg-transparent p-2 right-2 rounded border-transparent hover:bg-red-100 hover:border-transparent hover:rounded'
+              }
               onClick={() => setIsWalletModalOpen(false)}
             >
               <svg
@@ -484,14 +649,14 @@ export default function Navbar() {
           </div>
 
           <Flex flexDirection="col">
-            <Title className="text-red-600 text-2xl">CONNECT TO WALLET</Title>
+            <Title className={`${isDark ? 'text-red-600' : 'text-red-700'} text-2xl`}>CONNECT TO WALLET</Title>
             <Image
-              src={fryLogo}
+              src={isDark ? fryLogo : fryLogoLight}
               className="logo_wallet mt-4 m-auto"
               alt="Fry logo"
               priority
             />
-            <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent"></div>
+            <div className={`h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent ${isDark ? '' : 'opacity-70'}`}></div>
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
@@ -500,7 +665,11 @@ export default function Navbar() {
               return (
                 <div
                   key={`wallet ${index}`}
-                  className="flex flex-row border-2 border-red-600 h-12 rounded-lg text-white gap-8 w-full items-center px-3 py-8 hover:bg-red-600 hover:bg-opacity-10"
+                  className={`flex flex-row h-12 rounded-lg gap-8 w-full items-center px-3 py-8 border-2 ${
+                    isDark
+                      ? 'border-red-600 text-white hover:bg-red-600 hover:bg-opacity-10'
+                      : 'border-red-400 text-slate-900 hover:bg-red-50'
+                  }`}
                   onClick={async () => {
                     try {
                       console.log('[Wallet] connect requested', wallet.id);
@@ -609,26 +778,4 @@ export default function Navbar() {
       {/* Totals ribbon moved to devices page to appear under hero section */}
     </Fragment>
   );
-};
-
-const customStyles = {
-  content: {
-    top: '50%',
-    left: '50%',
-    right: 'auto',
-    bottom: 'auto',
-    marginRight: '-50%',
-    transform: 'translate(-50%, -50%)',
-    backgroundColor: 'black', // Example background color
-    color: '#6b7280',
-    padding: '20px',
-    boxShadow: '0 4px 8px 0 rgba(0,0,0,0.2)',
-    borderColor: '#D00000',
-    borderRadius: '40px',
-    paddingBottom: '40px'
-  },
-  overlay: {
-    backgroundColor: 'rgba(0, 0, 0, 0.75)', // Example overlay color
-    backdropFilter: 'blur(5px)'
-  }
 };

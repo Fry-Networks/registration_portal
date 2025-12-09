@@ -21,6 +21,8 @@ type ClientErrorBody = {
 };
 
 const ENDPOINT = '/api/logging/client-error';
+const UNKNOWN_ORIGIN_THROTTLE_MS = 60 * 60 * 1000;
+let lastUnknownOriginLogAt = 0;
 
 /**
  * Normalize an error message coming from the browser.
@@ -124,6 +126,16 @@ export default function handler(
     const isDuplicateEthereumError =
       normalizedMessage.includes("can't redefine non-configurable property \"ethereum\"") ||
       normalizedMessage.includes('non-configurable property "ethereum"');
+
+    // DIMO popup sometimes reports "unknown origin" repeatedly; throttle to once per hour.
+    if (normalizedMessage.includes('unknown origin')) {
+      const now = Date.now();
+      if (now - lastUnknownOriginLogAt < UNKNOWN_ORIGIN_THROTTLE_MS) {
+        res.status(200).json({ success: true, suppressed: true });
+        return;
+      }
+      lastUnknownOriginLogAt = now;
+    }
 
     if (isExtensionError || isDuplicateEthereumError) {
       logger.warn('[client-error] Ignoring browser extension error', {

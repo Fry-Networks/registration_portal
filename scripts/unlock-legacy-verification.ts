@@ -32,6 +32,8 @@
  */
 import 'dotenv/config';
 import { execFileSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import { MongoClient, ObjectId } from 'mongodb';
 import { FRY_1, FRY_2 } from '../lib/utils';
 import { getLegacyForceTimestamp } from '../lib/legacyStake';
@@ -82,6 +84,12 @@ const cliMongoUri =
   mongoUriArgIndex >= 0 && args[mongoUriArgIndex + 1]
     ? args[mongoUriArgIndex + 1]
     : undefined;
+const dryRunFindings: Array<{
+  miner_key: string;
+  verified: boolean;
+  legacy_stake_unlocked: boolean;
+  staked: StakeBlock | null | undefined;
+}> = [];
 
 if (limit !== undefined && (Number.isNaN(limit) || limit <= 0)) {
   console.error('Invalid --limit value. Provide a positive integer.');
@@ -278,6 +286,14 @@ async function main() {
       (targetForceTimestamp ? Date.now() >= targetForceTimestamp : true);
 
     if (shouldForceUnverify && doc.verified) {
+      if (!applyChanges) {
+        dryRunFindings.push({
+          miner_key: doc.miner_key,
+          verified: Boolean(doc.verified),
+          legacy_stake_unlocked: Boolean(doc.legacy_stake_unlocked),
+          staked: stakeBlock || null
+        });
+      }
       if (applyChanges) {
         await devices.updateOne(
           { _id: doc._id },
@@ -321,6 +337,39 @@ async function main() {
     dump('Withdrawn but not restaked', withdrawnKeys);
     dump('Restaked in FRY2 after 2025-10-08', restakedKeys);
     dump('Legacy stakes forced unverified', legacyForcedKeys);
+  }
+
+  // On dry run, persist a JSON report of devices that would be force-unverified.
+  if (!applyChanges && dryRunFindings.length > 0) {
+    const outputDir = path.join(process.cwd(), 'logs');
+    const outputFile = path.join(
+      outputDir,
+      `unlock-legacy-findings-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+    );
+    try {
+      fs.mkdirSync(outputDir, { recursive: true });
+      fs.writeFileSync(
+        outputFile,
+        JSON.stringify(
+          {
+            generatedAt: new Date().toISOString(),
+            forceUnverify: forceUnverify,
+            targetForceTimestamp: targetForceTimestamp
+              ? new Date(targetForceTimestamp).toISOString()
+              : null,
+            limit,
+            totalFindings: dryRunFindings.length,
+            findings: dryRunFindings
+          },
+          null,
+          2
+        ),
+        { encoding: 'utf8' }
+      );
+      console.log(`\n[dry-run] Wrote findings JSON to ${outputFile}`);
+    } catch (error) {
+      console.error('[dry-run] Failed to write findings JSON', error);
+    }
   }
 
   console.log(

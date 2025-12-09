@@ -28,6 +28,7 @@ import DeviceListItem from '../components/DeviceListItem';
 import StakeModal from '../components/modals/Stake';
 import WithdrawModal from '../components/modals/Withdraw';
 import BoostModal from '../components/modals/Boost';
+import ByodConvertModal from '../components/modals/ByodConvert'; // BYOD conversion modal replaces old page
 import { mutate as swrMutate } from 'swr';
 import ClaimModal from '../components/modals/Claim';
 import DeleteModal from '../components/modals/Delete';
@@ -38,6 +39,7 @@ import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 import { shouldForceLegacyUnverified } from '../lib/legacyStake';
 import HeroBanner from '../components/HeroBanner';
+import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
 import {
   isNodeStaked,
@@ -52,6 +54,19 @@ import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
+import { useTheme } from 'next-themes';
+
+const logClientError = async (payload: Record<string, unknown>) => {
+  try {
+    await fetch('/api/logging/client-error', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } catch {
+    // best effort: avoid throwing inside logging helper
+  }
+};
 
 const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
@@ -254,18 +269,21 @@ function StatsGrid({
       </div>
     );
   };
-
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const { activeHoliday } = useSeasonalTheme();
+  const holidayKey = activeHoliday?.key ?? null;
   const SummaryRow = ({ label, value, color }: { label: string; value: number; color: 'gray'|'red'|'green'|'yellow' }) => {
     const colorMap: Record<typeof color, string> = {
-      gray: 'bg-gray-900/40 text-gray-300',
-      red: 'bg-red-900/30 text-red-300',
-      green: 'bg-green-900/30 text-green-300',
-      yellow: 'bg-yellow-900/30 text-yellow-300'
+      gray: isDark ? 'bg-gray-900/40 text-gray-300' : 'bg-gray-200 text-slate-900',
+      red: isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-800',
+      green: isDark ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-800',
+      yellow: isDark ? 'bg-yellow-900/30 text-yellow-300' : 'bg-amber-100 text-amber-800'
     } as any;
     return (
       <div className={`flex flex-col items-center justify-center rounded-md p-2 ${colorMap[color]} text-xs`}>
         <div className="opacity-90">{label}</div>
-        <div className="text-white text-sm">{value}</div>
+        <div className={`${isDark ? 'text-white' : 'text-slate-900'} text-sm`}>{value}</div>
       </div>
     );
   };
@@ -276,10 +294,15 @@ function StatsGrid({
     const unverified = items.filter(d => !d.verified).length;
     const verified = items.filter(d => d.verified).length;
     const notLinkedDevices = getNotLinkedDevices(items);
-    const notLinked = notLinkedDevices.length;
+      const notLinked = notLinkedDevices.length;
+    // Thicker border to improve visual separation of miner/node summaries in all themes.
     return (
-      <div className="border border-gray-800 rounded-xl p-4 w-full">
-        <div className="text-white text-sm font-semibold mb-2">{title}</div>
+      <div
+        className={`border-2 rounded-xl p-4 w-full ${
+          isDark ? 'border-red-500/40' : 'border-red-300/70'
+        }`}
+      >
+        <div className={`text-sm font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>{title}</div>
         <div className="grid grid-cols-4 gap-2">
           <SummaryRow label="Registered" value={total} color="gray" />
           <SummaryRow label="Unverified" value={unverified} color="yellow" />
@@ -314,8 +337,13 @@ function StatsGrid({
         </div>
       );
     };
+    // Match desktop panels with thicker, higher-contrast borders in both themes.
     return (
-      <div className="border border-gray-800 rounded-xl p-4 w-full">
+      <div
+        className={`border-2 rounded-xl p-4 w-full ${
+          isDark ? 'border-red-500/40' : 'border-red-300/70'
+        }`}
+      >
         <div className="space-y-4">
           <Sec title="Miners" items={miners} />
           <Sec title="Nodes" items={nodes} />
@@ -396,27 +424,48 @@ const QuickActionCard = ({
   href,
   loading = false
 }: QuickActionCardProps) => {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const baseCardClass = isDark
+    ? 'border-red-500/40 bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] bg-[#0b0b0f]'
+    : 'border-red-700/50';
+  const iconClass = isDark
+    ? 'rounded-xl bg-red-500/15 p-3 text-red-200 transition-colors duration-300 group-hover:bg-red-500/25'
+    : 'rounded-xl bg-white/15 p-3 text-white transition-colors duration-300 group-hover:bg-white/25';
+  const titleClass = isDark ? 'text-white' : 'text-white';
+  const descClass = isDark ? 'text-gray-300' : 'text-red-50/90';
+  const ctaClass = isDark ? 'text-red-300' : 'text-red-100';
   const content = (
-    <div className="group relative overflow-hidden rounded-2xl border border-red-500/40 bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] bg-[#0b0b0f] p-4 sm:p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-red-500/70 hover:shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)]">
+    <div
+      className={`group relative overflow-hidden rounded-2xl border p-4 sm:p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-red-500/70 hover:shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)] ${baseCardClass}`}
+      style={
+        isDark
+          ? undefined
+          : {
+              backgroundImage:
+                'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.14), transparent 45%), radial-gradient(circle at 80% 10%, rgba(255,255,255,0.08), transparent 40%), linear-gradient(135deg, #b50f24 0%, #d52236 45%, #8b0d1e 100%)'
+            }
+      }
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <div className="rounded-xl bg-red-500/15 p-3 text-red-200 transition-colors duration-300 group-hover:bg-red-500/25">
+          <div className={iconClass}>
             <Icon className="h-6 w-6" aria-hidden="true" />
           </div>
           <div>
-            <div className="text-sm sm:text-base font-semibold text-white">{title}</div>
-            <p className="mt-1 text-xs leading-relaxed text-gray-300">
+            <div className={`text-sm sm:text-base font-semibold ${titleClass}`}>{title}</div>
+            <p className={`mt-1 text-xs leading-relaxed ${descClass}`}>
               {description}
             </p>
           </div>
         </div>
-        <ArrowRightIcon className="h-5 w-5 text-red-300 opacity-0 transition-opacity duration-300 group-hover:opacity-80" aria-hidden="true" />
+        <ArrowRightIcon className={`h-5 w-5 opacity-0 transition-opacity duration-300 group-hover:opacity-80 ${isDark ? 'text-red-300' : 'text-white'}`} aria-hidden="true" />
       </div>
-      <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-red-300">
+      <div className={`mt-4 flex items-center gap-2 text-sm font-semibold ${ctaClass}`}>
         {loading ? (
           <>
             <GradientSpinner />
-            <span className="text-xs sm:text-sm uppercase tracking-wide text-red-200">Processing…</span>
+            <span className={`text-xs sm:text-sm uppercase tracking-wide ${isDark ? 'text-red-200' : 'text-white/90'}`}>Processing…</span>
           </>
         ) : (
           <span>{cta}</span>
@@ -477,6 +526,11 @@ const DevicesPage = ({
   statusFallback?: Record<string, { [key: string]: string } | undefined>;
 }) => {
   const router = useRouter();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  const { activeHoliday } = useSeasonalTheme();
+  const holidayKey = activeHoliday?.key ?? null;
+  const heroOffsetClass = holidayKey === 'christmas' ? 'mt-10 sm:mt-14' : 'mt-2'; // Xmas: push hero down to clear garland
   const toast = useToastContext();
   const { openModal } = useModal();
   const { data: session, status: sessionStatus } = useSession();
@@ -530,12 +584,15 @@ const DevicesPage = ({
   const [showFryConversion, setShowFryConversion] = useState(false);
   // Ribbon state
   const [countdown, setCountdown] = useState<string>("");
+  const [claimCountdown, setClaimCountdown] = useState<string>(""); // Countdown until pending matures to claimable
   const [totals, setTotals] = useState<{
     totals: {
       fnode: { pending: number; claimable: number; claimed: number; accruing: number };
       tfry: { pending: number; claimable: number; claimed: number; accruing: number };
     };
     nextUnlockAt?: string;
+    nextClaimableAt?: string | null;
+    pendingWindowLabel?: string | null;
     legacyFryClaimedSnapshot?: number;
   } | null>(null);
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -551,6 +608,11 @@ const DevicesPage = ({
 
   const handleAdd = () => {
     openModal('addDevice');
+  };
+
+  // Open BYOD conversion modal instead of routing to the deprecated BYOD page.
+  const handleByod = () => {
+    openModal('byodConvert');
   };
 
   const handleConversion = async () => {
@@ -728,14 +790,56 @@ const DevicesPage = ({
   //   }
   // };
 
+  const isLikelyMinerKey = (value: string) => /^[A-Z]{2,4}-[A-Z0-9]{8,}/.test(value.trim());
+
   const handleRegister = async (minerKey: string): Promise<void> => {
     try {
+      const normalizedKey = (minerKey || '').trim();
+      if (!normalizedKey || !isLikelyMinerKey(normalizedKey)) {
+        toast.error({
+          heading: 'Miner key invalid',
+          message: 'That miner key looks malformed. Please double-check and try again.'
+        });
+        logClientError({
+          issueType: 'DEVICE_LOOKUP_FAILED',
+          part: 'devices.handleRegister',
+          minerKey: normalizedKey || null,
+          walletAddress: session?.user?.address ?? null,
+          url: `/api/devices/${normalizedKey || 'empty'}`,
+          message: 'Miner key blocked as malformed before lookup'
+        });
+        return;
+      }
+
       const response = await fetchWithFingerprintRetry(
-        () => fetch(`/api/devices/${minerKey}`),
+        () => fetch(`/api/devices/${normalizedKey}`),
         refreshFingerprint
       );
       if (!response.ok) {
-        toast.error({ heading: 'Error', message: 'Device not found' });
+        if (response.status === 404) {
+          toast.error({
+            heading: 'Miner key not found',
+            message: `We couldn't find ${normalizedKey}. It may be mistyped or already used.`
+          });
+        } else if (response.status === 401) {
+          toast.error({
+            heading: 'Sign in required',
+            message: 'Please sign in with your wallet before registering.'
+          });
+        } else {
+          toast.error({
+            heading: 'Error',
+            message: 'We could not look up that miner key. Please try again.'
+          });
+        }
+        logClientError({
+          issueType: 'DEVICE_LOOKUP_FAILED',
+          part: 'devices.handleRegister',
+          minerKey: normalizedKey,
+          walletAddress: session?.user?.address ?? null,
+          url: `/api/devices/${normalizedKey}`,
+          message: `Lookup failed with status ${response.status}`
+        });
         return;
       }
 
@@ -745,7 +849,7 @@ const DevicesPage = ({
         return;
       }
 
-      const prefix = getMinerCategory(minerKey);
+      const prefix = getMinerCategory(normalizedKey);
       if (!prefix) {
         toast.error({
           heading: 'Error',
@@ -755,7 +859,7 @@ const DevicesPage = ({
       }
 
       // Always open the new /register flow. If a portal model exists include it so the portal page shows the correct subtype
-      const regQuery: any = { minerKey };
+      const regQuery: any = { minerKey: normalizedKey };
       if (result.device.registered_portal_model) {
         regQuery.type = result.device.registered_portal_model;
       }
@@ -766,6 +870,14 @@ const DevicesPage = ({
         heading: 'Error',
         message:
           'There is an error occured for registering. Please contact us before you try again'
+      });
+      logClientError({
+        issueType: 'DEVICE_LOOKUP_FAILED',
+        part: 'devices.handleRegister',
+        minerKey: (minerKey || '').trim() || null,
+        walletAddress: session?.user?.address ?? null,
+        url: `/api/devices/${(minerKey || '').trim() || 'empty'}`,
+        message: `Register handler threw: ${String(error)}`
       });
       return;
     }
@@ -800,19 +912,49 @@ const DevicesPage = ({
     return () => clearInterval(id);
   }, []);
 
+  // Countdown until the next pending weekly reward matures into claimable.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const targetIso = totals?.nextClaimableAt;
+    if (!targetIso) {
+      setClaimCountdown('');
+      return () => {
+        if (timer) clearInterval(timer);
+      };
+    }
+
+    const targetMs = new Date(targetIso).getTime();
+    if (!Number.isFinite(targetMs)) {
+      setClaimCountdown('');
+      return () => {
+        if (timer) clearInterval(timer);
+      };
+    }
+
+    const tick = () => {
+      const diff = Math.max(0, targetMs - Date.now());
+      const days = Math.floor(diff / (24 * 60 * 60 * 1000));
+      const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+      const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+      const secs = Math.floor((diff % (60 * 1000)) / 1000);
+      setClaimCountdown(diff <= 0 ? 'Now' : `${days}d ${hours}h ${mins}m ${secs}s`);
+    };
+
+    tick();
+    timer = setInterval(tick, 1000);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [totals?.nextClaimableAt]);
+
   // Fetch totals for ribbon (only when signed in)
   useEffect(() => {
     let active = true;
     let intervalId: ReturnType<typeof setInterval> | undefined;
+    let consecutiveFailures = 0;
+    let loggedFailure = false;
 
-    if (!fingerprintReady) {
-      return () => {
-        active = false;
-        if (intervalId) clearInterval(intervalId);
-      };
-    }
-
-    if (sessionStatus !== 'authenticated' || !session?.user?.address) {
+    if (!fingerprintReady || sessionStatus !== 'authenticated' || !session?.user?.address) {
       if (sessionStatus === 'unauthenticated') {
         setTotals(null);
       }
@@ -829,6 +971,19 @@ const DevicesPage = ({
       } catch (error) {
         console.error('[ClientToken] Failed to refresh token after rejection', error);
         return false;
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    };
+
+    const schedulePolling = () => {
+      if (!intervalId) {
+        intervalId = setInterval(fetchTotals, 30000);
       }
     };
 
@@ -856,25 +1011,92 @@ const DevicesPage = ({
           { refreshClientToken: refreshClientTokenOnce }
         );
         if (!res.ok) {
+          consecutiveFailures += 1;
           if (active && res.status === 401) {
             setTotals(null);
+            stopPolling();
+            return;
+          }
+          if (!loggedFailure) {
+            logClientError({
+              issueType: 'REWARD_TOTALS_REFRESH_FAILED',
+              part: 'devices.pollTotals',
+              minerKey: null,
+              walletAddress: session?.user?.address ?? null,
+              url: '/api/rewards/get-asset-totals',
+              message: `Totals refresh returned ${res.status}`
+            });
+            loggedFailure = true;
+          }
+          if (consecutiveFailures >= 3) {
+            stopPolling();
           }
           return;
         }
         const json = await res.json();
+        consecutiveFailures = 0;
+        loggedFailure = false;
+        // Diagnostic: capture raw totals for mobile mismatch investigation.
+        /*console.log('[Totals] payload', {
+          nextClaimableAt: json?.nextClaimableAt,
+          pendingWindowLabel: json?.pendingWindowLabel,
+          totals: json?.totals,
+          legacyFryClaimedSnapshot: json?.legacyFryClaimedSnapshot
+        });*/
         if (active) setTotals(json);
       } catch (error) {
-        console.error('Failed to refresh reward totals', error);
+        consecutiveFailures += 1;
+        // Diagnostic: surface failures to console so we know if mobile cannot fetch totals.
+        console.log('[Totals] fetch error', error);
+        if (!loggedFailure) {
+          logClientError({
+            issueType: 'REWARD_TOTALS_REFRESH_FAILED',
+            part: 'devices.pollTotals',
+            minerKey: null,
+            walletAddress: session?.user?.address ?? null,
+            url: '/api/rewards/get-asset-totals',
+            message: `Totals refresh threw: ${String(error)}`
+          });
+          loggedFailure = true;
+        }
+        if (consecutiveFailures >= 3) {
+          stopPolling();
+        }
       }
     };
-    
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        consecutiveFailures = 0;
+        loggedFailure = false;
+        stopPolling();
+        fetchTotals().finally(() => {
+          if (active) schedulePolling();
+        });
+      }
+    };
+
+    const handleOnline = () => {
+      consecutiveFailures = 0;
+      loggedFailure = false;
+      stopPolling();
+      fetchTotals().finally(() => {
+        if (active) schedulePolling();
+      });
+    };
+
     fetchTotals();
-    intervalId = setInterval(fetchTotals, 30000);
+    schedulePolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
     return () => {
       active = false;
-      if (intervalId) clearInterval(intervalId);
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
     };
-  }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint]);
+  }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint, session]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
   const { estimatedFnode, estimatedTfry } = useMemo(() => {
@@ -1150,7 +1372,7 @@ const DevicesPage = ({
   return (
     <SWRConfig value={{ fallback: rewardFallback }}>
     <div className="w-full space-y-6">
-      <div className="px-2 sm:px-20 mt-2">
+      <div className={`px-2 sm:px-20 ${heroOffsetClass}`}>
         <HeroBanner
           title="Fry Operations Center"
           subtitle="Register and manage miners and nodes: verify details, link portals, and handle rewards."
@@ -1161,6 +1383,8 @@ const DevicesPage = ({
               href: 'https://docs.frynetworks.com/dashboard/registration'
             }
           ]}
+          mode={isDark ? 'dark' : 'light'}
+          holidayKey={holidayKey}
         />
       </div>
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
@@ -1168,6 +1392,7 @@ const DevicesPage = ({
         <FloatingTotalsWidget
           totals={totals}
           countdown={countdown}
+          claimCountdown={claimCountdown}
           estimatedFnode={estimatedFnode}
           estimatedTfry={estimatedTfry}
           legacyFryClaimedSnapshot={totals.legacyFryClaimedSnapshot}
@@ -1193,10 +1418,10 @@ const DevicesPage = ({
             description="Turn your BYOD license into a Fry miner key with a guided conversion."
             cta="Generate miner key"
             icon={KeyIcon}
-            href="/convert"
+            onClick={handleByod}
           />          
           <QuickActionCard
-            title="FRY 1.0 Conversion"
+            title="December 2024 FRY 1.0 Conversion"
             description="Review your Dec 1, 2024 FRY 1.0 snapshot balance and choose a conversion into FRY 2.0 or fNode."
             cta="Review snapshot"
             icon={SwitchHorizontalIcon}
@@ -1209,7 +1434,7 @@ const DevicesPage = ({
     <Flex flexDirection="col" className="w-full px-2 sm:px-20 mt-5">
       {/* Sort controls */}
       <div className="flex flex-row items-center gap-4 mb-4">
-        <label htmlFor="sortField" className="text-white">Sort by:</label>
+        <label htmlFor="sortField" className={isDark ? 'text-white' : 'text-slate-900'}>Sort by:</label>
         <select
           id="sortField"
           value={sortField}
@@ -1256,6 +1481,11 @@ const DevicesPage = ({
         )}
       </Flex>
       <AddDeviceModal modalName="addDevice" handleRegister={handleRegister} />
+      <ByodConvertModal
+        modalName="byodConvert"
+        address={session?.user?.address}
+        handleRegister={(mk) => handleRegister(mk)} // Reuse existing register flow after conversion
+      />
       <Fry1CheckModal
         modalName="fry1Check"
         isOpen={showFry1Check}

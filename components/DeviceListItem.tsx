@@ -1,4 +1,5 @@
 import { Button, Title } from '@tremor/react';
+import Image, { type StaticImageData } from 'next/image';
 import { Device, Product } from '../lib/types';
 import CopyAddress from './CopyAddress';
 import DeleteIcon from './DeleteIcon';
@@ -37,6 +38,13 @@ import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
 import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 import { useToastContext } from '../hooks/ToastContext';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { useTheme } from 'next-themes';
+import tfryOptInQr from '../opt-in-qrcodes/tFry-Opt-in.png';
+import fNodeOptInQr from '../opt-in-qrcodes/fNode-Opt-in.png';
+import fry2OptInQr from '../opt-in-qrcodes/FRY2-Opt-in.png';
+import fVpnOptInQr from '../opt-in-qrcodes/fVPN-Opt-in.png';
+import { FRY_2, fNODE, fVPN, tFRY } from '../lib/utils';
 
 // Env-driven portal credential requirement parsing (matches logic in pages/devices.tsx)
 const _CREDENTIALS_NEEDED_RAW = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
@@ -150,6 +158,8 @@ export default function DeviceListItem({
   const [device, setDevice] = useState<Device>(initialDevice);
   const initialDeviceSnapshot = useRef<string>('');
   const { data: session } = useSession();
+  const { wallets } = useWallet();
+  const activeWallet = useMemo(() => wallets.find(w => w.isActive), [wallets]);
   const isLegacyStake = useMemo(() => isLegacyVerificationStake(device), [device]);
   const legacyDeadlineLabel = useMemo(() => {
     if (!LEGACY_FORCE_DATE) return null;
@@ -158,10 +168,46 @@ export default function DeviceListItem({
   const [expanded, setExpanded] = useState(false);
   const [isPortalReady, setIsPortalReady] = useState(false);
   const [rewardWalletOptInStatus, setRewardWalletOptInStatus] = useState<RewardWalletOptInStatus>('unknown');
+  const [optInQr, setOptInQr] = useState<{
+    assetId: string;
+    label: string;
+    reason: string;
+    src: StaticImageData;
+  } | null>(null);
 
   useEffect(() => {
     setIsPortalReady(true);
   }, []);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
+  // Theme-aware primitives reused across the card to avoid re-declaring in hooks
+  const cardBaseClass = isDark
+    ? 'bg-black/60 text-white border-slate-700/80 shadow-md focus-visible:ring-offset-black'
+    : 'bg-white/90 text-slate-900 border-slate-200 shadow-[0_16px_40px_-22px_rgba(15,23,42,0.35)] backdrop-blur focus-visible:ring-offset-white';
+  const focusRingClass = isDark ? 'focus-visible:ring-red-500/70' : 'focus-visible:ring-red-300/80';
+  const metricTileClass = isDark
+    ? 'rounded-lg border border-gray-800/80 bg-black/60'
+    : 'rounded-lg border border-slate-200 bg-white/95 shadow-sm';
+  const metricLabelClass = isDark ? 'text-gray-500' : 'text-slate-500';
+  const iconButtonClass = isDark
+    ? 'inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400'
+    : 'inline-flex p-1.5 text-slate-600 transition hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300';
+  const subTextMuted = isDark ? 'text-gray-400' : 'text-slate-600';
+  const textStrong = isDark ? 'text-white' : 'text-slate-900';
+  const textGreen = isDark ? 'text-green-300' : 'text-emerald-800';
+  const textRed = isDark ? 'text-red-300' : 'text-red-700';
+  const textAmber = isDark ? 'text-amber-100' : 'text-amber-800';
+  const textGray = isDark ? 'text-gray-500' : 'text-slate-500';
+  const overlayClass = isDark ? 'bg-black/70' : 'bg-black/40';
+  const modalShellClass = isDark
+    ? 'relative mt-6 max-h-[82vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-800 bg-black/95 p-6 text-gray-100 shadow-2xl'
+    : 'relative mt-6 max-h-[82vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-[0_28px_80px_-36px_rgba(15,23,42,0.5)]';
+  const modalSectionClass = isDark
+    ? 'rounded-xl border border-gray-800 bg-black/70'
+    : 'rounded-xl border border-slate-200 bg-slate-50';
+  const modalDividerClass = isDark ? 'border-gray-800' : 'border-slate-200';
+  const modalTextHeading = isDark ? 'text-gray-200' : 'text-slate-800';
+  const modalTextMuted = isDark ? 'text-gray-400' : 'text-slate-600';
 
   const openDetails = () => setExpanded(true);
   const closeDetails = () => setExpanded(false);
@@ -196,7 +242,7 @@ export default function DeviceListItem({
     const editInfoHint = 'Click the Edit info (pencil) button to update this detail.';
     const rewardHint = 'Use Edit info to set the reward wallet that should receive payouts.';
     const locationHint = 'Open Edit info and drop the correct pin on the map.';
-    const stakeHint = 'Use the Stake icon to complete this staking step before verification.';
+    const stakeHint = 'Use the Stake button to complete this staking step before verification.';
 
     const makeIssue = (label: string, info?: string): IssueBadgeInfo => ({ label, info });
 
@@ -250,6 +296,21 @@ export default function DeviceListItem({
   }, [alertShow, deviceStatus]);
 
   const summaryBadges = useMemo(() => {
+    const palette = {
+      // Red badges: keep dark mode unchanged; in light mode use a stronger fill and darker text for legibility.
+      red: isDark
+        ? 'bg-red-500/20 text-yellow-200 border border-red-400/40'
+        : 'bg-red-200 text-red-800 border border-red-400',
+      yellow: isDark
+        ? 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
+        : 'bg-amber-50 text-amber-800 border border-amber-200',
+      green: isDark
+        ? 'bg-green-500/20 text-green-200 border border-green-400/40'
+        : 'bg-emerald-50 text-emerald-800 border border-emerald-200',
+      amber: isDark
+        ? 'bg-amber-500/20 text-amber-100 border border-amber-400/40'
+        : 'bg-amber-50 text-amber-800 border border-amber-200'
+    };
     type Badge = { label: string; className: string; severity: 'red' | 'yellow' | 'green' | 'default'; info?: string };
     const badges: Array<Badge> = [];
     const portalHelp =
@@ -258,7 +319,7 @@ export default function DeviceListItem({
       if (isLinkRequiredForPrefix(minerPrefix)) {
         badges.push({
           label: 'Portal link needed',
-          className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+          className: palette.red,
           severity: 'red',
           info: portalHelp
         });
@@ -272,7 +333,7 @@ export default function DeviceListItem({
         : 'Use the gear icon to link this miner and add its MAC address so ops can validate it.';
       badges.push({
         label,
-        className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+        className: palette.red,
         severity: 'red',
         info: macInfo
       });
@@ -280,14 +341,14 @@ export default function DeviceListItem({
 
     badges.push(
       device.verified
-        ? { label: 'Verified', className: 'bg-green-500/20 text-green-200 border border-green-400/40', severity: 'green' }
-        : { label: 'Unverified', className: 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40', severity: 'yellow' }
+        ? { label: 'Verified', className: palette.green, severity: 'green' }
+        : { label: 'Unverified', className: palette.yellow, severity: 'yellow' }
     );
 
     if (isLegacyStake) {
       badges.push({
         label: 'Legacy FRY 1.0 stake',
-        className: 'bg-amber-500/20 text-amber-100 border border-amber-400/40',
+        className: palette.amber,
         severity: 'yellow',
         info: 'Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.'
       });
@@ -299,7 +360,7 @@ export default function DeviceListItem({
         if (!badges.some((b) => b.label === message.label)) {
           badges.push({
             label: message.label,
-            className: 'bg-red-500/20 text-red-200 border border-red-400/40',
+            className: palette.red,
             severity: 'red',
             info: message.info
           });
@@ -321,7 +382,8 @@ export default function DeviceListItem({
     issueMessages,
     minerPrefix,
     hardwareStatus?.linked,
-    hardwareWarning
+    hardwareWarning,
+    isDark
   ]);
 
   // Determine verification prerequisites based on product config and current device state
@@ -483,7 +545,7 @@ export default function DeviceListItem({
     <Button
       className={`bg-transparent ${
         compact ? 'min-w-[105px] py-1 text-[0.6rem]' : 'min-w-[130px] py-1.5 text-xs'
-      } border-red-500 text-red-100 hover:bg-red-500 hover:border-red-500`}
+      } border-red-500 ${isDark ? 'text-red-100 hover:text-black' : 'text-slate-900'} hover:bg-red-500 hover:border-red-500`}
       onClick={() => handleRequirementClick(requirement)}
     >
       {label}
@@ -498,6 +560,35 @@ export default function DeviceListItem({
   const rewardTokenDetail = useMemo(
     () => resolveTokenDetail(product?.reward?.tokens?.reward, 'reward'),
     [resolveTokenDetail, product?.reward?.tokens?.reward]
+  );
+  const optInQrByAssetId = useMemo(
+    () => ({
+      [tFRY.id]: {
+        label: 'tFRY',
+        reason: 'miner rewards',
+        src: tfryOptInQr,
+        enabled: true
+      },
+      [fNODE.id]: {
+        label: 'fNode',
+        reason: 'AEM / node rewards and staking',
+        src: fNodeOptInQr,
+        enabled: true
+      },
+      [FRY_2.id]: {
+        label: 'FRY 2.0',
+        reason: 'verification staking multipliers',
+        src: fry2OptInQr,
+        enabled: true
+      },
+      [fVPN.id]: {
+        label: 'fVPN',
+        reason: 'bandwidth miner rewards (coming soon)',
+        src: fVpnOptInQr,
+        enabled: false // flip to true when bandwidth miners monetize
+      }
+    }),
+    []
   );
   const rewardAssetIdForOptIn =
     rewardTokenDetail.id && rewardTokenDetail.id !== 'n/a'
@@ -597,6 +688,9 @@ export default function DeviceListItem({
   const rewardWalletChecking =
     Boolean(rewardWalletAddress && rewardAssetIdForOptIn) &&
     rewardWalletOptInStatus === 'checking';
+  const rewardOptInInfo = rewardAssetIdForOptIn ? optInQrByAssetId[rewardAssetIdForOptIn] : undefined;
+  const rewardOptInReason = rewardOptInInfo?.reason ?? 'this device';
+  const rewardOptInLabel = rewardOptInInfo?.label ?? rewardTokenDetail.label;
 
   const handleRewardOptInClick = useCallback(
     async (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -627,17 +721,45 @@ export default function DeviceListItem({
 
   const rewardOptInSteps =
     'Pera: Wallet/Account → + Add asset → paste the ASA ID → Opt In. Defly: Wallet/Account → … More → + Asset → paste the ASA ID → Opt In.';
+  const deflyUnverifiedHint =
+    (activeWallet?.id || '').toLowerCase() === 'defly' && rewardAssetIdForOptIn === tFRY.id
+      ? 'Tip for Defly: toggle off “Show only verified tokens” in the top right to find tFRY before opting in.'
+      : null;
 
   const handleRewardOptInGuideClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
       const assetId = rewardAssetIdForOptIn;
+      if (!assetId) return;
+      const qrEntry = optInQrByAssetId[assetId];
+      const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+
+      if (isMobile && typeof window !== 'undefined') {
+        const explorerUrl = `https://explorer.perawallet.app/asset/${assetId}`;
+        try {
+          window.location.href = explorerUrl;
+        } catch {
+          window.open(explorerUrl, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      if (qrEntry?.enabled) {
+        setOptInQr({
+          assetId,
+          label: qrEntry.label,
+          reason: qrEntry.reason,
+          src: qrEntry.src
+        });
+        return;
+      }
       if (assetId && typeof window !== 'undefined') {
         const explorerUrl = `https://explorer.perawallet.app/asset/${assetId}`;
         window.open(explorerUrl, '_blank', 'noopener,noreferrer');
       }
     },
-    [rewardAssetIdForOptIn]
+    [optInQrByAssetId, rewardAssetIdForOptIn]
   );
 
 
@@ -666,24 +788,24 @@ export default function DeviceListItem({
         label: 'Unverified',
         description: 'Base daily rate without multiplier',
         value: baseDailyReward,
-        accent: 'text-gray-200'
+        accent: isDark ? 'text-gray-200' : 'text-slate-900'
       },
       {
         key: 'type1',
         label: 'Type 1 • 1.5×',
         description: '24 hour lock multiplier',
         value: typeOneDaily,
-        accent: 'text-green-300'
+        accent: isDark ? 'text-green-300' : 'text-emerald-700'
       },
       {
         key: 'type2',
         label: 'Type 2 • 3×',
         description: '6 month lock multiplier',
         value: typeTwoDaily,
-        accent: 'text-amber-300'
+        accent: isDark ? 'text-amber-300' : 'text-amber-700'
       }
     ];
-  }, [baseDailyReward]);
+  }, [baseDailyReward, isDark]);
 
   const byodDiscountApplied = useMemo(
     () => Boolean(device?.byod && device.byod.length > 0),
@@ -1276,25 +1398,25 @@ export default function DeviceListItem({
         key: 'claimable',
         label: 'Claimable',
         value: formatTokenAmount(claimableAmount),
-        accent: 'text-green-300',
+        accent: isDark ? 'text-green-300' : 'text-emerald-700',
         tooltip: REWARD_STATUS_DESCRIPTIONS.claimable
       },
       {
         key: 'pending',
         label: 'Pending',
         value: formatTokenAmount(pendingAmount),
-        accent: 'text-amber-300',
+        accent: isDark ? 'text-amber-300' : 'text-amber-700',
         tooltip: REWARD_STATUS_DESCRIPTIONS.pending
       },
       {
         key: 'accruing',
         label: 'Accruing (weekly preview)',
         value: formatTokenAmount(rewardSummary?.accruing ?? 0),
-        accent: 'text-sky-300',
+        accent: isDark ? 'text-sky-300' : 'text-sky-700',
         tooltip: REWARD_STATUS_DESCRIPTIONS.accruing
       }
     ],
-    [claimableAmount, pendingAmount, rewardSummary?.accruing]
+    [claimableAmount, pendingAmount, rewardSummary?.accruing, isDark]
   );
 
   const nextUnlockUTC = useMemo(() => {
@@ -1322,75 +1444,89 @@ const collapsibleSections: SectionConfig[] = useMemo(
         content: (
           <div className="space-y-4">
             <div>
-              <div className="text-gray-400">Reward token</div>
-              <div className="mt-1 flex flex-wrap items-baseline gap-2 text-gray-200">
+              <div className={modalTextMuted}>Reward token</div>
+              <div
+                className={`mt-1 flex flex-wrap items-baseline gap-2 ${
+                  isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'
+                }`}
+              >
                 <span className="text-sm font-semibold" title={rewardTokenDetail.name}>
                   {rewardTokenDetail.label}
                 </span>
                 {rewardTokenDetail.id && (
-                  <span className="font-mono text-[0.65rem] text-gray-500">#{rewardTokenDetail.id}</span>
+                  <span className={`font-mono text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
+                    #{rewardTokenDetail.id}
+                  </span>
                 )}
               </div>
             </div>
             {dailyRewardEntries.length > 0 && (
               <div>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Daily earnings</div>
+                <div className={`text-xs uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>Daily earnings</div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {dailyRewardEntries.map((entry) => (
                     <div
                       key={entry.key}
-                      className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3"
+                      className={`rounded-lg border p-3 ${
+                        isDark
+                          ? 'border-gray-800/70 bg-gray-900/40'
+                          : 'border-slate-200 bg-white shadow-sm'
+                      }`}
                     >
-                      <div className="text-[0.7rem] uppercase tracking-wide text-gray-500">
+                      <div className={`text-[0.7rem] uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
                         {entry.label}
                       </div>
                       <div className={`mt-1 text-lg font-semibold ${entry.accent}`}>
                         {`${formatDailyValue(entry.value)} ${rewardTokenUnitLabel}`}
                       </div>
-                      <div className="text-[0.65rem] text-gray-500">{entry.description}</div>
+                      <div className={`text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>{entry.description}</div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            {stakeOptions.length > 0 && (
-              <div className="space-y-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">
-                  Verification stake options
-                </div>
+                {stakeOptions.length > 0 && (
+                  <div className="space-y-3">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">
+                      Verification stake options
+                    </div>
                 <div className="space-y-3">
                   {stakeOptions.map((option) => (
                     <div
                       key={option.key}
-                      className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3"
+                      className={`rounded-lg border p-3 ${
+                        isDark
+                          ? 'border-gray-800/70 bg-gray-900/40'
+                          : 'border-slate-200 bg-white shadow-sm'
+                      }`}
                     >
-                      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-gray-200">
+                      <div className={`flex flex-wrap items-baseline justify-between gap-2 text-sm ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                         <span className="font-semibold">{option.title}</span>
-                        <span className="text-xs text-emerald-300">{option.multiplier}</span>
+                        <span className={`text-xs ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>{option.multiplier}</span>
                       </div>
-                      <div className="mt-2 text-[0.85rem] text-gray-300">
+                      <div className={`mt-2 text-[0.85rem] ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
                         Stake requirement:{' '}
-                        <span className="font-semibold text-white">
+                        <span className={`font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                           {option.amount !== null
                             ? `${option.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${stakeTokenDetail.label}`
                             : 'Not required'}
                         </span>
                       </div>
-                      <div className="text-[0.65rem] text-gray-500">{option.description}</div>
+                      <div className={`text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>{option.description}</div>
                     </div>
                   ))}
                 </div>
                 {stakeTokenDetail.id && (
-                  <div className="text-[0.65rem] text-gray-500">
+                  <div className={`text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
                     Stake asset:{' '}
-                    <span className="font-semibold text-gray-300" title={stakeTokenDetail.name}>
+                    <span className={`font-semibold ${isDark ? 'text-gray-300' : 'text-slate-800'}`} title={stakeTokenDetail.name}>
                       {stakeTokenDetail.label}
                     </span>{' '}
-                    <span className="font-mono text-gray-400">#{stakeTokenDetail.id}</span>
+                    <span className={`font-mono ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>#{stakeTokenDetail.id}</span>
                   </div>
                 )}
                 {byodDiscountApplied && (
-                  <div className="text-[0.65rem] text-amber-300">
+                  <div className={`text-[0.65rem] ${isDark ? 'text-amber-300' : 'text-amber-600'}`}>
                     BYOD licence detected: stake requirements shown include the 50% BYOD discount.
                   </div>
                 )}
@@ -1398,49 +1534,49 @@ const collapsibleSections: SectionConfig[] = useMemo(
             )}
             {(needsRegistration || needsNodeStake) && (
               <div className="space-y-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">
+                <div className={`text-xs uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
                   Operational staking requirements
                 </div>
                 {needsRegistration && (
-                  <div className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3">
-                    <div className="flex items-center justify-between text-sm text-gray-200">
+                  <div className={`rounded-lg border p-3 ${isDark ? 'border-gray-800/70 bg-gray-900/40' : 'border-slate-200 bg-white shadow-sm'}`}>
+                    <div className={`flex items-center justify-between text-sm ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                       <span className="font-semibold">Registration stake</span>
-                      <span className={`text-xs ${hasRegistration ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      <span className={`text-xs ${hasRegistration ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-amber-300' : 'text-amber-700')}`}>
                         {hasRegistration ? 'Completed' : 'Required'}
                       </span>
                     </div>
-                    <div className="mt-1 text-[0.85rem] text-gray-300">
+                    <div className={`mt-1 text-[0.85rem] ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
                       {registrationRequirementHint ?? 'Stake not required'}
                     </div>
                     {registrationTokenDetail.id && (
-                      <div className="mt-1 text-[0.65rem] text-gray-500">
+                      <div className={`mt-1 text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
                         Asset:{' '}
-                        <span className="font-semibold text-gray-300" title={registrationTokenDetail.name}>
+                        <span className={`font-semibold ${isDark ? 'text-gray-300' : 'text-slate-800'}`} title={registrationTokenDetail.name}>
                           {registrationTokenDetail.label}
                         </span>{' '}
-                        <span className="font-mono text-gray-400">#{registrationTokenDetail.id}</span>
+                        <span className={`font-mono ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>#{registrationTokenDetail.id}</span>
                       </div>
                     )}
                   </div>
                 )}
                 {needsNodeStake && (
-                  <div className="rounded-lg border border-gray-800/70 bg-gray-900/40 p-3">
-                    <div className="flex items-center justify-between text-sm text-gray-200">
+                  <div className={`rounded-lg border p-3 ${isDark ? 'border-gray-800/70 bg-gray-900/40' : 'border-slate-200 bg-white shadow-sm'}`}>
+                    <div className={`flex items-center justify-between text-sm ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                       <span className="font-semibold">Node operation stake</span>
-                      <span className={`text-xs ${hasNode ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      <span className={`text-xs ${hasNode ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-amber-300' : 'text-amber-700')}`}>
                         {hasNode ? 'Completed' : 'Required'}
                       </span>
                     </div>
-                    <div className="mt-1 text-[0.85rem] text-gray-300">
+                    <div className={`mt-1 text-[0.85rem] ${isDark ? 'text-gray-300' : 'text-slate-800'}`}>
                       {nodeRequirementHint ?? 'Stake not required'}
                     </div>
                     {nodeTokenDetail.id && (
-                      <div className="mt-1 text-[0.65rem] text-gray-500">
+                      <div className={`mt-1 text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
                         Asset:{' '}
-                        <span className="font-semibold text-gray-300" title={nodeTokenDetail.name}>
+                        <span className={`font-semibold ${isDark ? 'text-gray-300' : 'text-slate-800'}`} title={nodeTokenDetail.name}>
                           {nodeTokenDetail.label}
                         </span>{' '}
-                        <span className="font-mono text-gray-400">#{nodeTokenDetail.id}</span>
+                        <span className={`font-mono ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>#{nodeTokenDetail.id}</span>
                       </div>
                     )}
                   </div>
@@ -1456,8 +1592,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
         content: (
           <div className="space-y-3">
             <div>
-              <div className="text-gray-400">Owner wallet</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
+              <div className={modalTextMuted}>Owner wallet</div>
+              <div
+                className={`mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm break-all ${
+                  isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'
+                }`}
+              >
                 {device.address ? (
                   <>
                     <span>{device.address}</span>
@@ -1469,8 +1609,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
               </div>
             </div>
             <div>
-              <div className="text-gray-400">Reward wallet</div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm text-gray-200 break-all">
+              <div className={modalTextMuted}>Reward wallet</div>
+              <div
+                className={`mt-1 flex flex-wrap items-center gap-2 font-mono text-xs sm:text-sm break-all ${
+                  isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'
+                }`}
+              >
                 {device.reward_wallet ? (
                   <>
                     <span>{device.reward_wallet}</span>
@@ -1482,12 +1626,14 @@ const collapsibleSections: SectionConfig[] = useMemo(
               </div>
             </div>
             <div>
-              <div className="text-gray-400">Email</div>
-              <div className="mt-1 text-gray-200 break-words">{device.email ?? '—'}</div>
+              <div className={modalTextMuted}>Email</div>
+              <div className={`mt-1 break-words ${isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'}`}>
+                {device.email ?? '—'}
+              </div>
             </div>
             <div>
-              <div className="text-gray-400">Location</div>
-              <div className="mt-1 text-gray-200">
+              <div className={modalTextMuted}>Location</div>
+              <div className={`mt-1 ${isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'}`}>
                 {device?.position?.lat && device?.position?.lng
                   ? `${device.position.lat.toFixed(4)}°, ${device.position.lng.toFixed(4)}°`
                   : '—'}
@@ -1503,14 +1649,20 @@ const collapsibleSections: SectionConfig[] = useMemo(
         content: (
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-gray-400">Verification</span>
+              <span className={isDark ? 'text-gray-400' : 'text-slate-600'}>Verification</span>
               <span
                 className={`font-semibold ${
                   deviceStatusOkay
-                    ? 'text-green-300'
+                    ? isDark
+                      ? 'text-green-300'
+                      : 'text-emerald-700'
                     : shouldShowYellow
-                      ? 'text-yellow-300'
-                      : 'text-red-300'
+                      ? isDark
+                        ? 'text-yellow-300'
+                        : 'text-amber-700'
+                      : isDark
+                        ? 'text-red-300'
+                        : 'text-red-700'
                 }`}
               >
                 {device.verified ? 'Verified' : 'Unverified'}
@@ -1521,7 +1673,11 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 {Object.entries(deviceStatus).map(([key, value]) => (
                   <div
                     key={key}
-                    className="rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+                    className={`rounded border px-3 py-2 text-sm ${
+                      isDark
+                        ? 'border-red-500/40 bg-red-500/10 text-red-200'
+                        : 'border-red-200 bg-red-50 text-red-700'
+                    }`}
                   >
                     {value}
                   </div>
@@ -1529,10 +1685,16 @@ const collapsibleSections: SectionConfig[] = useMemo(
               </div>
             )}
             {isLegacyStake && (
-              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              <div
+                className={`rounded border px-3 py-2 text-sm ${
+                  isDark
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                }`}
+              >
                 Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.
                 {legacyDeadlineLabel && (
-                  <div className="mt-1 text-[0.65rem] text-amber-200">
+                  <div className={`mt-1 text-[0.65rem] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>
                     Verification benefits end after {legacyDeadlineLabel} unless you restake with FRY 2.0.
                   </div>
                 )}
@@ -1577,7 +1739,9 @@ const collapsibleSections: SectionConfig[] = useMemo(
       registrationTokenDetail.name,
       nodeTokenDetail.id,
       nodeTokenDetail.label,
-      nodeTokenDetail.name
+      nodeTokenDetail.name,
+      isDark,
+      modalTextMuted
     ]
   );
 
@@ -1639,29 +1803,32 @@ const collapsibleSections: SectionConfig[] = useMemo(
     const isExpanded = expandedSections[section.key] ?? true;
     const showAlertBadge = section.key === 'status' && section.important;
     return (
-      <div
-        key={section.key}
-        className="rounded-xl border border-gray-800 bg-black/70"
-      >
+      <div key={section.key} className={modalSectionClass}>
         <button
           type="button"
-          className="w-full px-4 py-3 flex items-center justify-between text-left text-gray-200 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-red-400"
+          className={`w-full px-4 py-3 flex items-center justify-between text-left ${modalTextHeading} focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-red-400`}
           onClick={() => toggleSection(section.key)}
         >
-          <span className="text-xs uppercase tracking-wide text-gray-400">
+          <span className={`text-xs uppercase tracking-wide ${modalTextMuted}`}>
             {section.title}
           </span>
           <div className="flex items-center gap-2">
             {showAlertBadge && (
-              <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[0.6rem] uppercase tracking-wide text-red-200">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wide ${
+                  isDark
+                    ? 'bg-red-500/20 text-red-200 border border-red-400/40'
+                    : 'bg-red-100 text-red-800 border border-red-300'
+                }`}
+              >
                 Attention
               </span>
             )}
-            <span className="text-xs text-gray-500">{isExpanded ? 'Hide' : 'Show'}</span>
+            <span className={`text-xs ${textGray}`}>{isExpanded ? 'Hide' : 'Show'}</span>
           </div>
         </button>
         {isExpanded && (
-          <div className="border-t border-gray-800 px-4 py-4 text-sm text-gray-100">
+          <div className={`border-t px-4 py-4 text-sm ${isDark ? 'text-gray-100' : 'text-slate-800'} ${modalDividerClass}`}>
             {section.content}
           </div>
         )}
@@ -1679,21 +1846,21 @@ const collapsibleSections: SectionConfig[] = useMemo(
         variant === 'default'
           ? `min-w-[150px] bg-transparent ${
               verificationLocked
-                ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                ? `border-gray-500 ${textGray} cursor-not-allowed`
                 : isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
                   : verificationBlocked
-                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
-                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+                    ? `border-gray-500 ${textGray} cursor-not-allowed`
+                    : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
             }`
           : `min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
               verificationLocked
-                ? 'border-gray-500 text-gray-500 cursor-not-allowed'
+                ? `border-gray-500 ${textGray} cursor-not-allowed`
                 : isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
+                  ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
                   : verificationBlocked
-                    ? 'border-gray-500 text-gray-500 cursor-not-allowed'
-                    : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+                    ? `border-gray-500 ${textGray} cursor-not-allowed`
+                    : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
             }`;
 
       const button = (
@@ -1727,25 +1894,41 @@ const collapsibleSections: SectionConfig[] = useMemo(
       verificationLockTooltip,
       verificationLocked,
       verificationReason,
-      isStaked
+      isStaked,
+      textGray,
+      textStrong,
+      textRed,
+      textGreen
     ]
   );
 
   const detailContent = (
-    <div className="space-y-6 pt-8 text-sm text-gray-100">
+    <div className={`space-y-6 pt-8 text-sm ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
       {!device.registered_portal_model && isLinkRequiredForPrefix(minerPrefix) && (
-        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-200">
+        <div
+          className={`rounded-lg border px-4 py-3 ${
+            isDark
+              ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-200'
+              : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}
+        >
           This device is not linked to FryNetworks. Click the <b>gear icon</b> to link it.
         </div>
       )}
       {!(!device.registered_portal_model) && hardwareWarning && (
-        <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-yellow-200">
+        <div
+          className={`rounded-lg border px-4 py-3 ${
+            isDark
+              ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-200'
+              : 'border-amber-200 bg-amber-50 text-amber-800'
+          }`}
+        >
           We could not verify a MAC address for this device. Click the <b>gear icon</b> to re-link your MAC so rewards remain active.
         </div>
       )}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-3">
-          <Title className="text-white text-2xl md:text-3xl">
+          <Title className={`${isDark ? 'text-white' : 'text-slate-900'} text-2xl md:text-3xl`}>
             {`${device.nickname ? device.nickname : device.name} ${device.byod ? '(BYOD)' : ''}`}
           </Title>
           <div className="flex flex-wrap gap-2">
@@ -1766,14 +1949,14 @@ const collapsibleSections: SectionConfig[] = useMemo(
               </span>
             ))}
           </div>
-          <div className="space-y-1 text-xs text-gray-400">
+          <div className={`space-y-1 text-xs ${modalTextMuted}`}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="uppercase tracking-wide text-[0.65rem] text-gray-500">Miner key</span>
-              <span className="font-mono text-[0.75rem] text-gray-200 break-all">{device.miner_key}</span>
+              <span className={`uppercase tracking-wide text-[0.65rem] ${textGray}`}>Miner key</span>
+              <span className={`font-mono text-[0.75rem] break-all ${isDark ? 'text-gray-200' : 'text-slate-800'}`}>{device.miner_key}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="uppercase tracking-wide text-[0.65rem] text-gray-500">Product</span>
-              <span className="text-gray-200">{product?.name ?? '—'}</span>
+              <span className={`uppercase tracking-wide text-[0.65rem] ${textGray}`}>Product</span>
+              <span className={isDark ? 'text-gray-200' : 'text-slate-800'}>{product?.name ?? '—'}</span>
             </div>
           </div>
         </div>
@@ -1781,14 +1964,14 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <div className="flex items-center gap-2 md:gap-3">
             {(needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode) ? (
               <Tooltip text="Stake requirements">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handlePrimaryStakeRequirement();
-                  }}
-                  className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
-                >
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handlePrimaryStakeRequirement();
+                }}
+                className={iconButtonClass}
+              >
                   <span className="flex h-5 w-5 items-center justify-center">
                     <StakingIcon />
                   </span>
@@ -1802,7 +1985,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleChange(device.miner_key);
                 }}
-                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <EditIcon />
@@ -1816,7 +1999,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleSetting(device.miner_key);
                 }}
-                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <SettingIcon />
@@ -1830,7 +2013,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleDeleteButton(device);
                 }}
-                className="inline-flex p-1.5 text-white/80 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <DeleteIcon />
@@ -1844,21 +2027,23 @@ const collapsibleSections: SectionConfig[] = useMemo(
         {collapsibleSections.map(renderSection)}
       </div>
       {!!timelineEntries.length && (
-        <div className="rounded-xl border border-gray-800 bg-black/70 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Activity timeline</div>
+        <div className={`${modalSectionClass} p-4`}>
+          <div className={`text-xs uppercase tracking-wide ${textGray}`}>Activity timeline</div>
           <div className="mt-3 space-y-3">
             {timelineEntries.map((entry) => (
               <div key={entry.key} className={`rounded-lg border ${entry.color} px-3 py-2`}>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
                     <span>{entry.label}</span>
                     {entry.tooltip && (
                       <Tooltip text={entry.tooltip} className="max-w-sm">
-                        <InformationCircleIcon className="h-4 w-4 text-gray-500 hover:text-gray-300" />
+                        <InformationCircleIcon
+                          className={`h-4 w-4 ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-slate-500 hover:text-slate-700'}`}
+                        />
                       </Tooltip>
                     )}
                   </div>
-                  <div className="text-xs font-semibold text-gray-200">{entry.date}</div>
+                  <div className={`text-xs font-semibold ${isDark ? 'text-gray-200' : 'text-slate-700'}`}>{entry.date}</div>
                 </div>
               </div>
             ))}
@@ -1866,59 +2051,67 @@ const collapsibleSections: SectionConfig[] = useMemo(
         </div>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-gray-800 bg-black/70 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Rewards</div>
+        <div className={`${modalSectionClass} p-4`}>
+          <div className={`text-xs uppercase tracking-wide ${textGray}`}>Rewards</div>
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div>
-              <div className="text-gray-400">Pending</div>
-              <div className="font-semibold text-amber-200">{formatTokenAmount(pendingAmount)}</div>
+              <div className={modalTextMuted}>Pending</div>
+              <div className={`font-semibold ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{formatTokenAmount(pendingAmount)}</div>
             </div>
             <div>
-              <div className="text-gray-400">Claimable</div>
-              <div className="font-semibold text-green-300">{formatTokenAmount(claimableAmount)}</div>
+              <div className={modalTextMuted}>Claimable</div>
+              <div className={`font-semibold ${isDark ? 'text-green-300' : 'text-emerald-700'}`}>{formatTokenAmount(claimableAmount)}</div>
             </div>
             <div>
-              <div className="text-gray-400">Claimed</div>
-              <div className="font-semibold text-gray-100">{formatTokenAmount(claimedAmount)}</div>
+              <div className={modalTextMuted}>Claimed</div>
+              <div className={`font-semibold ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>{formatTokenAmount(claimedAmount)}</div>
             </div>
             <div>
-              <div className="text-gray-400">Accruing (weekly preview)</div>
-              <div className="font-semibold text-sky-300">{formatTokenAmount(rewardSummary?.accruing ?? 0)}</div>
+              <div className={modalTextMuted}>Accruing (weekly preview)</div>
+              <div className={`font-semibold ${isDark ? 'text-sky-300' : 'text-sky-700'}`}>{formatTokenAmount(rewardSummary?.accruing ?? 0)}</div>
             </div>
           </div>
           {pendingAmount > 0 && (
-            <div className="mt-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-100">
+            <div
+              className={`mt-3 rounded-md border px-3 py-2 text-xs ${
+                isDark
+                  ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              }`}
+            >
               Rewards collect as pending for up to 30 days. Once that timer completes they unlock for a fee-free claim; claiming earlier with Instant Claim applies the 30% boost fee.
             </div>
           )}
         </div>
-        <div className="rounded-xl border border-gray-800 bg-black/70 p-4 space-y-2">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Unlock window</div>
-          <div className="text-sm text-gray-100">
+        <div className={`${modalSectionClass} p-4 space-y-2`}>
+          <div className={`text-xs uppercase tracking-wide ${textGray}`}>Unlock window</div>
+          <div className={`text-sm ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
             {nextUnlockUTC ? (
               <>
                 <div>
                   Next unlock: <span className="font-semibold">{nextUnlockUTC}</span>
                 </div>
-                {countdown && <div className="text-xs text-gray-400">Unlocks in {countdown}</div>}
+                {countdown && <div className={`text-xs ${modalTextMuted}`}>Unlocks in {countdown}</div>}
               </>
             ) : (
               <div>No unlock window scheduled</div>
             )}
           </div>
           {rewardSummary?.accruing && (
-            <div className="text-xs text-gray-400">
+            <div className={`text-xs ${modalTextMuted}`}>
               Weekly estimate reflects current accrual pace. Actual payout finalizes at unlock.
             </div>
           )}
         </div>
       </div>
-      <div className="rounded-xl border border-gray-800 bg-black/70 p-4">
-        <div className="text-xs uppercase tracking-wide text-gray-500">Actions</div>
+      <div className={`${modalSectionClass} p-4`}>
+        <div className={`text-xs uppercase tracking-wide ${textGray}`}>Actions</div>
         <div className="mt-3 flex flex-wrap gap-3">
           {isLegacyStake && (
             <Button
-              className="min-w-[150px] border-amber-500 text-amber-900 bg-transparent hover:bg-amber-500 hover:border-amber-500 hover:text-black dark:text-amber-200"
+              className={`min-w-[150px] border-amber-500 bg-transparent hover:bg-amber-500 hover:border-amber-500 ${
+                isDark ? 'text-amber-200 hover:text-black' : 'text-black'
+              }`}
               onClick={(event) => {
                 event.stopPropagation();
                 handleWithdrawStake(device);
@@ -1937,10 +2130,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
               !isProductStakeAvailable(product) || claimableAmount <= 0
-                ? 'border-gray-600 text-gray-500 cursor-not-allowed'
+                ? `border-gray-600 ${textGray} cursor-not-allowed`
                 : isStaked()
-                  ? 'border-green-500 text-green-300 hover:bg-green-600/10'
-                  : 'border-red-500 text-red-300 hover:bg-red-600/10'
+                  ? `border-green-500 ${textGreen} hover:bg-green-600/10`
+                  : `border-red-500 ${textRed} hover:bg-red-600/10`
             }`}
             disabled={claimableAmount <= 0}
             onClick={() => handleClaimButton(device)}
@@ -1950,10 +2143,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
               !isProductStakeAvailable(product)
-                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20 cursor-not-allowed'
+                ? `border-gray-500 ${textGray} hover:bg-gray-600/20 cursor-not-allowed`
                 : pendingAmount > 0 && boostSupported
-                  ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200'
-                  : 'border-gray-500 text-gray-500 cursor-not-allowed'
+                  ? `border-red-600 ${textRed} hover:bg-red-600/10 hover:text-red-200`
+                  : `border-gray-500 ${textGray} cursor-not-allowed`
             }`}
             disabled={pendingAmount <= 0 || !boostSupported}
             onClick={() => handleBoostButton(device)}
@@ -1964,10 +2157,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[150px] bg-transparent ${
               !isProductStakeAvailable(product)
-                ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
                 : isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
-                  : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+                  ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
+                  : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
             }`}
             onClick={() => viewHistory()}
           >
@@ -1975,7 +2168,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
           </Button>
           {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
             <Button
-              className={`min-w-[150px] bg-transparent ${
+              className={`min-w-[150px] bg-transparent ${isDark ? 'text-red-100' : 'text-slate-900'} ${
                 !isProductStakeAvailable(product)
                   ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
                   : isStaked()
@@ -2007,7 +2200,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
         tabIndex={0}
         onClick={openDetails}
         onKeyDown={handleCardKeyDown}
-        className={`group relative mb-6 w-full cursor-pointer select-none rounded-xl border bg-black/60 px-4 py-5 text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${borderClass} ${hoverRingClass}`}
+        className={`group relative mb-6 w-full cursor-pointer select-none rounded-xl border px-4 py-5 transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${cardBaseClass} ${borderClass} ${hoverRingClass} ${focusRingClass}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-2">
@@ -2015,20 +2208,24 @@ const collapsibleSections: SectionConfig[] = useMemo(
               {product?.name ?? 'Device'}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-lg font-semibold text-white sm:text-xl">
+              <span className={`text-lg font-semibold sm:text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 {device.nickname ? device.nickname : device.name}
               </span>
               {device.byod && (
-                <span className="rounded-full border border-gray-600/60 px-2 py-0.5 text-[0.6rem] uppercase tracking-wide text-gray-300">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[0.6rem] uppercase tracking-wide ${
+                    isDark ? 'border border-gray-600/60 text-gray-300' : 'border border-slate-300 text-slate-700 bg-white/70'
+                  }`}
+                >
                   BYOD
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap gap-1">
-              {summaryBadges.map((badge, index) => (
-                <span
-                  key={`${badge.label}-${index}`}
-                  className={`inline-flex items-center gap-1 rounded-full bg-black/50 px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide ${badge.className}`}
+          <div className="flex flex-wrap gap-1">
+            {summaryBadges.map((badge, index) => (
+              <span
+                key={`${badge.label}-${index}`}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-wide ${badge.className}`}
                 >
                   <span>{badge.label}</span>
                   {badge.info ? (
@@ -2052,7 +2249,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                     event.stopPropagation();
                     handlePrimaryStakeRequirement();
                   }}
-                  className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                  className={iconButtonClass}
                 >
                   <span className="flex h-5 w-5 items-center justify-center">
                     <StakingIcon />
@@ -2067,7 +2264,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleChange(device.miner_key);
                 }}
-                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <EditIcon />
@@ -2081,7 +2278,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleSetting(device.miner_key);
                 }}
-                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <SettingIcon />
@@ -2095,7 +2292,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   event.stopPropagation();
                   handleDeleteButton(device);
                 }}
-                className="inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                className={iconButtonClass}
               >
                 <span className="flex h-5 w-5 items-center justify-center">
                   <DeleteIcon />
@@ -2107,8 +2304,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           {summaryMetrics.map((metric) => (
             <Tooltip key={metric.key} text={metric.tooltip} className="flex w-full">
-              <div className="w-full rounded-lg border border-gray-800/80 bg-black/60 px-3 py-2">
-                <div className="text-[0.65rem] uppercase tracking-widest text-gray-500">
+              <div className={`w-full px-3 py-2 ${metricTileClass}`}>
+                <div className={`text-[0.65rem] uppercase tracking-widest ${metricLabelClass}`}>
                   {metric.label}
                 </div>
                 <div className={`mt-1 text-sm font-semibold tabular-nums ${metric.accent}`}>
@@ -2118,10 +2315,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
             </Tooltip>
           ))}
         </div>
-        <div className="mt-4 flex flex-col gap-1 text-xs text-gray-400">
-          <span className="uppercase tracking-widest text-[0.6rem] text-gray-500">Reward wallet</span>
+        <div className={`mt-4 flex flex-col gap-1 text-xs ${subTextMuted}`}>
+          <span className={`uppercase tracking-widest text-[0.6rem] ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+            Reward wallet
+          </span>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[0.7rem] text-gray-200 break-all">
+            <span className={`font-mono text-[0.7rem] break-all ${isDark ? 'text-gray-200' : 'text-slate-800'}`}>
               {device.reward_wallet ?? '—'}
             </span>
             {device.reward_wallet && <CopyAddress address={device.reward_wallet} />}
@@ -2137,32 +2336,53 @@ const collapsibleSections: SectionConfig[] = useMemo(
         )}
         {rewardWalletNeedsOptIn && rewardAssetIdForOptIn && (
           <div
-            className="mt-3 rounded-lg border border-amber-400/60 bg-amber-500/10 p-3 text-[0.7rem] text-amber-50"
+            className={`mt-3 rounded-lg border p-3 text-[0.7rem] ${
+              isDark
+                ? 'border-amber-400/60 bg-amber-500/10 text-amber-50'
+                : 'border-amber-200 bg-amber-50 text-amber-800'
+            }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="font-semibold text-amber-100">
-              Opt into {rewardTokenDetail.label} to receive payouts
+            <div className={isDark ? 'font-semibold text-amber-100' : 'font-semibold text-amber-800'}>
+              Opt into {rewardOptInLabel} for {rewardOptInReason}
             </div>
-            <p className="mt-1 text-amber-100/90">
+            <p className={`mt-1 ${isDark ? 'text-amber-100/90' : 'text-amber-700'}`}>
               Reward wallet {truncateAddress(device.reward_wallet)} must opt into ASA #{rewardAssetIdForOptIn}{' '}
-              before we can send rewards.
+              before we can send {rewardOptInReason}.
               <span className="block mt-1">{rewardOptInSteps}</span>
+              {deflyUnverifiedHint && (
+                <span className={`block mt-1 ${isDark ? 'text-amber-100/80' : 'text-amber-700/80'}`}>
+                  {deflyUnverifiedHint}
+                </span>
+              )}
             </p>
-            <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] text-amber-200">
+            <div
+              className={`mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] ${
+                isDark ? 'text-amber-200' : 'text-amber-800'
+              }`}
+            >
               ASA #{rewardAssetIdForOptIn}
               <CopyAddress address={rewardAssetIdForOptIn} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2 text-[0.65rem]">
               <button
                 type="button"
-                className="rounded border border-amber-300/60 px-3 py-1 font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-400/20"
+                className={`rounded border px-3 py-1 font-semibold uppercase tracking-wide ${
+                  isDark
+                    ? 'border-amber-300/60 text-amber-100 hover:bg-amber-400/20'
+                    : 'border-amber-300 text-amber-800 hover:bg-amber-100'
+                }`}
                 onClick={handleRewardOptInClick}
               >
                 Copy ASA ID
               </button>
               <button
                 type="button"
-                className="rounded border border-amber-300/60 px-3 py-1 font-semibold uppercase tracking-wide text-amber-100 hover:bg-amber-400/20"
+                className={`rounded border px-3 py-1 font-semibold uppercase tracking-wide ${
+                  isDark
+                    ? 'border-amber-300/60 text-amber-100 hover:bg-amber-400/20'
+                    : 'border-amber-300 text-amber-800 hover:bg-amber-100'
+                }`}
                 onClick={handleRewardOptInGuideClick}
               >
                 Scan QR to Opt-in
@@ -2175,13 +2395,15 @@ const collapsibleSections: SectionConfig[] = useMemo(
           onClick={(event) => event.stopPropagation()}
         >
           {isLegacyStake && (
-            <Button
-              className="min-w-[110px] bg-transparent text-[0.6rem] py-1 border-amber-500 text-amber-900 hover:bg-amber-500 hover:border-amber-500 hover:text-black dark:text-amber-200"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleWithdrawStake(device);
-              }}
-            >
+          <Button
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 border-amber-500 ${
+              isDark ? 'text-amber-200 hover:text-black' : 'text-black'
+            } hover:bg-amber-500 hover:border-amber-500`}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleWithdrawStake(device);
+            }}
+          >
               Withdraw Legacy Stake
             </Button>
           )}
@@ -2195,10 +2417,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 transition-colors duration-150 ${
               !isProductStakeAvailable(product) || claimableAmount <= 0
-                ? 'border-gray-600 text-gray-500 cursor-not-allowed'
+                ? `border-gray-600 ${textGray} cursor-not-allowed`
                 : isStaked()
-                  ? 'border-green-500 text-green-300 hover:bg-green-600/10'
-                  : 'border-red-500 text-red-300 hover:bg-red-600/10'
+                  ? `border-green-500 ${textGreen} hover:bg-green-600/10`
+                  : `border-red-500 ${textRed} hover:bg-red-600/10`
             }`}
             disabled={claimableAmount <= 0}
             onClick={() => handleClaimButton(device)}
@@ -2208,12 +2430,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 transition-colors duration-150 ${
               !isProductStakeAvailable(product)
-                ? 'border-gray-500 text-gray-500 hover:bg-gray-600/20 cursor-not-allowed'
+                ? `border-gray-500 ${textGray} hover:bg-gray-600/20 cursor-not-allowed`
                 : pendingAmount > 0
-                  ? 'border-red-600 text-red-300 hover:bg-red-600/10 hover:text-red-200'
+                  ? `border-red-600 ${textRed} hover:bg-red-600/10`
                   : isStaked()
-                    ? 'border-green-500 text-green-300 cursor-not-allowed'
-                    : 'border-gray-500 text-gray-500 cursor-not-allowed'
+                    ? `border-green-500 ${textGreen} cursor-not-allowed`
+                    : `border-gray-500 ${textGray} cursor-not-allowed`
             }`}
             disabled={pendingAmount <= 0}
             onClick={() => handleBoostButton(device)}
@@ -2223,10 +2445,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <Button
             className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
               !isProductStakeAvailable(product)
-                ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
                 : isStaked()
-                  ? 'border-green-500 hover:bg-green-500 hover:border-green-500'
-                  : 'border-red-500 hover:bg-red-500 hover:border-red-500'
+                  ? `border-green-500 ${textGreen} hover:bg-green-500 hover:border-green-500`
+                  : `border-red-500 ${textRed} hover:bg-red-500 hover:border-red-500`
             }`}
             onClick={() => viewHistory()}
           >
@@ -2235,12 +2457,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
           {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
             <Tooltip text="Registration and node staking keeps rewards flowing. Withdrawing stops payouts until you re-stake.">
               <Button
-                className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+                className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${isDark ? 'text-red-100' : 'text-slate-900'} ${
                   !isProductStakeAvailable(product)
-                    ? 'border-gray-500 hover:bg-gray-500 hover:border-gray-500'
+                    ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
                     : isStaked()
-                      ? 'border-green-500 hover:bg-green-500 hover-border-green-500'
-                      : 'border-red-500 hover:bg-red-500 hover-border-red-500'
+                      ? `border-green-500 ${textGreen} hover:bg-green-500 hover:border-green-500`
+                      : `border-red-500 ${textRed} hover:bg-red-500 hover:border-red-500`
                 }`}
                 onClick={() => handleWithdrawAllButton(device)}
               >
@@ -2250,38 +2472,49 @@ const collapsibleSections: SectionConfig[] = useMemo(
           )}
         </div>
         {pendingAmount > 0 && (
-          <div className="mt-2 text-[0.6rem] text-yellow-200/80">
-            Pending rewards unlock after 30 days from accrual. Wait for the unlock to claim at 0% fee, or use Instant Claim (30% fee) if you need the funds early.
-          </div>
+          <>
+            {/* Light mode: raise contrast with black text; keep warm yellow hint in dark mode. */}
+            <div className={`mt-2 text-[0.6rem] ${isDark ? 'text-yellow-200/80' : 'text-black'}`}>
+              Pending rewards unlock after 30 days from accrual. Wait for the unlock to claim at 0% fee, or use Instant Claim (30% fee) if you need the funds early.
+            </div>
+          </>
         )}
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-          <span className="font-mono text-[0.7rem] text-gray-400">
+          <span className={`font-mono text-[0.7rem] ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
             {truncateAddress(device.miner_key)}
           </span>
           {nextUnlockUTC && (
-            <span className="ml-auto text-gray-400">
+            <span className={`ml-auto ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
               Next unlock {countdown ? `• ${countdown}` : `• ${nextUnlockUTC}`}
             </span>
           )}
         </div>
-        <div className="mt-4 rounded-lg border border-dashed border-gray-800/80 bg-black/40 px-3 py-2 text-xs text-gray-400">
+        <div
+          className={`mt-4 rounded-lg border border-dashed px-3 py-2 text-xs ${
+            isDark ? 'border-gray-800/80 bg-black/40 text-gray-400' : 'border-slate-200 bg-slate-50 text-slate-600'
+          }`}
+        >
           Click to open detailed actions and history.
         </div>
       </div>
       {expanded && isPortalReady &&
           createPortal(
           <div
-            className="fixed inset-0 z-[100] flex items-start justify-center bg-black/70 px-4 py-8 pt-20 backdrop-blur-sm"
+            className={`fixed inset-0 z-[100] flex items-start justify-center ${overlayClass} px-4 py-8 pt-20 backdrop-blur-sm`}
             onClick={closeDetails}
           >
             <div
-              className="relative mt-6 max-h-[82vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-gray-800 bg-black/95 p-6 shadow-2xl"
+              className={modalShellClass}
               onClick={(event) => event.stopPropagation()}
             >
               <button
                 type="button"
                 onClick={closeDetails}
-                className="absolute right-5 top-5 inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/5 text-gray-300 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 hover:bg-red-600/30 hover:text-white"
+                className={`absolute right-5 top-5 inline-flex h-9 w-9 items-center justify-center rounded-xl transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 ${
+                  isDark
+                    ? 'bg-white/5 text-gray-300 hover:bg-red-600/30 hover:text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-red-50 hover:text-red-600 border border-slate-200'
+                }`}
                 aria-label="Close device details"
               >
                 <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -2289,6 +2522,56 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 </svg>
               </button>
               {detailContent}
+            </div>
+          </div>,
+          document.body
+        )}
+      {optInQr && isPortalReady &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 px-4 py-8"
+            onClick={() => setOptInQr(null)}
+          >
+            <div
+              className="relative w-full max-w-sm rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 p-5 shadow-2xl shadow-red-900/40"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setOptInQr(null)}
+                className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-gray-200 transition hover:bg-red-600/30 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+                aria-label="Close opt-in QR"
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+              <div className="space-y-3 text-sm text-gray-100">
+                <div className="text-base font-semibold text-white">Opt-in to {optInQr.label}</div>
+                <p className="text-xs text-gray-300">
+                  Scan this QR in your wallet to opt into ASA #{optInQr.assetId} for {optInQr.reason}.
+                  If your wallet cannot scan, paste the ASA ID manually.
+                </p>
+                <div className="flex justify-center">
+                  <div className="rounded-2xl bg-white p-2">
+                    <Image
+                      src={optInQr.src}
+                      alt={`Opt-in QR for ${optInQr.label}`}
+                      width={260}
+                      height={260}
+                      className="h-60 w-60 object-contain"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-[0.7rem] text-gray-200">
+                  ASA #{optInQr.assetId}
+                  <CopyAddress address={optInQr.assetId} />
+                </div>
+              </div>
             </div>
           </div>,
           document.body

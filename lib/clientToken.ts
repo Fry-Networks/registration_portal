@@ -10,6 +10,9 @@
  * to prevent automated attacks.
  */
 
+import { sha256 } from '@noble/hashes/sha256';
+import { utf8ToBytes } from '@noble/hashes/utils';
+
 const LEGACY_CLIENT_TOKEN_KEY = 'clientToken';
 const CLIENT_TOKEN_STATE_KEY = 'clientToken.state.v1';
 const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
@@ -86,14 +89,26 @@ export async function generateClientToken(userAgentOverride?: string): Promise<s
   }
 
   try {
-    const data = new TextEncoder().encode(TOKEN_GENERATION_SECRET + userAgent);
+    const payload = TOKEN_GENERATION_SECRET + userAgent;
+    const encode = (input: string) => {
+      if (typeof TextEncoder !== 'undefined') {
+        return new TextEncoder().encode(input);
+      }
+      // Minimal fallback encoder to keep older mobile browsers working.
+      return Uint8Array.from(unescape(encodeURIComponent(input)).split('').map((c) => c.charCodeAt(0)));
+    };
 
-    // Use WebCrypto API (browser only, not available in Node.js scripts)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const token = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    const subtle = typeof crypto !== 'undefined' ? crypto.subtle ?? (crypto as any).webkitSubtle : undefined;
+    if (subtle && typeof subtle.digest === 'function') {
+      // Preferred path: native WebCrypto for speed and security.
+      const hashBuffer = await subtle.digest('SHA-256', encode(payload));
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
 
-    return token;
+    // Fallback: pure JS hash to support environments without WebCrypto (older mobile Safari / insecure contexts).
+    const digest = sha256(utf8ToBytes(payload));
+    return Array.from(digest).map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch (err) {
     console.error('Failed to generate client token:', err);
     throw new Error('Token generation failed');

@@ -24,6 +24,7 @@ import { useToastContext } from '../../hooks/ToastContext';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
 // Added secure fetch helper so API calls automatically include security headers.
 import { secureFetch } from '../../lib/api/secureFetch';
+import { useTheme } from 'next-themes';
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
@@ -60,6 +61,8 @@ const StakeModal = ({
   const [tokenName, setTokenName] = useState('');
   const [stakeAmount, setStakeAmount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
   const { data: session } = useSession();
   const toast = useToastContext();
   const effectiveContext = stakeContext ?? 'verification';
@@ -109,7 +112,7 @@ const StakeModal = ({
   const buttonBaseClass =
     'px-4 py-2 rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 disabled:opacity-60 disabled:cursor-not-allowed';
   const primaryButtonClass = `${buttonBaseClass} border-red-600 bg-red-600 text-white hover:bg-red-500 hover:border-red-500`;
-  const secondaryButtonClass = `${buttonBaseClass} border-red-600 text-red-600 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-900/20`;
+  const secondaryButtonClass = `${buttonBaseClass} border-red-600 ${isDark ? 'text-red-300 bg-transparent hover:bg-red-900/20' : 'text-black bg-white hover:bg-red-50'}`;
 
   // Added reusable opt-in helper so staking modals can automatically submit the ASA opt-in
   // transaction (0 amount transfer to self) when the wallet has not opted into the stake asset yet.
@@ -649,10 +652,12 @@ const StakeModal = ({
           !isProcessing && closeModal(modalName);
         }}
         static={true}
-        className="z-[100]"
+        className="z-[180]"
       >
         {/* Mirror withdraw modal palette so staking dialogs stay legible in both themes. */}
-        <DialogPanel className="sm:max-w-xl bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
+        <DialogPanel
+          className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+        >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -664,13 +669,13 @@ const StakeModal = ({
             </button>
           </div>
           {/* Keep headings consistent with the withdraw modal styling for contrast. */}
-           <Title className="mb-5 text-gray-100">{`${modalTitle}${tokenName ? ` (${tokenName})` : ''}`}</Title>
+           <Title className={`mb-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>{`${modalTitle}${tokenName ? ` (${tokenName})` : ''}`}</Title>
           {/* Use explicit text colors so staking controls stay readable on dark/light backgrounds. */}
           <Flex
             flexDirection="col"
             alignItems="stretch"
             justifyContent="center"
-            className="gap-3 w-full mt-5 text-gray-100"
+            className={`gap-3 w-full mt-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}
           >
             {effectiveContext === 'verification' ? (
               <>
@@ -715,7 +720,7 @@ const StakeModal = ({
             <div className="flex items-center w-full space-x-2">
               <label
                 htmlFor="stakeAmount"
-                className="text-sm font-medium text-gray-100 text-nowrap"
+                className={`text-sm font-medium text-nowrap ${isDark ? 'text-gray-100' : 'text-slate-900'}`}
               >
                 Amount to Stake:
               </label>

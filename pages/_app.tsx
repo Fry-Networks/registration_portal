@@ -13,6 +13,7 @@ import { ModalProvider } from '../app/modalcontext';
 import { DevWalletProvider } from '../hooks/UseDevWallet';
 import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
+import { ThemeProvider } from 'next-themes';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
 import { getClientToken } from '../lib/clientToken';
@@ -25,6 +26,8 @@ import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from 
 import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
 import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
 import BrowserLockerWarning from '../components/BrowserLockerWarning';
+import SeasonalThemeProvider from '../app/seasonal-theme/SeasonalThemeProvider';
+import HolidayChrome from '../components/HolidayChrome'; // Global holiday overlay (snow/tint)
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -44,7 +47,8 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const router = useRouter();
 
-  const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history';
+  // Allow announcements/notification tray on devices, history, and DIMO so the bell stays active where users expect it.
+  const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history' || router.pathname === '/dimo';
   const showAnnouncementBanner = notificationsEnabled;
 
   useEffect(() => {
@@ -93,52 +97,58 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   }
 
   return (
-    <ModalProvider>
-      {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
-        <QueryClientProvider client={queryClient}> */}
-          <WalletProvider manager={walletManager}>
-            <SessionProvider session={pageProps.session}>
-              <FingerprintProvider>
-                <DevWalletProvider>
-                  <ToastProvider>
-                    <NotificationProvider isEnabled={notificationsEnabled}>
-                      <Navbar />
-                      <div className="relative flex flex-col">
-                        {/* Block incompatible in-app browsers first, then surface extension warnings if history is blocked. */}
-                        <PeraInAppBrowserBlocker />
-                        <BrowserLockerWarning />
-                        {showAnnouncementBanner && <AnnouncementBanner />}
-                        <Head>
-                          <title>Fry Networks Dashboard</title>
-                          <meta
-                            name="description"
-                            content="Manage Fry Networks devices, rewards, staking, and credentials."
-                          />
-                          <meta name="application-name" content="Fry Networks Dashboard" />
-                          <link
-                            rel="icon"
-                            href={process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png'}
-                          />
-                        </Head>
-                        <div
-                          id="main"
-                          className="w-full min-h-screen bg-background text-foreground dark"
-                        >
-                          <ProtectedComponent
-                            Component={Component}
-                            pageProps={pageProps}
-                          />
-                        </div>
-                      </div>
-                    </NotificationProvider>
-                  </ToastProvider>
-                </DevWalletProvider>
-              </FingerprintProvider>
-            </SessionProvider>
-          </WalletProvider>
-        {/* </QueryClientProvider>
-      </WagmiProvider> */}
-    </ModalProvider>
+    <ThemeProvider attribute="class" enableSystem defaultTheme="dark">
+      <SeasonalThemeProvider>
+        <ModalProvider>
+          {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
+            <QueryClientProvider client={queryClient}> */}
+              <WalletProvider manager={walletManager}>
+                <SessionProvider session={pageProps.session}>
+                  <FingerprintProvider>
+                    <DevWalletProvider>
+                      <ToastProvider>
+                        <NotificationProvider isEnabled={notificationsEnabled}>
+                          <Navbar />
+                          {/* Holiday overlay lives at the app shell so all pages inherit festive chrome when active. */}
+                          <HolidayChrome />
+                          <div className="relative flex flex-col">
+                            {/* Block incompatible in-app browsers first, then surface extension warnings if history is blocked. */}
+                            <PeraInAppBrowserBlocker />
+                            <BrowserLockerWarning />
+                            {showAnnouncementBanner && <AnnouncementBanner />}
+                            <Head>
+                              <title>Fry Networks Dashboard</title>
+                              <meta
+                                name="description"
+                                content="Manage Fry Networks devices, rewards, staking, and credentials."
+                              />
+                              <meta name="application-name" content="Fry Networks Dashboard" />
+                              <link
+                                rel="icon"
+                                href={process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png'}
+                              />
+                            </Head>
+                            <div
+                              id="main"
+                              className="w-full min-h-screen"
+                            >
+                              <ProtectedComponent
+                                Component={Component}
+                                pageProps={pageProps}
+                              />
+                            </div>
+                          </div>
+                        </NotificationProvider>
+                      </ToastProvider>
+                    </DevWalletProvider>
+                  </FingerprintProvider>
+                </SessionProvider>
+              </WalletProvider>
+            {/* </QueryClientProvider>
+          </WagmiProvider> */}
+        </ModalProvider>
+      </SeasonalThemeProvider>
+    </ThemeProvider>
   );
 }
 

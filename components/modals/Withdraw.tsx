@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { secureFetch } from '../../lib/api/secureFetch';
 import { parseAlgodError } from '../../lib/algorand/errorParser';
 import { useToastContext } from '../../hooks/ToastContext';
+import { useTheme } from 'next-themes';
 
 const fry2AssetId = '2485314946';
 const USDAmount = process.env.NODE_ENV === 'production' ? 50 : 0.003;
@@ -33,13 +34,15 @@ export default function WithdrawModal({
 
   const { data: session } = useSession();
   const toast = useToastContext();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme !== 'light';
   const walletAddress = session?.user?.address ?? null;
   const modalOpen = Boolean(modals[modalName]);
   const errorToastShownRef = useRef(false);
   const buttonBaseClass =
     'px-4 py-2 rounded-md border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-red-600 disabled:opacity-60 disabled:cursor-not-allowed';
   const primaryButtonClass = `${buttonBaseClass} border-red-600 bg-red-600 text-white hover:bg-red-500 hover:border-red-500`;
-  const secondaryButtonClass = `${buttonBaseClass} border-red-600 text-red-600 bg-white hover:bg-red-50 dark:bg-transparent dark:text-red-300 dark:hover:bg-red-900/20`;
+  const secondaryButtonClass = `${buttonBaseClass} border-red-600 ${isDark ? 'text-red-300 bg-transparent hover:bg-red-900/20' : 'text-black bg-white hover:bg-red-50'} `;
 
   useEffect(() => {
     if (!modalOpen) {
@@ -158,10 +161,12 @@ export default function WithdrawModal({
         open={modals[modalName]}
         onClose={() => {}}
         static={true}
-        className="z-[100]"
+        className="z-[180]"
       >
-        {/* Align modal palette with the verification withdraw styling so text stays legible on both themes. */}
-        <DialogPanel className="sm:max-w-xl text-gray-100" style={{ backgroundColor: 'var(--modal-bg, #111827)', color: 'var(--modal-text, #F9FAFB)' }}>
+          {/* Align modal palette with the verification withdraw styling so text stays legible on both themes. */}
+        <DialogPanel
+          className={`sm:max-w-xl ${isDark ? 'bg-[#111827] text-gray-100' : 'bg-white text-slate-900'}`}
+        >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
               type="button"
@@ -172,8 +177,8 @@ export default function WithdrawModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className="mb-5 text-gray-100">{`Withdraw Verification Stake`}</Title>
-          <p className="text-gray-100">
+          <Title className={`mb-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}>{`Withdraw Verification Stake`}</Title>
+          <p className={`${isDark ? 'text-gray-100' : 'text-slate-900'}`}>
             {isWithdrawable
               ? `You can withdraw now`
               : `You can withdraw at ${withdrawableTime}`}

@@ -27,7 +27,7 @@ export default function PasteAddress({ handlePaste }) {
           id="Layer_1"
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 502 502"
-          className="fill-current text-white hover:text-red-600"
+          className="fill-current text-red-500 hover:text-red-600"
         >
           <g>
             <g>
@@ -79,7 +79,7 @@ export default function PasteAddress({ handlePaste }) {
           id="Layer_1"
           xmlns="http://www.w3.org/2000/svg"
           viewBox="0 0 502 502"
-          className="fill-current text-white hover:text-red-600"
+          className="fill-current text-red-500 hover:text-red-600"
         >
           <g>
             <g>
