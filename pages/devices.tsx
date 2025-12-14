@@ -37,7 +37,7 @@ import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
-import { shouldForceLegacyUnverified } from '../lib/legacyStake';
+import { shouldForceLegacyUnverified, isLegacyVerificationStake } from '../lib/legacyStake';
 import HeroBanner from '../components/HeroBanner';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
@@ -1193,12 +1193,19 @@ const DevicesPage = ({
   const handleWithdrawStake = (device: Device): void => {
     setSelectedDevice(device);
 
+    // Legacy FRY1 verification stakes remain withdrawable even after verification is forced off.
+    if (isLegacyVerificationStake(device)) {
+      openModal('withdraw');
+      return;
+    }
+
     if (!device.verified) {
       setStakeContext('verification');
       openModal('stake');
-    } else {
-      openModal('withdraw');
+      return;
     }
+
+    openModal('withdraw');
   };
 
   const handleWithdrawAllButton = (device: Device): void => {
@@ -1216,6 +1223,11 @@ const DevicesPage = ({
     setSelectedDevice(device);
     openModal('boost');
   };
+
+  const selectedProduct = useMemo(
+    () => (selectedDevice ? findProductByMinerKey(selectedDevice.miner_key, products) : null),
+    [selectedDevice, products]
+  );
 
   // After a stake/withdraw completes we pull the authoritative document back from the API.
   const refreshDevice = useCallback(
@@ -1508,19 +1520,20 @@ const DevicesPage = ({
           <StakeModal
             modalName={'stake'}
             device={selectedDevice}
-            product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+            product={selectedProduct!}
             stakeContext={stakeContext}
             handleStakingUpdate={handleStakingUpdate}
           />
           <WithdrawModal
             modalName={'withdraw'}
             device={selectedDevice}
-            product={findProductByMinerKey(selectedDevice.miner_key, products)!}
+            product={selectedProduct!}
             handleWithdrawUpdate={handleWithdrawUpdate}
           />
           <BoostModal
             modalName="boost"
             miner_key={selectedDevice.miner_key}
+            rewardAssetId={selectedProduct?.reward?.tokens?.reward}
             handleBoost={handleBoost}
           />
           <ClaimModal

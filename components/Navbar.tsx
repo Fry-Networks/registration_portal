@@ -536,6 +536,7 @@ export default function Navbar() {
                         : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
                     }
                     aria-label="Login with DIMO"
+                    title="DIMO login & eligibility"
                   >
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
                       <Image
@@ -552,6 +553,7 @@ export default function Navbar() {
                     href="/devices"
                     className={actionButtonClass}
                     aria-label="Go to devices"
+                    title="Devices home"
                   >
                     <HomeIcon className="h-5 w-5" />
                   </Link>
@@ -560,6 +562,7 @@ export default function Navbar() {
                     onClick={openBugModal}
                     aria-label="Report a bug"
                     className={actionButtonClass}
+                    title="Report a bug"
                   >
                     <RiBugLine className="h-5 w-5" />
                   </button>
@@ -574,6 +577,11 @@ export default function Navbar() {
                       }}
                       aria-expanded={showNotifications}
                       aria-label="View device notifications"
+                      title={
+                        notifications.length > 0
+                          ? `${notifications.length} notification${notifications.length === 1 ? '' : 's'}`
+                          : 'No new notifications'
+                      }
                       className={`${actionButtonClass} relative disabled:cursor-not-allowed disabled:opacity-60`}
                       disabled={notifications.length === 0}
                     >

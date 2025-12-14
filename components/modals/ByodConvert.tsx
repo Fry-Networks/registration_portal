@@ -87,17 +87,35 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
     return null;
   }, []);
 
-  // Deterministic sort so the most relevant SKUs (AI Edge + Bandwidth) surface first in Mini PC; keep relative order otherwise.
+  // Deterministic sort so SKUs stay paired (indoor/outdoor) and in a clear visual order per category.
   const sortProductsForCategory = useCallback(
     (list: Array<{ name: string; key: string }>, category: string) => {
       const priority = (name: string): number => {
-        const lower = name.toLowerCase();
-        if (category === 'Mini PC Miners') {
-          if (lower.includes('ai edge')) return 2;
-          if (lower.includes('bandwidth')) return 1;
-        }
-        return 0;
-      };
+          const lower = name.toLowerCase();
+          if (category === 'Mini PC Miners') {
+          // Order: Edge, Bandwidth, Satellite (Indoor first), Decibel (Indoor first).
+          if (lower.includes('ai edge')) return 4;
+          if (lower.includes('bandwidth')) return 3;
+          if (lower.includes('indoor satellite')) return 2.5;
+          if (lower.includes('outdoor satellite')) return 2;
+          if (lower.includes('indoor decibel')) return 1.5;
+          if (lower.includes('outdoor decibel')) return 1;
+          }
+          if (category === 'Camera Miners') {
+          // Keep indoor/outdoor variants adjacent; group by root name with indoor first for weather/wildlife.
+          if (lower.includes('outdoor traffic')) return 6;
+          if (lower.includes('indoor traffic')) return 5;
+          if (lower.includes('outdoor sky')) return 4;
+          if (lower.includes('indoor sky')) return 3;
+          // Weather: outdoor first so indoor sits in the right column next to it.
+          if (lower.includes('outdoor weather')) return 2.5;
+          if (lower.includes('indoor weather')) return 2;
+          // Wildlife: indoor should land in the right column.
+          if (lower.includes('outdoor wildlife')) return 1.5;
+          if (lower.includes('indoor wildlife')) return 1;
+          }
+          return 0;
+        };
       return [...list].sort((a, b) => priority(b.name) - priority(a.name));
     },
     []

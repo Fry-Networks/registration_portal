@@ -91,6 +91,11 @@ export default function NewRegistrationPage() {
       <ByodConvertModal
         modalName='byodConvert'
         address={activeAccount?.address}
+        handleRegister={(key: string) => {
+          setMinerKey(key);
+          closeModal('byodConvert');
+          openModal('registration');
+        }}
       />
 
 

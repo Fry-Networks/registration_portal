@@ -1,6 +1,6 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useRef, useState } from 'react';
+import { useRef, useState, useMemo } from 'react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
@@ -9,32 +9,157 @@ import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { getClientToken } from '../../lib/clientToken';
 import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
 import { useTheme } from 'next-themes';
+import { useWalletActions } from '../../lib/wallet/useWalletActions';
+import { REWARD_WALLET, tFRY } from '../../lib/utils';
+import { buildPaymentTxn } from '../../lib/wallet/transactions';
+import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
+import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import { getAlgoBalance } from '../../lib/algorand/balances';
+import { parseAlgodError } from '../../lib/algorand/errorParser';
 
 export default function BoostModal({
   modalName,
   miner_key,
   no,
+  rewardAssetId,
   handleBoost
 }: {
   modalName: string;
   miner_key: string;
   no?: number;
+  rewardAssetId?: string;
   handleBoost: (ret: boolean, message: string) => Promise<void>;
 }) {
   const { modals, closeModal } = useModal();
+  const { activeAddress, signAndSubmit } = useWalletActions();
   const [isProcessing, setIsProcessing] = useState(false);
   const toast = useToastContext();
-  const [stage, setStage] = useState<'idle'|'submitting'|'submitted'|'error'>('idle');
+  const [stage, setStage] = useState<'idle'|'paying-fee'|'submitting'|'submitted'|'error'>('idle');
   const [statusText, setStatusText] = useState('');
   const [txIdState, setTxIdState] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const intervalRef = useRef<any>(null);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
+  const feeRequestLockRef = useRef(false);
+  const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
+
+  const isTfryReward = useMemo(
+    () => (rewardAssetId ? String(rewardAssetId) === tFRY.id : false),
+    [rewardAssetId]
+  );
+
+  const feeMicroAlgos = isTfryReward ? 1000 : 2000; // 0.001 for tFRY (direct), 0.002 for fNODE/FVPN (swap + treasury send).
+  const feeAlgo = feeMicroAlgos / 1_000_000;
+  const MIN_FEE_BUFFER = feeAlgo + 0.001; // small buffer above required fee
+
+  const requestBoostFee = async (from: string | undefined): Promise<boolean> => {
+    try {
+      if (!from) {
+        toast.error({
+          heading: 'Wallet not connected',
+          message: 'Connect your wallet before using Instant Claim.'
+        });
+        return false;
+      }
+
+      if (feeRequestLockRef.current) {
+        toast.info({
+          heading: 'Fee payment pending',
+          message: 'Finish or cancel the current wallet prompt before retrying the fee payment.'
+        });
+        return false;
+      }
+
+      const algoBalance = await getAlgoBalance(from);
+      if (algoBalance === null || algoBalance < MIN_FEE_BUFFER) {
+        toast.error({
+          heading: 'Insufficient ALGO',
+          message: `Instant Claim needs ~${feeAlgo.toFixed(3)} ALGO to cover the network fee for processing the 30% fee. Current balance: ${(algoBalance ?? 0).toFixed(3)} ALGO.`
+        });
+        return false;
+      }
+
+      toast.info({
+        heading: 'Signature required',
+        message: isTfryReward
+          ? 'Approve the 0.001 ALGO network fee so we can send the tFry fee portion to treasury.'
+          : 'Approve the 0.002 ALGO network fee so we can swap the 30% fee to FRY 2.0 and send it to treasury.'
+      });
+
+      const encodedTxn = await buildPaymentTxn({
+        sender: from,
+        receiver: REWARD_WALLET,
+        amount: feeMicroAlgos,
+        useMicroAlgos: true
+      });
+
+      feeRequestLockRef.current = true;
+      await executeWalletRetry(
+        async () => {
+          const txIds = await signAndSubmit([encodedTxn], {
+            message: 'Authorize instant-claim fee payment'
+          });
+          if (!txIds.length) {
+            throw new Error('Wallet did not provide a transaction id');
+          }
+          console.debug('[Boost] Fee payment txId', txIds[0]);
+        },
+        { operationType: 'pay instant-claim fee' }
+      );
+
+      return true;
+    } catch (error) {
+      if (error instanceof WalletRequestInFlightError) {
+        toast.info({
+          heading: 'Wallet request in progress',
+          message: 'Finish or cancel the current wallet prompt, then retry the fee payment.'
+        });
+        return false;
+      }
+      const parsed = parseAlgodError(error);
+      const logMessage = parsed?.rawMessage ?? (error instanceof Error ? error.message : String(error));
+      const userMessage = parsed?.userMessage;
+      console.error('[Boost] Fee payment failed:', logMessage);
+      if (userMessage) {
+        toast.error({
+          heading: 'Fee Payment Error',
+          message: userMessage
+        });
+      }
+      return false;
+    } finally {
+      feeRequestLockRef.current = false;
+    }
+  };
 
   const boostRewards = async () => {
-    console.log('Boosting');
     setIsProcessing(true);
+    setStage('paying-fee');
+    setStatusText(
+      isTfryReward
+        ? 'Paying 0.001 ALGO network fee for instant claim...'
+        : 'Paying 0.002 ALGO network fee for instant claim...'
+    );
+    const walletAddress = activeAddress ?? null;
+
+    if (!walletAddress) {
+      toast.error({
+        heading: 'Wallet not connected',
+        message: 'Connect your wallet before using Instant Claim.'
+      });
+      setIsProcessing(false);
+      setStage('error');
+      return;
+    }
+
+    const feePaid = await requestBoostFee(walletAddress);
+    if (!feePaid) {
+      setIsProcessing(false);
+      setStage('error');
+      return;
+    }
+
     setStage('submitting');
     setStatusText('Submitting instant claim...');
     try {
@@ -181,7 +306,7 @@ export default function BoostModal({
       <Dialog
         open={modals[modalName]}
         onClose={() => {
-          if (isProcessing || stage === 'submitting' || stage === 'submitted') return;
+          if (isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee') return;
           closeModal(modalName);
         }}
         static={true}
@@ -195,9 +320,9 @@ export default function BoostModal({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
-              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted')) closeModal(modalName); }}
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
+              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee')) closeModal(modalName); }}
               aria-label="Close"
             >
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
@@ -217,6 +342,11 @@ export default function BoostModal({
               <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                 This action cannot be undone.
               </p>
+              <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                Instant Claim requires a small {feeAlgo.toFixed(3)} ALGO top-up so the rewards vault can process the 30% fee
+                {isTfryReward ? ' directly in tFry' : ' (swap to FRY 2.0 and forward it to treasury)'}.
+                We’ll prompt your wallet for this fee first.
+              </p>
             </div>
             {isProcessing && (
               <>
@@ -234,10 +364,10 @@ export default function BoostModal({
           >
             <Button
               className={`bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'}`}
-              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
               onClick={() => {
-                if (isProcessing || stage === 'submitting' || stage === 'submitted') return;
+                if (isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee') return;
                 closeModal(modalName);
               }}
             >
@@ -247,9 +377,9 @@ export default function BoostModal({
               className={`relative flex items-center justify-center bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'} ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
-              disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted'}
-              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted')) boostRewards(); }}
+              disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
+              aria-disabled={isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee'}
+              onClick={() => { if (!(isProcessing || stage === 'submitting' || stage === 'submitted' || stage === 'paying-fee')) boostRewards(); }}
             >
             {isProcessing ? (
               <svg

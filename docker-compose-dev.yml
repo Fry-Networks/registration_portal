@@ -32,6 +32,22 @@ services:
       BUG_REPORT_RATE_LIMIT_HOURS: 1
       NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
       DISABLE_DEVICE_FINGERPRINT: 'false'
+      DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'
+      DIMO_CLIENT_SECRET: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_SECRET'
+      DIMO_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'
+      DIMO_HASH_SECRET: 'op://Dashboard/Dash Secrets/DIMO_HASH_SECRET'
+      DIMO_LOGIN_BASE: 'https://login.dimo.org'
+      DIMO_JWKS_URL: 'https://auth.dimo.zone/keys'
+      DIMO_API_BASE: 'https://api.dimo.co'
+      NEXT_PUBLIC_DIMO_ENV: 'production'
+      DIMO_ANNOUNCE_UTC: '2025-12-08T00:00:00.000Z'
+      DIMO_GRACE_DAYS: 7
+      DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE: 'true'
+      DIMO_ALLOW_POST_GRACE: 'false'
+      DIMO_SNAPSHOT_TTL_MINUTES: 10
+      DIMO_MINER_PREFIX: 'AEM'
+      NEXT_PUBLIC_FORCE_SEASONAL_THEME: ${NEXT_PUBLIC_FORCE_SEASONAL_THEME:-'christmas'} # christmas|valentines|easter|july4|thanksgiving|off|none
+      NEXT_PUBLIC_DISABLE_SEASONAL_AUTO: ${NEXT_PUBLIC_DISABLE_SEASONAL_AUTO:-'false'}
     volumes:
       - .:/app:cached
       - /app/node_modules

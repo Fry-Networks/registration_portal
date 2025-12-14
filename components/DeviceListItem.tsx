@@ -209,7 +209,11 @@ export default function DeviceListItem({
   const modalTextHeading = isDark ? 'text-gray-200' : 'text-slate-800';
   const modalTextMuted = isDark ? 'text-gray-400' : 'text-slate-600';
 
-  const openDetails = () => setExpanded(true);
+  const openDetails = () => {
+    // Force key sections open each time the drawer opens so users always see earnings + contact first.
+    setExpandedSections((prev) => ({ ...prev, rewards: true, contact: true }));
+    setExpanded(true);
+  };
   const closeDetails = () => setExpanded(false);
 
   const deviceStatusOkay = device?.verified === true && alertShow === false;
@@ -785,27 +789,39 @@ export default function DeviceListItem({
     return [
       {
         key: 'base',
+        tier: 'bronze' as const,
         label: 'Unverified',
         description: 'Base daily rate without multiplier',
         value: baseDailyReward,
-        accent: isDark ? 'text-gray-200' : 'text-slate-900'
+        accent: {
+          light: 'text-[#374151]',
+          dark: 'text-gray-200'
+        }
       },
       {
         key: 'type1',
+        tier: 'silver' as const,
         label: 'Type 1 • 1.5×',
         description: '24 hour lock multiplier',
         value: typeOneDaily,
-        accent: isDark ? 'text-green-300' : 'text-emerald-700'
+        accent: {
+          light: 'text-[#166534]',
+          dark: 'text-green-300'
+        }
       },
       {
         key: 'type2',
+        tier: 'gold' as const,
         label: 'Type 2 • 3×',
         description: '6 month lock multiplier',
         value: typeTwoDaily,
-        accent: isDark ? 'text-amber-300' : 'text-amber-700'
+        accent: {
+          light: 'text-[#92400E]',
+          dark: 'text-amber-300'
+        }
       }
     ];
-  }, [baseDailyReward, isDark]);
+  }, [baseDailyReward]);
 
   const byodDiscountApplied = useMemo(
     () => Boolean(device?.byod && device.byod.length > 0),
@@ -1464,24 +1480,121 @@ const collapsibleSections: SectionConfig[] = useMemo(
               <div>
                 <div className={`text-xs uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>Daily earnings</div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {dailyRewardEntries.map((entry) => (
-                    <div
-                      key={entry.key}
-                      className={`rounded-lg border p-3 ${
-                        isDark
-                          ? 'border-gray-800/70 bg-gray-900/40'
-                          : 'border-slate-200 bg-white shadow-sm'
-                      }`}
-                    >
-                      <div className={`text-[0.7rem] uppercase tracking-wide ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>
-                        {entry.label}
+                  {dailyRewardEntries.map((entry) => {
+                    const tierStyles: Record<
+                      'bronze' | 'silver' | 'gold',
+                      { gradient: string; text: string; border: string }
+                    > = {
+                      bronze: {
+                        // Push bronze darker/warmer so gold contrasts more clearly.
+                        gradient: 'linear-gradient(135deg, #78350F, #92400E, #B45309)',
+                        text: '#FFF7ED',
+                        border: '#D97706'
+                      },
+                      silver: {
+                        gradient: 'linear-gradient(135deg, #4B5563, #9CA3AF, #E5E7EB)',
+                        text: '#111827',
+                        border: '#E5E7EB'
+                      },
+                      gold: {
+                        // Make gold brighter and more luminous than bronze.
+                        gradient: 'linear-gradient(135deg, #F59E0B, #FACC15, #FEF3C7)',
+                        text: '#7C2D12',
+                        border: '#FDE68A'
+                      }
+                    };
+
+                    const tierStylesDark: Record<
+                      'bronze' | 'silver' | 'gold',
+                      { gradient: string; text: string; border: string }
+                    > = {
+                      bronze: {
+                        gradient: 'linear-gradient(135deg, #3D2A1A, #5C3312, #8C5A2B)',
+                        text: '#F5E6D3',
+                        border: '#8C5A2B'
+                      },
+                      silver: {
+                        gradient: 'linear-gradient(135deg, #2D3238, #4B5563, #9CA3AF)',
+                        text: '#E5E7EB',
+                        border: '#9CA3AF'
+                      },
+                      gold: {
+                        // Enrich gold for dark mode so it reads distinctly brighter.
+                        gradient: 'linear-gradient(135deg, #3A2A0A, #7C3A0A, #F59E0B)',
+                        text: '#FEF9C3',
+                        border: '#FDE68A'
+                      }
+                    };
+
+                    if (isDark) {
+                      const tierStyle = tierStylesDark[entry.tier] ?? tierStylesDark.bronze;
+                      return (
+                        <div
+                          key={entry.key}
+                          className="rounded-lg border p-3 shadow-sm"
+                          style={{
+                            background: tierStyle.gradient,
+                            color: tierStyle.text,
+                            borderColor: tierStyle.border
+                          }}
+                        >
+                          <div className="text-[0.7rem] uppercase tracking-wide opacity-85 flex items-center gap-1">
+                            <span
+                              aria-hidden="true"
+                              className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-base ${
+                                entry.tier === 'bronze'
+                                  ? 'bg-black/40 border border-amber-800/60'
+                                  : entry.tier === 'silver'
+                                    ? 'bg-black/35 border border-gray-600/60'
+                                    : 'bg-black/40 border border-amber-700/60'
+                              }`}
+                            >
+                              {entry.tier === 'bronze' ? '🥉' : entry.tier === 'silver' ? '🥈' : '🥇'}
+                            </span>
+                            <span>{entry.label}</span>
+                          </div>
+                          <div className="mt-1 text-lg font-semibold" style={{ color: tierStyle.text }}>
+                            {`${formatDailyValue(entry.value)} ${rewardTokenUnitLabel}`}
+                          </div>
+                          <div className="text-[0.65rem] opacity-85">{entry.description}</div>
+                        </div>
+                      );
+                    }
+
+                    const tierStyle = tierStyles[entry.tier] ?? tierStyles.bronze;
+
+                    return (
+                      <div
+                        key={entry.key}
+                        className="rounded-lg border p-3 shadow-sm"
+                        style={{
+                          background: tierStyle.gradient,
+                          color: tierStyle.text,
+                          borderColor: tierStyle.border
+                        }}
+                      >
+                        <div className="text-[0.7rem] uppercase tracking-wide opacity-90 flex items-center gap-1">
+                          <span
+                            aria-hidden="true"
+                            className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-base ${
+                              entry.tier === 'bronze'
+                                ? 'bg-white/90 border border-amber-200'
+                                : entry.tier === 'silver'
+                                  ? 'bg-white/95 border border-gray-300'
+                                  : 'bg-white/95 border border-amber-200'
+                            }`}
+                          >
+                            {entry.tier === 'bronze' ? '🥉' : entry.tier === 'silver' ? '🥈' : '🥇'}
+                          </span>
+                          <span>{entry.label}</span>
+                        </div>
+                        <div className="mt-1 text-lg font-semibold" style={{ color: tierStyle.text }}>
+                          {`${formatDailyValue(entry.value)} ${rewardTokenUnitLabel}`}
+                        </div>
+                        <div className="text-[0.65rem] opacity-90">{entry.description}</div>
                       </div>
-                      <div className={`mt-1 text-lg font-semibold ${entry.accent}`}>
-                        {`${formatDailyValue(entry.value)} ${rewardTokenUnitLabel}`}
-                      </div>
-                      <div className={`text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-600'}`}>{entry.description}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1842,10 +1955,13 @@ const collapsibleSections: SectionConfig[] = useMemo(
         return null;
       }
 
+      // When a legacy FRY 1.0 stake is present, force users to withdraw it first.
+      const disableForLegacy = isLegacyStake;
+
       const baseClass =
         variant === 'default'
           ? `min-w-[150px] bg-transparent ${
-              verificationLocked
+              disableForLegacy || verificationLocked
                 ? `border-gray-500 ${textGray} cursor-not-allowed`
                 : isStaked()
                   ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
@@ -1854,7 +1970,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                     : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
             }`
           : `min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
-              verificationLocked
+              disableForLegacy || verificationLocked
                 ? `border-gray-500 ${textGray} cursor-not-allowed`
                 : isStaked()
                   ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
@@ -1867,9 +1983,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
         <span>
           <Button
             className={baseClass}
-            disabled={verificationLocked || (!isStaked() && verificationBlocked)}
+            disabled={disableForLegacy || verificationLocked || (!isStaked() && verificationBlocked)}
             onClick={(event) => {
               event.stopPropagation();
+              if (disableForLegacy) return;
               if (verificationLocked) return;
               if (!isStaked() && verificationBlocked) return;
               handleWithdrawStake(device);
@@ -1880,7 +1997,9 @@ const collapsibleSections: SectionConfig[] = useMemo(
         </span>
       );
 
-      const tooltipText = verificationLocked
+      const tooltipText = disableForLegacy
+        ? 'Legacy FRY 1.0 stake detected — withdraw legacy stake first.'
+        : verificationLocked
         ? verificationLockTooltip
         : verificationReason || null;
 
@@ -1895,6 +2014,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
       verificationLocked,
       verificationReason,
       isStaked,
+      isLegacyStake,
       textGray,
       textStrong,
       textRed,
@@ -2022,7 +2142,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
             </Tooltip>
           </div>
         </div>
-        </div>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {collapsibleSections.map(renderSection)}
       </div>
@@ -2120,13 +2240,15 @@ const collapsibleSections: SectionConfig[] = useMemo(
               Withdraw Legacy Stake
             </Button>
           )}
-          {renderVerificationActionButton()}
-          {needsRegistration && !hasRegistration && (
+
+          {/* Mandatory staking first for node/AEM when incomplete */}
+          {(isNodeProduct(product) || minerPrefix === 'AEM') && needsRegistration && !hasRegistration && (
             <StakeRequirementCTA requirement="registration" label="Stake Registration" />
           )}
-          {needsNodeStake && !hasNode && (
+          {isNodeProduct(product) && needsNodeStake && !hasNode && (
             <StakeRequirementCTA requirement="node" label="Stake Node Operation" />
           )}
+
           <Button
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
               !isProductStakeAvailable(product) || claimableAmount <= 0
@@ -2140,6 +2262,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
           >
             Claim Reward
           </Button>
+
           <Button
             className={`min-w-[150px] bg-transparent transition-colors duration-150 ${
               !isProductStakeAvailable(product)
@@ -2150,23 +2273,13 @@ const collapsibleSections: SectionConfig[] = useMemo(
             }`}
             disabled={pendingAmount <= 0 || !boostSupported}
             onClick={() => handleBoostButton(device)}
-            title={!boostSupported ? 'Instant Claim is available only for fNODE and tFRY rewards.' : undefined}
+            title={!boostSupported ? 'Instant Claim is available only for fNODE and tFry rewards.' : undefined}
           >
             Instant Claim (30% Fee)
           </Button>
-          <Button
-            className={`min-w-[150px] bg-transparent ${
-              !isProductStakeAvailable(product)
-                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
-                : isStaked()
-                  ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
-                  : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
-            }`}
-            onClick={() => viewHistory()}
-          >
-            Reward History
-          </Button>
-          {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
+
+          {((isNodeProduct(product) && isRegistrationStaked(device) && isNodeStaked(device)) ||
+            (minerPrefix === 'AEM' && isRegistrationStaked(device))) && (
             <Button
               className={`min-w-[150px] bg-transparent ${isDark ? 'text-red-100' : 'text-slate-900'} ${
                 !isProductStakeAvailable(product)
@@ -2180,6 +2293,21 @@ const collapsibleSections: SectionConfig[] = useMemo(
               Unstake
             </Button>
           )}
+
+          {renderVerificationActionButton()}
+
+          <Button
+            className={`min-w-[150px] bg-transparent ${
+              !isProductStakeAvailable(product)
+                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
+                : isStaked()
+                  ? `border-green-500 ${textStrong} hover:bg-green-500 hover:border-green-500`
+                  : `border-red-500 ${textStrong} hover:bg-red-500 hover:border-red-500`
+            }`}
+            onClick={() => viewHistory()}
+          >
+            Reward History
+          </Button>
         </div>
       </div>
     </div>
@@ -2407,11 +2535,11 @@ const collapsibleSections: SectionConfig[] = useMemo(
               Withdraw Legacy Stake
             </Button>
           )}
-          {renderVerificationActionButton('compact')}
-          {needsRegistration && !hasRegistration && (
+          {/* Mandatory staking first for node/AEM when incomplete */}
+          {(isNodeProduct(product) || minerPrefix === 'AEM') && needsRegistration && !hasRegistration && (
             <StakeRequirementCTA requirement="registration" label="Stake Registration" compact />
           )}
-          {needsNodeStake && !hasNode && (
+          {isNodeProduct(product) && needsNodeStake && !hasNode && (
             <StakeRequirementCTA requirement="node" label="Stake Node Operation" compact />
           )}
           <Button
@@ -2442,19 +2570,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
           >
             Instant Claim (30% fee)
           </Button>
-          <Button
-            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
-              !isProductStakeAvailable(product)
-                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
-                : isStaked()
-                  ? `border-green-500 ${textGreen} hover:bg-green-500 hover:border-green-500`
-                  : `border-red-500 ${textRed} hover:bg-red-500 hover:border-red-500`
-            }`}
-            onClick={() => viewHistory()}
-          >
-            History
-          </Button>
-          {((device && product && isNodeProduct(product) && isRegistrationStaked(device)) || isNodeStaked(device)) && (
+          {((isNodeProduct(product) && isRegistrationStaked(device) && isNodeStaked(device)) ||
+            (minerPrefix === 'AEM' && isRegistrationStaked(device))) && (
             <Tooltip text="Registration and node staking keeps rewards flowing. Withdrawing stops payouts until you re-stake.">
               <Button
                 className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${isDark ? 'text-red-100' : 'text-slate-900'} ${
@@ -2470,6 +2587,19 @@ const collapsibleSections: SectionConfig[] = useMemo(
               </Button>
             </Tooltip>
           )}
+          {renderVerificationActionButton('compact')}
+          <Button
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 ${
+              !isProductStakeAvailable(product)
+                ? `border-gray-500 ${textGray} hover:bg-gray-500 hover:border-gray-500`
+                : isStaked()
+                  ? `border-green-500 ${textGreen} hover:bg-green-500 hover:border-green-500`
+                  : `border-red-500 ${textRed} hover:bg-red-500 hover:border-red-500`
+            }`}
+            onClick={() => viewHistory()}
+          >
+            History
+          </Button>
         </div>
         {pendingAmount > 0 && (
           <>

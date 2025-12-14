@@ -1142,6 +1142,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
             modalName="boost"
             miner_key={selReward.miner_key}
             no={selReward.no}
+            rewardAssetId={(selReward as any)?.asset_id}
             handleBoost={handleBoost}
           />
         </>
