@@ -7,6 +7,8 @@ import { useTheme } from 'next-themes';
 import { getClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import dynamic from 'next/dynamic';
+import { GetServerSideProps } from 'next';
+import { getConfigFlag } from '../lib/config';
 import HeroBanner from '../components/HeroBanner';
 import bgImg from '../assets/background.png';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider';
@@ -436,3 +438,16 @@ export default function DimoPerksPage() {
     </main>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async () => {
+  const enabled = await getConfigFlag('dimo_enabled', true);
+  if (!enabled) {
+    return {
+      redirect: {
+        destination: '/devices',
+        permanent: false
+      }
+    };
+  }
+  return { props: {} };
+};

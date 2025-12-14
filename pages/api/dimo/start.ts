@@ -4,6 +4,7 @@ import { serialize } from 'cookie';
 import { buildDimoAuthUrl, getDimoConfig } from '../../../lib/dimo/config';
 import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
 import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
+import { getConfigFlag } from '../../../lib/config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const resolvedMethod = req.method ?? 'POST';
@@ -15,6 +16,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Feature flag guard so ops can disable/enable the flow without a redeploy.
+    const dimoEnabled = await getConfigFlag('dimo_enabled', true);
+    if (!dimoEnabled) {
+      return res
+        .status(403)
+        .json(
+          createApiError(
+            ErrorCodes.FORBIDDEN,
+            'DIMO login is not available right now',
+            'Please check back after the announcement.'
+          )
+        );
+    }
+
     const security = await enforceWalletApiSecurity(req, res, {
       endpoint: '/api/dimo/start',
       method: resolvedMethod

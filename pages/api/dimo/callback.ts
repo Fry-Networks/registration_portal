@@ -9,6 +9,7 @@ import { upsertSubscriptions } from '../../../lib/dimo/store';
 import { loggers } from '../../../lib/logger';
 import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
 import { enforceOperationRateLimit } from '../../../lib/api/operationRateLimit';
+import { getConfigFlag } from '../../../lib/config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const resolvedMethod = req.method ?? 'POST';
@@ -17,6 +18,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res
       .status(405)
       .json(createApiError(ErrorCodes.INVALID_INPUT, 'Only GET/POST are allowed for the DIMO callback.'));
+  }
+
+  // Short-circuit if ops have the DIMO flow disabled.
+  const dimoEnabled = await getConfigFlag('dimo_enabled', true);
+  if (!dimoEnabled) {
+    return res.status(403).json(
+      createApiError(
+        ErrorCodes.FORBIDDEN,
+        'DIMO sync is disabled right now',
+        'Please try again after the launch window.'
+      )
+    );
   }
 
   let session = await getServerSession(req, res, authOptions);

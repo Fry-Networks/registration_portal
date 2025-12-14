@@ -6,6 +6,7 @@ import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { findSubscriptionById, markSubscriptionClaimed } from '../../../lib/dimo/store';
 import { getDimoConfig, hashDimoId } from '../../../lib/dimo/config';
 import { generateMinerKey } from '../../../lib/minerKey';
+import { getConfigFlag } from '../../../lib/config';
 
 const MINER_PREFIX = process.env.DIMO_MINER_PREFIX || 'AEM';
 
@@ -18,6 +19,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Protect claim issuance behind the same toggle used by the UI.
+    const dimoEnabled = await getConfigFlag('dimo_enabled', true);
+    if (!dimoEnabled) {
+      return res.status(403).json(
+        createApiError(
+          ErrorCodes.FORBIDDEN,
+          'DIMO claims are disabled right now',
+          'Please try again after the launch announcement.'
+        )
+      );
+    }
+
     const security = await enforceWalletApiSecurity(req, res, {
       endpoint: '/api/dimo/claim'
     });

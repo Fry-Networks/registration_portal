@@ -41,6 +41,8 @@ const envDisableAuto =
     .toString()
     .toLowerCase()
     .trim() === 'true';
+// Version the toggle key by forced holiday so a forced rollout (e.g., Christmas) defaults on even if users disabled a prior season.
+const STORAGE_KEY_EFFECTIVE = envForcedKey ? `${STORAGE_KEY}-${envForcedKey}` : STORAGE_KEY;
 
 function applyHolidayDataAttribute(key: SeasonalThemeKey | null) {
   if (typeof document === 'undefined') return;
@@ -59,7 +61,7 @@ export function SeasonalThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const stored = window.localStorage.getItem(STORAGE_KEY_EFFECTIVE);
     if (stored === 'false') {
       setSeasonalEnabled(false);
     }
@@ -68,7 +70,7 @@ export function SeasonalThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !mounted) return;
-    window.localStorage.setItem(STORAGE_KEY, seasonalEnabled ? 'true' : 'false');
+    window.localStorage.setItem(STORAGE_KEY_EFFECTIVE, seasonalEnabled ? 'true' : 'false');
   }, [seasonalEnabled, mounted]);
 
   const resolveHoliday = useCallback(() => {

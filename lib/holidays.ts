@@ -100,17 +100,13 @@ export function getHolidayWindow(key: SeasonalThemeKey, year: number) {
   }
   const holidayDate = config.computeDate(year);
   const windowStart = addMonthsUtc(holidayDate, -1);
-  const windowEnd = addDaysUtc(holidayDate, 1); // inclusive of holiday; expires just after
+  // Christmas theme stops after Dec 26 (exclusive of Dec 27) to avoid overstaying.
+  const windowEnd = key === 'christmas' ? addDaysUtc(holidayDate, 2) : addDaysUtc(holidayDate, 1);
   return {
     holidayDate,
     windowStart,
     windowEnd
   };
-}
-
-function isWithinWindow(date: Date, start: Date, end: Date) {
-  const time = date.getTime();
-  return time >= start.getTime() && time < end.getTime();
 }
 
 export type ForcedThemeValue = SeasonalThemeKey | 'off' | null;
@@ -130,41 +126,64 @@ export function getActiveHolidayForDate(
   options?: { forcedKey?: ForcedThemeValue; disableAuto?: boolean }
 ): HolidayMatch | null {
   const { forcedKey, disableAuto } = options ?? {};
+  const isWithinWindow = (target: HolidayMatch | null) =>
+    target ? date.getTime() >= target.windowStart.getTime() && date.getTime() < target.windowEnd.getTime() : false;
+
+  // Helper: check current + previous year windows to handle holiday windows that cross year boundaries.
+  const buildWindowMatch = (key: SeasonalThemeKey): HolidayMatch | null => {
+    const current = (() => {
+      const { holidayDate, windowStart, windowEnd } = getHolidayWindow(key, date.getUTCFullYear());
+      return { key, name: HOLIDAYS.find((h) => h.key === key)?.name ?? key, holidayDate, windowStart, windowEnd, source: 'auto' as const };
+    })();
+    if (isWithinWindow(current)) return current;
+
+    const prev = (() => {
+      const { holidayDate, windowStart, windowEnd } = getHolidayWindow(key, date.getUTCFullYear() - 1);
+      return { key, name: HOLIDAYS.find((h) => h.key === key)?.name ?? key, holidayDate, windowStart, windowEnd, source: 'auto' as const };
+    })();
+    if (isWithinWindow(prev)) return prev;
+    return null;
+  };
+
   if (forcedKey === 'off') {
     return null;
   }
   if (forcedKey) {
-    const { holidayDate, windowStart, windowEnd } = getHolidayWindow(forcedKey, date.getUTCFullYear());
-    return {
-      key: forcedKey,
-      name: HOLIDAYS.find((h) => h.key === forcedKey)?.name ?? forcedKey,
-      holidayDate,
-      windowStart,
-      windowEnd,
-      source: 'forced'
-    };
+    // Respect holiday windows even when forced so we don't show Christmas year-round.
+    const forcedMatch = buildWindowMatch(forcedKey as SeasonalThemeKey);
+    if (!forcedMatch) return null;
+    return { ...forcedMatch, source: 'forced' };
   }
 
   if (disableAuto) {
     return null;
   }
 
-  const currentYear = date.getUTCFullYear();
   for (const holiday of HOLIDAYS) {
-    const { holidayDate, windowStart, windowEnd } = getHolidayWindow(holiday.key, currentYear);
-    if (isWithinWindow(date, windowStart, windowEnd)) {
-      return {
-        key: holiday.key,
-        name: holiday.name,
-        holidayDate,
-        windowStart,
-        windowEnd,
-        source: 'auto'
-      };
+    const match = buildWindowMatch(holiday.key);
+    if (match) {
+      return match;
     }
   }
 
   return null;
+}
+
+// Extended greeting window: one month before Christmas through Jan 2 (exclusive Jan 3).
+function getChristmasGreetingWindow(year: number) {
+  const { holidayDate, windowStart } = getHolidayWindow('christmas', year);
+  const greetingWindowEnd = addDaysUtc(holidayDate, 8); // Dec 25 + 8 days = Jan 2 (exclusive Jan 3)
+  return { windowStart, windowEnd: greetingWindowEnd };
+}
+
+export function isWithinChristmasGreetingWindow(date: Date): boolean {
+  const current = getChristmasGreetingWindow(date.getUTCFullYear());
+  const prior = getChristmasGreetingWindow(date.getUTCFullYear() - 1);
+  const ts = date.getTime();
+  return (
+    (ts >= current.windowStart.getTime() && ts < current.windowEnd.getTime()) ||
+    (ts >= prior.windowStart.getTime() && ts < prior.windowEnd.getTime())
+  );
 }
 
 export function nextMidnightDelayMs(now: Date): number {

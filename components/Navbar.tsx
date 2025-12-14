@@ -30,6 +30,7 @@ import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; 
 import fryLogoXmasLight from '../assets/Logo_xmas_light.png'; // Festive logo for Christmas (light)
 import fryLogoXmasDark from '../assets/Logo_xmas_dark.png'; // Festive logo for Christmas (dark)
 import merryChristmasAnimation from '../public/holiday/Merry Christmas.json'; // Xmas: Centered Lottie banner for navbar
+import { isWithinChristmasGreetingWindow } from '../lib/holidays';
 
 function classNames(...classes: string[]) {
   return classes.filter(Boolean).join(' ');
@@ -43,8 +44,9 @@ export default function Navbar() {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
   const pathname = usePathname();
-  const { activeHoliday } = useSeasonalTheme();
+  const { activeHoliday, availableHoliday } = useSeasonalTheme();
   const isChristmas = activeHoliday?.key === 'christmas';
+  const showHolidayGreeting = useMemo(() => isWithinChristmasGreetingWindow(new Date()), []);
   const { data: session, status } = useSession();
   const { wallets, activeAccount, algodClient } = useWallet();
   const activeWallet = wallets.find(w => w.isActive);
@@ -66,6 +68,7 @@ export default function Navbar() {
   const [isSubmittingBug, setIsSubmittingBug] = useState(false);
   const [bugSubmitError, setBugSubmitError] = useState<string | null>(null);
   const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
+  const [dimoEnabled, setDimoEnabled] = useState<boolean | null>(null);
   const toast = useToastContext();
   const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
 
@@ -121,6 +124,10 @@ export default function Navbar() {
   const pillLinkClass = isDark
     ? 'flex h-11 items-center rounded-full border border-red-500/60 bg-red-500/15 px-4 text-sm font-semibold text-red-100 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
     : 'flex h-11 items-center rounded-full border border-red-400 bg-red-50 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
+  const holidayBannerClass = isDark
+    ? 'inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-red-500/50 via-amber-400/40 to-emerald-400/40 px-5 py-3 text-base font-semibold text-white shadow-xl shadow-red-900/40 backdrop-blur'
+    : 'inline-flex items-center gap-3 rounded-2xl border border-red-200 bg-gradient-to-r from-rose-50 via-amber-50 to-emerald-50 px-5 py-3 text-base font-semibold text-red-700 shadow-md';
+  const showDimoLink = dimoEnabled === true; // Only surface DIMO when the Mongo toggle is enabled.
 
   useEffect(() => {
     console.log('[Wallet] hook activeAccount', activeAccount);
@@ -129,6 +136,35 @@ export default function Navbar() {
   useEffect(() => {
     console.log('[Wallet] hook activeWallet', activeWallet);
   }, [activeWallet]);
+
+  useEffect(() => {
+    // Fetch the Mongo-driven DIMO toggle so ops can hide/show without redeploys.
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const loadToggle = async () => {
+      try {
+        const resp = await fetch('/api/config/dimo', { signal: controller.signal });
+        if (!resp.ok) {
+          throw new Error(`Failed to load DIMO config: ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (!cancelled) {
+          setDimoEnabled(Boolean(data?.enabled));
+        }
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
+        console.warn('[Navbar] DIMO toggle fetch failed; hiding link', error);
+        setDimoEnabled(false);
+      }
+    };
+
+    void loadToggle();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
 
   // Xmas: Track reduced motion to pause navbar Lottie animations when requested.
   useEffect(() => {
@@ -505,6 +541,17 @@ export default function Navbar() {
             </Link>
           </div>
 
+          {showHolidayGreeting && (
+            <div className="order-3 w-full flex justify-center sm:order-none sm:flex-1">
+              {/* Holiday banner stays visible through Jan 2 even if users toggle the theme off. */}
+              <div className={holidayBannerClass}>
+                <span aria-hidden="true">🎄</span>
+                <span className="tracking-wide uppercase">Happy Holidays!</span>
+                <span aria-hidden="true">🎁</span>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3 relative z-[200]">
             <ThemeControls />
             {!address || address.length === 0 ? (
@@ -528,27 +575,29 @@ export default function Navbar() {
               <Fragment>
                 <DownMenu address={address} disconnect={handleDisconnect} />
                 <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
-                  <Link
-                    href="/dimo"
-                    className={
-                      isDark
-                        ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
-                        : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
-                    }
-                    aria-label="Login with DIMO"
-                    title="DIMO login & eligibility"
-                  >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
-                      <Image
-                        src={dimoIcon}
-                        alt="DIMO"
-                        width={36}
-                        height={36}
-                        className="h-9 w-9"
-                        priority={false}
-                      />
-                    </div>
-                  </Link>
+                  {showDimoLink && (
+                    <Link
+                      href="/dimo"
+                      className={
+                        isDark
+                          ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+                          : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
+                      }
+                      aria-label="Login with DIMO"
+                      title="DIMO login & eligibility"
+                    >
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
+                        <Image
+                          src={dimoIcon}
+                          alt="DIMO"
+                          width={36}
+                          height={36}
+                          className="h-9 w-9"
+                          priority={false}
+                        />
+                      </div>
+                    </Link>
+                  )}
                   <Link
                     href="/devices"
                     className={actionButtonClass}

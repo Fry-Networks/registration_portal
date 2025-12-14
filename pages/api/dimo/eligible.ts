@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
 import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
 import { findEligibleSubscriptions } from '../../../lib/dimo/store';
+import { getConfigFlag } from '../../../lib/config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const resolvedMethod = req.method ?? 'POST';
@@ -13,6 +14,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Guard the endpoint behind the Mongo-driven toggle to avoid surprise launches.
+    const dimoEnabled = await getConfigFlag('dimo_enabled', true);
+    if (!dimoEnabled) {
+      return res
+        .status(403)
+        .json(
+          createApiError(
+            ErrorCodes.FORBIDDEN,
+            'DIMO eligibility is not available',
+            'Please try again after the announcement.'
+          )
+        );
+    }
+
     const security = await enforceWalletApiSecurity(req, res, {
       endpoint: '/api/dimo/eligible',
       method: resolvedMethod
