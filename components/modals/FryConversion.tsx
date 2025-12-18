@@ -290,7 +290,8 @@ export default function FryConversionModal({
     }
 
     try {
-      const response = await fetch('api/conversion/get_fry_conversion', {
+      // Use absolute path so modal works from any route.
+      const response = await fetch('/api/conversion/get_fry_conversion', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -315,15 +316,17 @@ export default function FryConversionModal({
     } catch (error) {}
   }, [modalOpen, selectedTokenType, session, toast]);
 
-  const prevModalOpen = useRef<boolean>(modalOpen);
+  // Start closed so the first render with an open modal triggers the initial fetch.
+  const prevModalOpen = useRef<boolean>(false);
   const prevSelectedToken = useRef<string>(selectedTokenType);
 
   useEffect(() => {
     // Only clear opt-in hints when the modal newly opens or the target asset changes, not on every render.
     const justOpened = modalOpen && !prevModalOpen.current;
     const tokenChanged = modalOpen && prevSelectedToken.current !== selectedTokenType;
+    const needsFirstLoad = modalOpen && !account;
 
-    if (justOpened || tokenChanged) {
+    if (justOpened || tokenChanged || needsFirstLoad) {
       setOptInGuide(null);
       prevSelectedToken.current = selectedTokenType;
       void fetchConversionStatus();
@@ -338,7 +341,7 @@ export default function FryConversionModal({
     if (modalOpen) {
       prevSelectedToken.current = selectedTokenType;
     }
-  }, [modalOpen, selectedTokenType, fetchConversionStatus]);
+  }, [modalOpen, selectedTokenType, fetchConversionStatus, account]);
 
   const handleConvert = async () => {
     setIsProcessing(true);
@@ -554,7 +557,7 @@ export default function FryConversionModal({
         open={modals[modalName]}
         onClose={onClose}
         static={true}
-        className="z-[100]"
+        className="z-[320]" // Lift above navbar + seasonal chrome on mobile
       >
         <DialogPanel
           className={`max-w-xs sm:max-w-3xl ${
@@ -768,11 +771,11 @@ export default function FryConversionModal({
               <Button
                 className={`bg-transparent ${isDark ? 'text-white border-gray-500 hover:bg-gray-800 hover:border-gray-500' : 'text-slate-900 border-slate-400 hover:bg-slate-100 hover:border-slate-500'} ${isProcessing ? 'cursor-not-allowed' : 'cursor-default'}`}
                 disabled={isProcessing}
-                onClick={() => setShowReconcile(true)}
-              >
-                Already burned? Reconcile
-              </Button>
-            )}
+            onClick={() => setShowReconcile(true)}
+          >
+            Already burned? Reconcile
+          </Button>
+        )}
             <Button
               className={`bg-transparent ${isDark ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600' : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'}`}
               onClick={() => !isProcessing && onClose()}
@@ -833,7 +836,7 @@ export default function FryConversionModal({
       </Dialog>
 
       {showReconcile && (
-        <Dialog open={true} onClose={() => !isProcessing && setShowReconcile(false)} static={true} className="z-[110]">
+        <Dialog open={true} onClose={() => !isProcessing && setShowReconcile(false)} static={true} className="z-[330]"> {/* Keep reconcile sheet above main conversion overlay */}
           <DialogPanel className="max-w-xs sm:max-w-lg border border-red-600">
             <div className="absolute right-0 top-0 pr-3 pt-3">
               <button

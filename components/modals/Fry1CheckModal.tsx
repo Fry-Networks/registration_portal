@@ -96,7 +96,12 @@ export default function Fry1CheckModal({
   };
 
   return (
-    <Dialog open={isOpen} onClose={onClose} static={true} className="z-[100]">
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      static={true}
+      className="z-[320]" // Keep the initial Fry 1.0 conversion step above navbar + seasonal chrome
+    >
       <DialogPanel
         className={`sm:max-w-2xl ${
           isDark

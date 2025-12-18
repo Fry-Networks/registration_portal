@@ -194,7 +194,8 @@ Feature flags
 - Seasonal overrides: `NEXT_PUBLIC_FORCE_SEASONAL_THEME`, `NEXT_PUBLIC_DISABLE_SEASONAL_AUTO`
 
 Bug reporting
-- `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives submitted bug reports (required to enable the UI button)
+- `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives application bug reports (required to enable the UI button)
+- `DISCORD_USER_BUG_WEBHOOK_URL` — Discord webhook that receives user submitted bug reports (required to enable the UI button)
 - `BUG_REPORT_RATE_LIMIT_MINUTES` — optional override for the submission cooldown window in minutes (defaults to 120 minutes; users may submit up to two reports per window). Legacy `BUG_REPORT_RATE_LIMIT_HOURS` is still honored if the minutes variable is not set.
 
 Hardware DB (optional)

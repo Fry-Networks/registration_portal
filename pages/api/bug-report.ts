@@ -264,9 +264,12 @@ export default async function handler(
     };
   }
 
-  const webhookUrl = process.env.DISCORD_BUG_WEBHOOK_URL;
+  // User-submitted bug reports go to the user channel; fall back to the legacy webhook if needed.
+  const webhookUrl =
+    process.env.DISCORD_USER_BUG_WEBHOOK_URL?.trim() ||
+    process.env.DISCORD_BUG_WEBHOOK_URL?.trim();
   if (!webhookUrl) {
-    loggers.apiError('/api/bug-report', new Error('DISCORD_BUG_WEBHOOK_URL not configured'), {
+    loggers.apiError('/api/bug-report', new Error('DISCORD_USER_BUG_WEBHOOK_URL not configured'), {
       issueType: 'BUG_REPORT_WEBHOOK_MISSING',
       part: 'bug-report.config',
       address,

@@ -541,17 +541,6 @@ export default function Navbar() {
             </Link>
           </div>
 
-          {showHolidayGreeting && (
-            <div className="order-3 w-full flex justify-center sm:order-none sm:flex-1">
-              {/* Holiday banner stays visible through Jan 2 even if users toggle the theme off. */}
-              <div className={holidayBannerClass}>
-                <span aria-hidden="true">🎄</span>
-                <span className="tracking-wide uppercase">Happy Holidays!</span>
-                <span aria-hidden="true">🎁</span>
-              </div>
-            </div>
-          )}
-
           <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3 relative z-[200]">
             <ThemeControls />
             {!address || address.length === 0 ? (
@@ -643,11 +632,12 @@ export default function Navbar() {
                     </button>
                     {showNotifications && notifications.length > 0 && (
                       <div
-                        className={`absolute right-0 mt-3 max-h-[70vh] w-[26rem] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border shadow-2xl z-[200] ${
+                        // Mobile: use a fixed overlay anchored below the navbar so it never clips or forces layout; desktop keeps the anchored tray.
+                        className={`overflow-hidden rounded-2xl border shadow-2xl z-[240] ${
                           isDark
                             ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
                             : 'border-red-200 bg-white shadow-red-200/60'
-                        }`}
+                        } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
                       >
                         <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
                           <NotificationCenter

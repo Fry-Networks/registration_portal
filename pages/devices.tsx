@@ -790,11 +790,14 @@ const DevicesPage = ({
   //   }
   // };
 
-  const isLikelyMinerKey = (value: string) => /^[A-Z]{2,4}-[A-Z0-9]{8,}/.test(value.trim());
+  // Keep miner-key validation aligned with onboarding modals: 2-6 char prefix + 32-char body.
+  const MINER_KEY_PATTERN = /^[A-Z]{2,6}-[A-Z0-9]{32}$/;
+  const isLikelyMinerKey = (value: string) => MINER_KEY_PATTERN.test(value.trim().toUpperCase());
 
   const handleRegister = async (minerKey: string): Promise<void> => {
     try {
-      const normalizedKey = (minerKey || '').trim();
+      // Normalize to uppercase so case mismatches do not block valid keys.
+      const normalizedKey = (minerKey || '').trim().toUpperCase();
       if (!normalizedKey || !isLikelyMinerKey(normalizedKey)) {
         toast.error({
           heading: 'Miner key invalid',
