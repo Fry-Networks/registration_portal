@@ -27,6 +27,8 @@ export type NormalizedSubscription = {
   status: string;
   startedAt: Date;
   renewalAt?: Date | null;
+  // Capture trial end so eligibility can allow trialing_incomplete when still active.
+  trialEndsAt?: Date | null;
   deviceAddress?: string | null;
   deviceTokenId?: string | number | null;
   deviceTokenDid?: string | null;

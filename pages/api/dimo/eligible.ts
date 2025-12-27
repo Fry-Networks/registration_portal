@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity';
 import { createApiError, ErrorCodes, handleApiError } from '../../../lib/api-errors';
-import { findEligibleSubscriptions } from '../../../lib/dimo/store';
+import { findSubscriptionsByWallet } from '../../../lib/dimo/store';
 import { getConfigFlag } from '../../../lib/config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,7 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     if (!security) return;
 
-    const subs = await findEligibleSubscriptions(security.session.user.address);
+    // Return all subs so users can see ineligible entries and eligibility reasons.
+    const subs = await findSubscriptionsByWallet(security.session.user.address);
     return res.status(200).json({
       subscriptions: subs.map((s) => ({
         subscriptionId: s.dimo_subscription_id,

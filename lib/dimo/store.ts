@@ -24,6 +24,8 @@ export type StoredSubscription = {
   status: string;
   started_at: Date;
   renewal_at?: Date | null;
+  // Persist trial end so we can audit trialing_incomplete eligibility decisions.
+  trial_ends_at?: Date | null;
   grace_expires_at?: Date | null;
   eligible: boolean;
   eligibility_reason: string;
@@ -100,6 +102,8 @@ export const upsertSubscriptions = async (params: {
         status: sub.status,
         started_at: sub.startedAt,
         renewal_at: sub.renewalAt ?? null,
+        // Store trial end for diagnostics and future UX needs.
+        trial_ends_at: sub.trialEndsAt ?? null,
         grace_expires_at: eligibility.graceExpiresAt ?? null,
         eligible: eligibility.eligible,
         eligibility_reason: eligibility.reason,
@@ -152,6 +156,17 @@ export const findEligibleSubscriptions = async (walletAddress: string): Promise<
     .find<StoredSubscription>({
       wallet_address: walletAddress,
       eligible: true
+    })
+    .sort({ started_at: 1 });
+  return cursor.toArray();
+};
+
+// Return all subscriptions so the UI can show ineligible entries too.
+export const findSubscriptionsByWallet = async (walletAddress: string): Promise<StoredSubscription[]> => {
+  const collection = await getCollection();
+  const cursor = collection
+    .find<StoredSubscription>({
+      wallet_address: walletAddress
     })
     .sort({ started_at: 1 });
   return cursor.toArray();

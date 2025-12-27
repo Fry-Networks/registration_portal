@@ -23,6 +23,8 @@ type ClientErrorBody = {
 const ENDPOINT = '/api/logging/client-error';
 const UNKNOWN_ORIGIN_THROTTLE_MS = 60 * 60 * 1000;
 let lastUnknownOriginLogAt = 0;
+const STACK_OVERFLOW_THROTTLE_MS = 6 * 60 * 60 * 1000;
+const stackOverflowLogCache = new Map<string, number>();
 
 /**
  * Normalize an error message coming from the browser.
@@ -135,6 +137,18 @@ export default function handler(
         return;
       }
       lastUnknownOriginLogAt = now;
+    }
+    // Stack overflow spam can be noisy; throttle to once per 6 hours per URL/user-agent.
+    if (normalizedMessage.includes('maximum call stack size exceeded')) {
+      const now = Date.now();
+      const userAgent = req.headers['user-agent'] ?? 'unknown';
+      const key = `${body.url ?? 'unknown'}|${userAgent}`;
+      const lastLogged = stackOverflowLogCache.get(key) ?? 0;
+      if (now - lastLogged < STACK_OVERFLOW_THROTTLE_MS) {
+        res.status(200).json({ success: true, suppressed: true });
+        return;
+      }
+      stackOverflowLogCache.set(key, now);
     }
 
     if (isExtensionError || isDuplicateEthereumError) {

@@ -140,6 +140,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.redirect(302, '/dimo?connected=1');
   } catch (error) {
+    const status = (error as { status?: number })?.status;
+    const decodedAud = (error as { dimoDecoded?: { aud?: string | string[] } })?.dimoDecoded?.aud;
+    const audValue = Array.isArray(decodedAud) ? decodedAud.join(', ') : decodedAud;
+    const responseSnippet = (error as { responseSnippet?: string })?.responseSnippet ?? '';
+    // If subscriptions return 404 for a verified JWT, surface a clearer message to the user.
+    if (status === 404 && audValue) {
+      return res.status(502).json(
+        createApiError(
+          ErrorCodes.INTERNAL_ERROR,
+          'We could not load your DIMO subscriptions with this login.',
+          'Please contact support through our Discord Helpdesk.',
+          { dimoAudience: audValue }
+        )
+      );
+    }
     const code = (error as any)?.code;
     if (code === 'DIMO_WALLET_CONFLICT') {
       return res.status(409).json(
@@ -173,6 +188,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       error: error instanceof Error ? error.message : String(error),
       dimoAccountId: undefined
     });
+    const endpointHint = (error as { endpoint?: string })?.endpoint;
+    const subscriptionAttempts = (error as { attempts?: Array<{ url: string; status?: number }> })?.attempts;
     return handleApiError(res, '/api/dimo/callback', error, {
       response: createApiError(
         ErrorCodes.INTERNAL_ERROR,
@@ -181,7 +198,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ),
       walletAddress: session.user.address,
       issueType: 'DIMO_CALLBACK_ERROR',
-      part: 'dimo.callback.handler'
+      part: 'dimo.callback.handler',
+      metadata: {
+        dimoEndpoint: endpointHint,
+        dimoResponseSnippet: responseSnippet,
+        // Emit attempt history to diagnose endpoint mismatches.
+        dimoSubscriptionAttempts: subscriptionAttempts
+      }
     });
   }
 }

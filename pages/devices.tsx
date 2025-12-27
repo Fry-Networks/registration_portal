@@ -1020,15 +1020,38 @@ const DevicesPage = ({
             stopPolling();
             return;
           }
+          // Suppress expected security rejections (client token/signature/fingerprint) from Discord noise.
+          let errorCode: string | undefined;
+          try {
+            const payload = await res.clone().json();
+            errorCode = typeof payload?.code === 'string' ? payload.code : undefined;
+          } catch {
+            errorCode = undefined;
+          }
+          const expectedSecurityCodes = new Set([
+            'MISSING_CLIENT_TOKEN',
+            'INVALID_CLIENT_TOKEN',
+            'MISSING_SIGNATURE',
+            'INVALID_SIGNATURE',
+            'EXPIRED_TIMESTAMP',
+            'DEVICE_MISMATCH',
+            'DEVICE_FINGERPRINT_REFRESH'
+          ]);
+          const isExpectedSecurityRejection =
+            (res.status === 403 || res.status === 409) &&
+            errorCode &&
+            expectedSecurityCodes.has(errorCode);
           if (!loggedFailure) {
-            logClientError({
-              issueType: 'REWARD_TOTALS_REFRESH_FAILED',
-              part: 'devices.pollTotals',
-              minerKey: null,
-              walletAddress: session?.user?.address ?? null,
-              url: '/api/rewards/get-asset-totals',
-              message: `Totals refresh returned ${res.status}`
-            });
+            if (!isExpectedSecurityRejection) {
+              logClientError({
+                issueType: 'REWARD_TOTALS_REFRESH_FAILED',
+                part: 'devices.pollTotals',
+                minerKey: null,
+                walletAddress: session?.user?.address ?? null,
+                url: '/api/rewards/get-asset-totals',
+                message: `Totals refresh returned ${res.status}${errorCode ? ` (${errorCode})` : ''}`
+              });
+            }
             loggedFailure = true;
           }
           if (consecutiveFailures >= 3) {

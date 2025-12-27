@@ -203,7 +203,14 @@ export function NotificationProvider({
     try {
       const response = await fetch('/api/announcements/active');
       if (!response.ok) {
-        throw new Error(`Failed to load announcements (${response.status})`);
+        // Suppress expected auth/validation failures; log only server-side issues.
+        if (response.status >= 500) {
+          throw new Error(`Failed to load announcements (${response.status})`);
+        }
+        setAnnouncements([]);
+        setBannerDismissedIds([]);
+        setAcknowledgedAnnouncementIds([]);
+        return;
       }
 
       const data: AnnouncementApiResponse = await response.json();
@@ -224,6 +231,10 @@ export function NotificationProvider({
         mergeIds(prev, data.dismissedAnnouncementIds)
       );
     } catch (error) {
+      // Avoid noisy logs for offline/aborted requests; keep unexpected failures.
+      const errorName = (error as Error | undefined)?.name;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (errorName === 'AbortError') return;
       console.error('Failed to load announcements', error);
     }
   }, [shouldOperate, setAnnouncements]);

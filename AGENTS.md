@@ -215,10 +215,3 @@ Required (examples in `.env`):
 (Needs updating as FRY 1.0 is retired as of October 9th 2025 and no longer used anywhere. Miners now earn tFry as rewards and stake FRY 2.0 for verification staking multipliers (1.5x or 3x depending on if type "one" (24hour lock) or type "two (6 months lock)))
 
 - Reward wallet must be opted-in to the reward asset; UI enforces via `/api/algorand/get-token-balance`.
-
-
-## Runbook (local)
-
-- Provide `.env` with `MONGO_URI`, NextAuth secret, and required mnemonics.
-- `npm i && npm run dev`
-- Sign in at `/signin` with a supported Algorand wallet (Pera/Defly via `@txnlab/use-wallet`).

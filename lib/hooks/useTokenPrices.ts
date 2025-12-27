@@ -22,7 +22,16 @@ export function useTokenPrices(refreshMs: number = 300000): TokenPrices {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ asset_ids: PRICE_ASSETS })
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Only log server-side failures; auth/timeouts are expected in long-lived tabs.
+          if (res.status >= 500) {
+            console.error('[useTokenPrices] Price API error', {
+              status: res.status,
+              statusText: res.statusText
+            });
+          }
+          return;
+        }
         const json = await res.json();
         if (!active) return;
         setPrices({
@@ -31,6 +40,10 @@ export function useTokenPrices(refreshMs: number = 300000): TokenPrices {
           tfry: null // tFRY is earned-only; no market price
         });
       } catch (error) {
+        // Avoid noisy logs for offline/aborted requests; keep unexpected failures.
+        const errorName = (error as Error | undefined)?.name;
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+        if (errorName === 'AbortError') return;
         console.error('[useTokenPrices] Failed to fetch prices', error);
       }
     };

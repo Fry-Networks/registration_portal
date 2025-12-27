@@ -12,8 +12,11 @@ import { getConfigFlag } from '../lib/config';
 import HeroBanner from '../components/HeroBanner';
 import bgImg from '../assets/background.png';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider';
+import { useToastContext } from '../hooks/ToastContext';
 
 const DimoLoginSection = dynamic(() => import('../components/DimoLoginSection'), { ssr: false });
+// TEMP support gate for copying JWTs; keep false unless explicitly enabled during troubleshooting.
+const JWT_COPY_ENABLED = false;
 
 type SubscriptionView = {
   subscriptionId: string;
@@ -57,6 +60,7 @@ export default function DimoPerksPage() {
   const { activeHoliday } = useSeasonalTheme();
   const holidayKey = activeHoliday?.key ?? null;
   const router = useRouter();
+  const toast = useToastContext();
   const sdkCardRef = useRef<HTMLDivElement | null>(null);
   const [dimoAuthenticated, setDimoAuthenticated] = useState(true);
   const [subs, setSubs] = useState<SubscriptionView[]>([]);
@@ -66,6 +70,8 @@ export default function DimoPerksPage() {
   const [storedClaims, setStoredClaims] = useState<Record<string, { minerKey: string; checksum?: string }>>({});
   const [registrationStatus, setRegistrationStatus] = useState<Record<string, { registered: boolean; checking?: boolean }>>({});
   const [userJwt, setUserJwt] = useState('');
+  // Track the last JWT used for sync so support can copy it when needed.
+  const [lastUserJwt, setLastUserJwt] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [stateToken, setStateToken] = useState<string | null>(null);
@@ -112,6 +118,8 @@ export default function DimoPerksPage() {
     if (!tokenToUse || !session?.user?.address) return;
     setSyncing(true);
     setSyncMessage(null);
+    // Cache the JWT used for this sync attempt (support-only copy helper).
+    setLastUserJwt(tokenToUse);
     try {
       // Ensure state cookie is set before posting the token.
       let localState = stateToken;
@@ -136,9 +144,19 @@ export default function DimoPerksPage() {
         await loadEligible();
       } else {
         setSyncMessage(data?.message || 'Failed to sync DIMO subscriptions');
+        // Surface the server-provided reason in a toast so users see next steps.
+        toast.error({
+          heading: 'DIMO sync failed',
+          message: data?.action ? `${data?.message} ${data?.action}` : data?.message || 'Unable to sync your DIMO subscriptions.'
+        });
       }
     } catch (error: any) {
       setSyncMessage(error?.message || 'Failed to sync DIMO subscriptions');
+      // Fall back to a generic toast when the request fails before a response.
+      toast.error({
+        heading: 'DIMO sync failed',
+        message: error?.message || 'Unable to sync your DIMO subscriptions.'
+      });
     } finally {
       setSyncing(false);
     }
@@ -219,6 +237,16 @@ export default function DimoPerksPage() {
     }
   };
 
+  const copyLastJwt = useCallback(async () => {
+    if (!lastUserJwt) return;
+    try {
+      await navigator.clipboard.writeText(lastUserJwt);
+      setSyncMessage('DIMO token copied to clipboard.');
+    } catch {
+      setSyncMessage('Unable to copy DIMO token. Please use DevTools.');
+    }
+  }, [lastUserJwt]);
+
   const checkRegistrationStatus = useCallback(
     async (minerKey: string) => {
       if (!session?.user?.address) return;
@@ -280,7 +308,8 @@ export default function DimoPerksPage() {
       <div className={heroOffsetClass}>
         <HeroBanner
           title="DIMO Airdrop · Fry AI Edge Miner"
-          subtitle="Link your DIMO account, sync eligible subscriptions, and claim your free AEM miner key."
+          // Surface all subscriptions (eligible + ineligible) to reduce user confusion.
+          subtitle="Link your DIMO account, sync your subscriptions, and claim your free AEM miner key."
           backgroundImage={bgImg}
           showPrices={false}
           mode={isDark ? 'dark' : 'light'}
@@ -318,6 +347,25 @@ export default function DimoPerksPage() {
         />
       </div>
 
+      {JWT_COPY_ENABLED && lastUserJwt && (
+        <Card className={panelClass}>
+          {/* Support-only action to copy the last DIMO JWT used for sync. */}
+          <Flex justifyContent="between" alignItems="center">
+            <Text className={isDark ? 'text-white' : 'text-slate-800'}>
+              Support: copy the last DIMO token used for sync.
+            </Text>
+            <Button
+              onClick={copyLastJwt}
+              className={`border bg-red-600 text-white hover:bg-red-500 hover:border-red-400 ${
+                isDark ? 'border-red-500' : 'border-red-500'
+              }`}
+            >
+              Copy JWT
+            </Button>
+          </Flex>
+        </Card>
+      )}
+
       {syncMessage && (
         <Card className={panelClass}>
           <Text className={isDark ? 'text-white' : 'text-slate-800'}>{syncMessage}</Text>
@@ -326,7 +374,8 @@ export default function DimoPerksPage() {
 
       <Card className={panelClass}>
         <Flex justifyContent="between" alignItems="center" className="mb-4">
-          <Metric className={isDark ? 'text-white dark:text-white' : 'text-slate-900'}>Eligible subscriptions</Metric>
+          {/* Show all subscriptions so users can see ineligible entries and reasons. */}
+          <Metric className={isDark ? 'text-white dark:text-white' : 'text-slate-900'}>Your subscriptions</Metric>
           <Button
             onClick={loadEligible}
             loading={loading}
@@ -337,9 +386,17 @@ export default function DimoPerksPage() {
           </Button>
         </Flex>
         {subs.length === 0 && (
-          <Text className={isDark ? 'text-gray-200' : 'text-slate-800'}>
-            No eligible DIMO subscriptions detected yet. Only active monthly or annual subscriptions prior to December 4th 2025 are eligible for this airdrop. New Annual DIMO subscriptions only that enroll between December 5th to December 12th 2025 will be eligible as well. Post December 12th, no new subscriptions will be eligible anymore. Please ensure you have synced your DIMO account above.
-          </Text>
+          <>
+            <Text className={isDark ? 'text-gray-200' : 'text-slate-800'}>
+              No DIMO subscriptions detected yet. Please sync your DIMO account above and refresh.
+            </Text>
+            {/* Eligibility policy summary for transparency. */}
+            <Text className={`mt-3 text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
+              Only active monthly or annual subscriptions prior to December 23rd 2025 are eligible for this airdrop.
+              New Annual DIMO subscriptions only that enroll between December 24th to December 31st 2025, will be eligible as well.
+              Post January 1st 2026, no new subscriptions will be eligible anymore. Please ensure you have synced your DIMO account above.
+            </Text>
+          </>
         )}
         <Grid numItemsSm={1} numItemsMd={2} className="gap-4">
           {subs.map((sub) => (

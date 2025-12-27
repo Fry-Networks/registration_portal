@@ -131,6 +131,24 @@ export function useClientErrorLogger(session: Session | null | undefined) {
   const cacheRef = useRef<Map<string, number>>(new Map());
   const shouldSuppress = (payload: ErrorPayload): boolean => {
     const message = payload?.message ?? '';
+    // Suppress noisy client-side polling errors; server-side 5xx still report via API logs.
+    const normalizedMessage =
+      typeof message === 'string' ? message.toLowerCase() : '';
+    if (
+      normalizedMessage.includes('failed to fetch prices') ||
+      normalizedMessage.includes('usetokenprices') ||
+      normalizedMessage.includes('failed to load announcements') ||
+      // DIMO SDK postMessage can log "unknown origin" on benign cross-window messages.
+      normalizedMessage.includes('received message from an unknown origin') ||
+      // NextAuth credentials sign-in rejects are often user cancellations or wallet mismatches.
+      normalizedMessage.includes('credentialssignin') ||
+      // Algod balance polling failures are expected during transient RPC/network issues.
+      normalizedMessage.includes('error fetching balances') ||
+      // DIMO popup origin warnings are benign in cross-origin login flows.
+      normalizedMessage.includes("origins don't match")
+    ) {
+      return true;
+    }
     if (typeof message === 'string' && message.toLowerCase().includes('no accounts found')) {
       return true;
     }
