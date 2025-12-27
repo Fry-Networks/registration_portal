@@ -129,6 +129,15 @@ export default function handler(
       normalizedMessage.includes("can't redefine non-configurable property \"ethereum\"") ||
       normalizedMessage.includes('non-configurable property "ethereum"');
 
+    // Suppress noisy client polling messages if they slip past the client-side filter.
+    if (
+      normalizedMessage.includes('failed to load announcements') ||
+      normalizedMessage.includes('failed to fetch prices')
+    ) {
+      res.status(200).json({ success: true, suppressed: true });
+      return;
+    }
+
     // DIMO popup sometimes reports "unknown origin" repeatedly; throttle to once per hour.
     if (normalizedMessage.includes('unknown origin')) {
       const now = Date.now();
