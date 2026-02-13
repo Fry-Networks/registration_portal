@@ -4,18 +4,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
       args:
         NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
         NEXT_PUBLIC_TEST_MODE: 'false'
         NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
-    command: >
-      bash start-dev-with-1password.sh
-    user: node
+    init: true
     environment:
+      PORT: "3007"
       NODE_ENV: development
       NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
-      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN?missing_OP_SERVICE_ACCOUNT_TOKEN}
       NEXTAUTH_URL: 'op://Dashboard/Dash Secrets/NEXTAUTH_URL'
+      NEXTAUTH_URL_INTERNAL: "http://127.0.0.1:3007"
       NEXTAUTH_SECRET: 'op://Dashboard/Dash Secrets/NEXT_AUTH_SECRET'
       STAKE_MNEMONIC: 'op://Dashboard/Dash Secrets/STAKE_MNEMONIC'
       STAKE_REKEY: 'op://Dashboard/Dash Secrets/STAKE_REKEY'
@@ -24,6 +24,7 @@ services:
       MONGO_URI: 'op://Dashboard/Dash Secrets/MONGO_URI'
       VER_MONGO_URI: 'op://Dashboard/Dash Secrets/VER_MONGO_URI'
       DISCORD_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
+      DISCORD_USER_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_USER_BUG_WEBHOOK_URL'
       NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
       NEXT_PUBLIC_TEST_MODE: 'false'
       WEEKLY_CUTOFF_UTC: '2025-09-12T00:00:00.000Z'
@@ -48,16 +49,51 @@ services:
       DIMO_MINER_PREFIX: 'AEM'
       NEXT_PUBLIC_FORCE_SEASONAL_THEME: ${NEXT_PUBLIC_FORCE_SEASONAL_THEME:-'christmas'} # christmas|valentines|easter|july4|thanksgiving|off|none
       NEXT_PUBLIC_DISABLE_SEASONAL_AUTO: ${NEXT_PUBLIC_DISABLE_SEASONAL_AUTO:-'false'}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:3007/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Ensure Next.js cache is writable by the non-root user.
+      - /app/.next/cache:uid=1001,gid=1001,mode=0755
+    ports:
+      - '127.0.0.1:${DASHBOARD_DEV_HOST_PORT:-3007}:3007'
     volumes:
       - .:/app:cached
       - /app/node_modules
-      - /home/fryadmin/dude-dashboard/logs:/app/logs # Persist logs outside container
+      - /home/helpdesk/subdomains/dashb/logs:/app/logs # Persist logs outside container
+      # Mount the MongoDB CA bundle so tlsCAFile is available inside the container.
+      - ${MONGO_CA_CERT_PATH}:/etc/ssl/mongo/mongo-ca.crt:ro
+    command: ["bash", "start-dev-with-1password.sh"]
     restart: unless-stopped
     networks:
       - frynet
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    secrets:
+      - op_service_account_token
 
 networks:
   frynet:
     name: frynet
     driver: bridge
     external: true
+
+secrets:
+  op_service_account_token:
+    file: /etc/opt/dashb/op_service_account_token

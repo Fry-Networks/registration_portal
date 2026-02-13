@@ -11,16 +11,16 @@ services:
         NEXT_PUBLIC_DIMO_CLIENT_ID: ${NEXT_PUBLIC_DIMO_CLIENT_ID:-'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'}
         NEXT_PUBLIC_DIMO_REDIRECT_URI: ${NEXT_PUBLIC_DIMO_REDIRECT_URI:-'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'}
         NEXT_PUBLIC_DIMO_ENV: ${NEXT_PUBLIC_DIMO_ENV:-'production'}
+    init: true
     restart: unless-stopped
     networks:
       - frynet
-    user: node
     environment:
-      # PORT: 3007
+      PORT: "3007"
       NODE_ENV: production
       NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
-      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN?missing_OP_SERVICE_ACCOUNT_TOKEN}
       NEXTAUTH_URL: 'op://Dashboard/Dash Secrets/NEXTAUTH_URL'
+      NEXTAUTH_URL_INTERNAL: "http://127.0.0.1:3007"
       NEXTAUTH_SECRET: 'op://Dashboard/Dash Secrets/NEXT_AUTH_SECRET'
       STAKE_MNEMONIC: 'op://Dashboard/Dash Secrets/STAKE_MNEMONIC'
       STAKE_REKEY: 'op://Dashboard/Dash Secrets/STAKE_REKEY'
@@ -29,6 +29,7 @@ services:
       MONGO_URI: 'op://Dashboard/Dash Secrets/MONGO_URI'
       VER_MONGO_URI: 'op://Dashboard/Dash Secrets/VER_MONGO_URI'
       DISCORD_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
+      DISCORD_USER_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_USER_BUG_WEBHOOK_URL'      
       NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
       NEXT_PUBLIC_TEST_MODE: 'false'
       WEEKLY_CUTOFF_UTC: '2025-09-12T00:00:00.000Z'
@@ -46,7 +47,7 @@ services:
       NEXT_PUBLIC_DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'
       NEXT_PUBLIC_DIMO_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'
       NEXT_PUBLIC_DIMO_ENV: 'production'
-      DIMO_ANNOUNCE_UTC: '2025-12-1T00:00:00.000Z'
+      DIMO_ANNOUNCE_UTC: '2025-12-23T21:00:00.000Z'
       DIMO_GRACE_DAYS: 7
       DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE: 'true'
       DIMO_ALLOW_POST_GRACE: 'false'
@@ -55,13 +56,40 @@ services:
       # Force Christmas theme on by default during the holiday window; users can still toggle it off client-side.
       NEXT_PUBLIC_FORCE_SEASONAL_THEME: ${NEXT_PUBLIC_FORCE_SEASONAL_THEME:-christmas} # christmas|valentines|easter|july4|thanksgiving|off|none
       NEXT_PUBLIC_DISABLE_SEASONAL_AUTO: ${NEXT_PUBLIC_DISABLE_SEASONAL_AUTO:-'false'}
-    #ports:
-    #  - '127.0.0.1:3307:3007' # host_ip:host_port:container_port
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:3007/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1));\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Ensure Next.js cache is writable by the non-root user.
+      - /app/.next/cache:uid=1001,gid=1001,mode=0755
+    ports:
+      - '127.0.0.1:${DASHBOARD_HOST_PORT:-3007}:3007' # host_ip:host_port:container_port
     volumes:
-      - /home/fryadmin/dude-dashboard/logs:/app/logs # Persist logs outside container
-
+      - /home/helpdesk/subdomains/dashb/logs:/app/logs # Persist logs outside container
+      # Mount the MongoDB CA bundle so tlsCAFile is available inside the container.
+      - ${MONGO_CA_CERT_PATH}:/etc/ssl/mongo/mongo-ca.crt:ro
+    secrets:
+      - op_service_account_token
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 networks:
-  frynet:
-    name: frynet
-    driver: bridge
-    external: true
+  frynet: {}
+secrets:
+  op_service_account_token:
+    file: /etc/opt/dashb/op_service_account_token
