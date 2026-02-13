@@ -404,10 +404,13 @@ export default function Navbar() {
     if (router.pathname === '/') {
       return;
     }
+    if (status === 'loading') {
+      return;
+    }
     if (!session || !session.user) {
       router.push('/');
     }
-  }, [router.pathname, session, router]);
+  }, [router.pathname, session, status, router]);
 
   useEffect(() => {
     if (!showNotifications) {
@@ -760,7 +763,26 @@ export default function Navbar() {
                         name?: string;
                         data?: { type?: string };
                         cancelled?: boolean;
+                        message?: string;
+                        stack?: string;
                       } | undefined;
+
+                      const rawMessage =
+                        typedError?.message ||
+                        (typeof error === 'string' ? error : '') ||
+                        (error instanceof Error ? error.message : '');
+                      const isPeraAccountBlocked =
+                        typeof rawMessage === 'string' &&
+                        rawMessage.toLowerCase().includes('requested account cannot be connected');
+                      const errorMeta = {
+                        walletId: wallet.id,
+                        walletName: wallet.metadata?.name,
+                        errorName: typedError?.name ?? (error instanceof Error ? error.name : undefined),
+                        errorMessage: rawMessage || undefined,
+                        errorData: typedError?.data,
+                        errorStack: typedError?.stack ?? (error instanceof Error ? error.stack : undefined),
+                        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined
+                      };
 
                       const isPeraSessionConflict =
                         typedError?.name === 'PeraWalletConnectError' &&
@@ -786,6 +808,25 @@ export default function Navbar() {
                         return;
                       }
 
+                      if (isPeraAccountBlocked) {
+                        console.warn('Pera rejected account connect request', errorMeta);
+                        try {
+                          await wallet.disconnect();
+                        } catch (disconnectError) {
+                          console.error('Failed to clear wallet session after Pera rejection', disconnectError);
+                        }
+                        showToastError({
+                          heading: 'Wallet connection failed',
+                          message:
+                            'Pera reported the requested account cannot be connected. Please open Pera, unlock the account, and try again. If it persists, remove Fry Networks in Pera → WalletConnect and retry.',
+                          duration: 7000,
+                          issueType: 'WALLET_PERA_ACCOUNT_BLOCKED',
+                          part: 'navbar.wallet.connect',
+                          metadata: errorMeta
+                        });
+                        return;
+                      }
+
                       if (isWalletModalClosed) {
                         showToastInfo({
                           heading: 'Wallet request cancelled',
@@ -800,7 +841,8 @@ export default function Navbar() {
                         message: 'We could not connect to your wallet. Please try again.',
                         duration: 6000,
                         issueType: 'WALLET_CONNECTION_ERROR',
-                        part: 'navbar.wallet.connect'
+                        part: 'navbar.wallet.connect',
+                        metadata: errorMeta
                       });
                     }
                   }}
