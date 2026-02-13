@@ -1,6 +1,8 @@
 import { Title, Text, Button, Card, TextInput, Flex, MultiSelect, MultiSelectItem } from '@tremor/react';
 import { useWallet } from '@txnlab/use-wallet-react';
-import { useSession, getSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './api/auth/[...nextauth]';
 import { useEffect, useState } from 'react';
 import clientPromise from '../lib/mongoclient';
 import { CheckCircleIcon, XCircleIcon, ExternalLinkIcon } from '@heroicons/react/outline';
@@ -323,7 +325,8 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
 
 
 export async function getServerSideProps(context: any) {
-  const session = await getSession(context);
+  // Avoid internal fetch to NEXTAUTH_URL_INTERNAL; read session from cookies directly.
+  const session = await getServerSession(context.req, context.res, authOptions);
   if (!session || !session.user.address) {
     return {
       props: {},
