@@ -73,6 +73,8 @@ COPY --from=op /usr/local/bin/op /usr/local/bin/op
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+RUN mkdir -p /app/scripts
+COPY --from=builder /app/scripts/sync-creds-hardware-verified.js /app/scripts/sync-creds-hardware-verified.js
 
 # Runtime entrypoint for 1Password secrets
 COPY op-entrypoint.sh /usr/local/bin/op-entrypoint.sh

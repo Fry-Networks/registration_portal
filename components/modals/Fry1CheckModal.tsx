@@ -70,9 +70,31 @@ export default function Fry1CheckModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address: session?.user.address })
       });
-      if (!response.ok) throw new Error('Failed to check availability');
-      const result = await response.json();
 
+      if (!response.ok) {
+        // Parse error response to get specific code
+        const errorData = await response.json().catch(() => ({}));
+        let errorMessage = 'Unable to check conversion eligibility. Please try again.';
+
+        if (errorData.code === 'DEVICE_NOT_FOUND') {
+          errorMessage = 'This wallet was not included in the Fry 1.0 conversion snapshot. Only wallets holding FRY 1.0 at the snapshot date are eligible. If you believe this is an error, please contact support.';
+        } else if (errorData.code === 'INVALID_INPUT') {
+          errorMessage = 'Your Fry 1.0 conversion balance is zero. This may mean your conversion has already been completed, or you had no eligible balance at the snapshot.';
+        } else if (errorData.code === 'WALLET_MISMATCH') {
+          errorMessage = 'The connected wallet does not match your session. Please disconnect and reconnect your wallet.';
+        }
+
+        setIsAvailable(false);
+        setCsvData(null);
+        toast.error({
+          heading: 'Not Eligible',
+          message: errorMessage
+        });
+        setIsChecking(false);
+        return;
+      }
+
+      const result = await response.json();
       setCsvData(result.data);
       setIsAvailable(true);
       toast.success({
@@ -83,8 +105,8 @@ export default function Fry1CheckModal({
       setIsAvailable(false);
       setCsvData(null);
       toast.error({
-        heading: 'Not Available',
-        message: 'Wallet Not Eligible for Fry 1.0 Conversion'
+        heading: 'Connection Error',
+        message: 'Unable to check conversion eligibility. Please check your connection and try again.'
       });
     }
     setIsChecking(false);
