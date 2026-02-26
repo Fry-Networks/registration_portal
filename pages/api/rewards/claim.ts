@@ -24,6 +24,7 @@ import {
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import { withRetry } from '../../../lib/algorand/withRetry';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
@@ -263,9 +264,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Ensure the custodial rewards vault has enough liquidity for each asset
       for (const entry of summary) {
         try {
-          const holding = await algodClient
+          const holding = await withRetry(
+            () => algodClient
             .accountAssetInformation(rewardsVaultAddress, entry.asset_id)
-            .do()
+            .do(),
+            { maxAttempts: 3 }
+          )
             .catch((error: any) => {
               const statusCode = error?.response?.status ?? error?.status;
               if (statusCode === 404) {

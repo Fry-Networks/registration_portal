@@ -17,6 +17,7 @@
     "cleanup-legacy-creds": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/cleanup-legacy-credentials.ts",
     "test": "node --test tests/*.test.js",
     "backfill-creds-addresses": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/backfill-creds-addresses.ts",
+    "sync-creds-hardware-verified": "node scripts/sync-creds-hardware-verified.js",
     "migrate-stake-history": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/migrate-stake-history.ts",
     "fix-fry-conversion": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/fry-conversion-fixer.ts",
     "unlock-legacy-verification": "ts-node --compiler-options '{\"module\":\"commonjs\"}' scripts/unlock-legacy-verification.ts"

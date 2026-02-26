@@ -5,18 +5,28 @@ import { Button, Flex, Select } from '@tremor/react';
 import { signOut } from 'next-auth/react';
 import { useToastContext } from '../hooks/ToastContext';
 import { runWithWalletRequest, WalletRequestInFlightError } from '../lib/wallet/requestCoordinator.client';
+import { useWalletPending } from '../lib/hooks/useWalletPending';
 
 export default function ConnectMenu() {
     const { wallets, activeAccount } = useWallet();
     const toast = useToastContext();
     const { info: showInfo } = toast;
+    const isWalletPending = useWalletPending();
+
     useEffect(() => {
         if (activeAccount) {
             localStorage.setItem('walletAddress', activeAccount?.address);
         }
     }, [activeAccount]);
+
     return (
         <Flex flexDirection='col' justifyContent='between' alignItems='center'>
+            {/* Show pending message when wallet operation is in progress */}
+            {isWalletPending && (
+                <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg text-yellow-800 dark:text-yellow-200 text-sm">
+                    <strong>Transaction in progress</strong> — Please complete or cancel your current request in Pera Wallet.
+                </div>
+            )}
             <Flex flexDirection='row' justifyContent='between' alignItems='center'>
                 {wallets?.map((wallet) => (
                     <Flex key={wallet.id} flexDirection='col' justifyContent='center' alignItems='center'>
@@ -75,10 +85,10 @@ export default function ConnectMenu() {
                                     });
                                 }
                             }}
-                            disabled={wallet.isConnected || !!activeAccount}
+                            disabled={wallet.isConnected || !!activeAccount || isWalletPending}
                             color={wallet.isConnected ? 'green' : 'blue'}
                         >
-                            {wallet.isConnected ? 'Connected' : 'Connect'}
+                            {isWalletPending ? 'Pending...' : (wallet.isConnected ? 'Connected' : 'Connect')}
                         </Button>
 
                         {wallet.isActive && wallet.accounts.length > 0 && (
@@ -87,7 +97,7 @@ export default function ConnectMenu() {
                                     wallet.disconnect()
                                     signOut()
                                 }
-                                } disabled={!wallet.isConnected} color='red' className='mb-2'>
+                                } disabled={!wallet.isConnected || isWalletPending} color='red' className='mb-2'>
                                     Disconnect
                                 </Button>
                                 <Select

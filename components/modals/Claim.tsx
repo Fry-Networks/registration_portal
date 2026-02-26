@@ -1,21 +1,22 @@
 import { Button, Dialog, DialogPanel, Flex, Title } from '@tremor/react';
 import { useModal } from '../../app/modalcontext';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
-import { REWARD_WALLET } from '../../lib/utils';
+import { REWARD_WALLET, tFRY } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { getClientToken } from '../../lib/clientToken';
 import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
 import { parseAlgodError } from '../../lib/algorand/errorParser';
-import { buildPaymentTxn } from '../../lib/wallet/transactions';
+import { buildPaymentTxn, buildOptInTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
-import { getAlgoBalance } from '../../lib/algorand/balances';
+import { getAlgoBalance, getAssetBalance } from '../../lib/algorand/balances';
+import { getAuthAddr } from '../../lib/algorand/authAddr';
 import { useTheme } from 'next-themes';
 
 const devMode =
@@ -46,6 +47,11 @@ export default function ClaimModal({
   const [statusText, setStatusText] = useState('');
   const [txIdState, setTxIdState] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  // State for proactive tFRY opt-in check
+  const [optInStatus, setOptInStatus] = useState<'checking' | 'missing' | 'ok'>('checking');
+  // State for auto opt-in flow
+  const [optInStage, setOptInStage] = useState<'idle' | 'signing' | 'submitting' | 'success' | 'error'>('idle');
+  const [optInError, setOptInError] = useState<string | null>(null);
   const intervalRef = useRef<any>(null);
   // Prevent stacking multiple fee-payment prompts; stays true until the wallet resolves.
   const feeRequestLockRef = useRef(false);
@@ -55,7 +61,153 @@ export default function ClaimModal({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
 
+  // Proactively check if user has opted into tFRY before allowing claim
+  useEffect(() => {
+    const checkOptIn = async () => {
+      if (!activeAddress) {
+        setOptInStatus('checking');
+        return;
+      }
+      try {
+        const balance = await getAssetBalance(activeAddress, tFRY.id);
+        if (balance === null) {
+          setOptInStatus('missing');
+        } else {
+          setOptInStatus('ok');
+        }
+      } catch {
+        // On error, allow claim attempt (server will validate)
+        setOptInStatus('ok');
+      }
+    };
+    checkOptIn();
+  }, [activeAddress]);
+
   const MIN_FEE_BUFFER = 0.002; // 0.002 ALGO ensures 0.001 fee + safety buffer
+  const OPT_IN_FEE_BUFFER = 0.002; // 0.002 ALGO for opt-in transaction fee
+
+  // Handle automatic ASA opt-in
+  const handleOptIn = async () => {
+    if (!activeAddress) return;
+
+    setOptInStage('signing');
+    setOptInError(null);
+
+    try {
+      // Check ALGO balance for tx fee
+      const algoBalance = await getAlgoBalance(activeAddress);
+      if (algoBalance === null || algoBalance < OPT_IN_FEE_BUFFER) {
+        toast.error({
+          heading: 'Insufficient ALGO',
+          message: `You need at least ${OPT_IN_FEE_BUFFER.toFixed(3)} ALGO to cover the opt-in transaction fee. Current balance: ${(algoBalance ?? 0).toFixed(3)} ALGO.`
+        });
+        setOptInStage('error');
+        setOptInError('Insufficient ALGO for transaction fee');
+        return;
+      }
+
+      toast.info({
+        heading: 'Signature Required',
+        message: 'Approve the opt-in transaction in your wallet to continue.'
+      });
+
+      // Build opt-in transaction
+      const encodedTxn = await buildOptInTxn({
+        sender: activeAddress,
+        assetId: Number(tFRY.id)
+      });
+
+      setOptInStage('submitting');
+
+      // Sign and submit
+      await executeWalletRetry(
+        async () => {
+          const txIds = await signAndSubmit([encodedTxn], {
+            message: 'Opt into tFRY to receive rewards'
+          });
+          if (!txIds.length) {
+            throw new Error('Wallet did not return a transaction id');
+          }
+          console.debug('[Claim] Opt-in txId:', txIds[0]);
+        },
+        { operationType: 'opt-in' }
+      );
+
+      // Wait briefly for indexer to catch up
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Verify opt-in succeeded
+      const balance = await getAssetBalance(activeAddress, tFRY.id);
+      if (balance !== null) {
+        setOptInStatus('ok');
+        setOptInStage('success');
+        toast.success({
+          heading: 'Opt-In Successful',
+          message: 'You can now claim your rewards.'
+        });
+      } else {
+        // Try one more time after a longer delay
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const retryBalance = await getAssetBalance(activeAddress, tFRY.id);
+        if (retryBalance !== null) {
+          setOptInStatus('ok');
+          setOptInStage('success');
+          toast.success({
+            heading: 'Opt-In Successful',
+            message: 'You can now claim your rewards.'
+          });
+        } else {
+          throw new Error('Opt-in transaction submitted but asset not detected yet. Please wait a moment and try claiming again.');
+        }
+      }
+
+    } catch (error) {
+      if (error instanceof WalletRequestInFlightError) {
+        toast.info({
+          heading: 'Wallet Request In Progress',
+          message: 'Finish or cancel the pending wallet prompt first.'
+        });
+        setOptInStage('idle');
+        return;
+      }
+      if (isPeraPendingRequestError(error)) {
+        toast.info({
+          heading: 'Wallet Still Processing',
+          message: 'Approve or cancel the existing request in your wallet.'
+        });
+        setOptInStage('idle');
+        return;
+      }
+      if (isPeraRejectedError(error)) {
+        toast.error({
+          heading: 'Opt-In Rejected',
+          message: 'You rejected the opt-in transaction. Try again when ready.'
+        });
+        setOptInStage('idle');
+        return;
+      }
+
+      const msg = error instanceof Error ? error.message : String(error);
+      // Check if this might be a rekeyed account issue
+      const rekeyMsg = await checkRekeyedAccountError(error, activeAddress);
+      if (rekeyMsg) {
+        toast.error({
+          heading: 'Rekeyed Account',
+          message: rekeyMsg
+        });
+        setOptInStage('error');
+        setOptInError(rekeyMsg);
+        return;
+      }
+      console.error('[Claim] Opt-in failed:', msg);
+      toast.error({
+        heading: 'Opt-In Failed',
+        message: 'Could not complete opt-in. Please try again.'
+      });
+      setOptInStage('error');
+      setOptInError(msg);
+    }
+  };
 
   const isPeraPendingRequestError = (error: unknown): boolean => {
     const message = typeof error === 'string' ? error : (error as { message?: string })?.message ?? '';
@@ -65,6 +217,21 @@ export default function ClaimModal({
   const isPeraRejectedError = (error: unknown): boolean => {
     const message = typeof error === 'string' ? error : (error as { message?: string })?.message ?? '';
     return /confirmation failed\(4100\)/i.test(message) && /rejected/i.test(message);
+  };
+
+  // Helper to check if a signing error might be due to rekeyed account
+  const checkRekeyedAccountError = async (error: unknown, address: string | null): Promise<string | null> => {
+    if (!address) return null;
+    try {
+      const authAddr = await getAuthAddr(address);
+      if (authAddr) {
+        const shortAuth = `${authAddr.slice(0, 6)}...${authAddr.slice(-4)}`;
+        return `Your account is rekeyed. To sign transactions, import the authorizing account (${shortAuth}) into your Pera wallet.`;
+      }
+    } catch {
+      // Ignore lookup errors
+    }
+    return null;
   };
 
   const requestGasFee = async (from: string | undefined): Promise<boolean> => {
@@ -136,6 +303,15 @@ export default function ClaimModal({
         toast.error({
           heading: 'Fee Payment Rejected',
           message: 'The fee transaction was rejected in your wallet. Approve the request next time to continue claiming.'
+        });
+        return false;
+      }
+      // Check if this might be a rekeyed account issue
+      const rekeyMsgFee = await checkRekeyedAccountError(error, from ?? null);
+      if (rekeyMsgFee) {
+        toast.error({
+          heading: 'Rekeyed Account',
+          message: rekeyMsgFee
         });
         return false;
       }
@@ -401,8 +577,8 @@ export default function ClaimModal({
             <button
               type="button"
               className="rounded-tremor-small p-2 text-tremor-content-subtle hover:bg-tremor-background-subtle hover:text-tremor-content dark:text-dark-tremor-content-subtle hover:dark:bg-dark-tremor-background-subtle hover:dark:text-tremor-content"
-              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
               onClick={() => { if (!(isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted')) closeModal(modalName); }}
               aria-label="Close"
             >
@@ -417,6 +593,30 @@ export default function ClaimModal({
             className={`gap-3 w-full mt-5 ${isDark ? 'text-gray-100' : 'text-slate-900'}`}
           >
             <p>Do you want to claim the rewards?</p>
+            {optInStatus === 'missing' && (
+              <div className="mt-3 p-3 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg">
+                <p className="text-amber-800 dark:text-amber-200 text-sm mb-2">
+                  <strong>Action Required:</strong> You need to opt into tFRY before claiming rewards.
+                </p>
+                <Button
+                  onClick={handleOptIn}
+                  disabled={optInStage === 'signing' || optInStage === 'submitting'}
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                >
+                  {optInStage === 'signing' ? 'Approve in wallet...' :
+                   optInStage === 'submitting' ? 'Submitting...' :
+                   'Opt In Now'}
+                </Button>
+                {optInError && (
+                  <p className="text-red-600 dark:text-red-400 text-xs mt-2">{optInError}</p>
+                )}
+              </div>
+            )}
+            {optInStatus === 'checking' && (
+              <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                Checking wallet opt-in status...
+              </div>
+            )}
             {isProcessing && (
               <>
                 <p className={`text-sm ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>{statusText}</p>
@@ -433,8 +633,8 @@ export default function ClaimModal({
           >
             <Button
               className={`bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'}`}
-              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
               onClick={() => {
                 if (isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted') return;
                 closeModal(modalName);
@@ -446,8 +646,8 @@ export default function ClaimModal({
               className={`relative flex items-center justify-center bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 ${isDark ? 'text-white' : 'text-slate-900'} ${
                 isProcessing ? 'cursor-not-allowed' : 'cursor-default'
               }`}
-              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
-              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted'}
+              disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
+              aria-disabled={isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted' || optInStatus !== 'ok'}
               onClick={() => { if (!(isProcessing || stage === 'paying-fee' || stage === 'submitting' || stage === 'submitted')) claimRewards(); }}
             >
             {isProcessing ? (
