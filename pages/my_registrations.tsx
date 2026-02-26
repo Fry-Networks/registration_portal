@@ -1,0 +1,425 @@
+import { Title, Text, Button, Card, TextInput, Flex, MultiSelect, MultiSelectItem } from '@tremor/react';
+import { useWallet } from '@txnlab/use-wallet-react';
+import { useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './api/auth/[...nextauth]';
+import { useEffect, useState } from 'react';
+import clientPromise from '../lib/mongoclient';
+import { CheckCircleIcon, XCircleIcon, ExternalLinkIcon } from '@heroicons/react/outline';
+import UpdateRewardModal from '../components/modals/rewardWallet';
+import PositionModal from '../components/modals/Position';
+import { useModal } from '../app/modalcontext';
+import StakeVerification from '../components/modals/StakeVerification';
+import MessageUpdate from '../components/messageUpdate';
+import NameChangeModal from '../components/modals/NameChange';
+import WithdrawStakeVerification from '../components/modals/WithdrawStakeVerification';
+import { Device } from '../lib/types';
+import { useRouter } from 'next/router';
+
+type DeviceWithMeta = Device & {
+  registration?: Device['registration'] | null;
+  node?: Device['node'] | null;
+  verificationLocked?: boolean;
+  verificationDisabledReason?: string | null;
+};
+
+export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceWithMeta[] }) {
+  const router = useRouter();
+  const { data: session, status } = useSession();
+  const { activeAccount } = useWallet();
+  const { openModal, closeModal } = useModal();
+
+  const [currentDevice, setCurrentDevice] = useState<DeviceWithMeta | null>(null);
+  const [rewardWallet, setRewardWallet] = useState('');
+  const [isValid, setIsValid] = useState(false);
+  const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
+  const [minerTypes, setMinerTypes] = useState([{ name: '', key: '' }]);
+  const [typeFilter, setTypeFilter] = useState(['ALL']);
+  const [miscFilter, setMiscFilter] = useState(['ALL']);
+  const [filter, setFilter] = useState('');
+  const [filteredDevices, setFilteredDevices] = useState<DeviceWithMeta[]>(devices);
+
+  useEffect(() => {
+    const regex = /^[A-Z0-9]{58}$/;
+    setIsValid(rewardWallet.length === 0 || regex.test(rewardWallet));
+  }, [rewardWallet]);
+
+  useEffect(() => {
+    // If wallet is connected but user not authenticated, send them to signin page
+    if (activeAccount && !session) {
+      router.push(`/signin?callbackUrl=${encodeURIComponent('/my_registrations')}`);
+      return;
+    }
+    // Must have both wallet and session to fetch
+    if (!activeAccount || !session) return;
+    const fetchMinerTypes = async () => {
+      const response = await fetch('/api/get_miner_types', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ address: activeAccount?.address }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMinerTypes(data.data as { name: string, key: string }[]);
+      }
+    };
+    fetchMinerTypes();
+
+  }, [activeAccount, session, router]);
+
+
+  useEffect(() => {
+    let updatedDevices = devices.filter(device => {
+      return (filter.length > 0 ? device.reward_wallet?.includes(filter) : true) &&
+        (typeFilter.includes('ALL') || typeFilter.includes(device.miner_key.split('-')[0])) &&
+        (miscFilter.includes('ALL') || (miscFilter.some(filter => {
+          const split = filter.split('!')[1]
+          return filter.startsWith('!') ? !miscFilter.includes(split) && !(device as any)[split] : (device as any)[filter];
+        })
+        ));
+    }
+    )
+    updatedDevices.sort((a, b) => {
+      if (a.nickname) {
+        if (b.nickname) {
+          return a.nickname.localeCompare(b.nickname);
+        } else {
+          return a.nickname.localeCompare(b.name);
+        }
+      } else {
+        if (b.nickname) {
+          return a.name.localeCompare(b.nickname);
+        } else {
+          return a.name.localeCompare(b.name);
+        }
+      }
+    });
+    setFilteredDevices(updatedDevices);
+  }, [filter, devices, typeFilter, miscFilter]);
+
+
+
+
+
+  const handleOpenModal = (device: Device, modalName: string) => {
+    setCurrentDevice(device);
+    openModal(modalName);
+  };
+
+
+  const handleUpdateRewardWallet = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentDevice || !isValid) return;
+    try {
+      const response = await fetch('/api/update-reward-wallet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ miner: currentDevice.miner_key, reward_wallet: rewardWallet, address: activeAccount?.address }),
+      });
+      if (response.ok) {
+        setRewardWallet('');
+        setUpdateSuccess({ status: 'success', message: 'reward wallet' });
+        closeModal('updateReward');
+        router.reload();
+      } else {
+        setUpdateSuccess({ status: 'error', message: 'reward wallet' });
+        console.error('Failed to update reward wallet');
+      }
+    } catch (error) {
+      setUpdateSuccess({ status: 'error', message: 'reward wallet' });
+      console.error('An error occurred while updating the reward wallet', error);
+    }
+  };
+  const handleVerify = async (data: { latitude: number, longitude: number }) => {
+    if (!currentDevice) return;
+    try {
+      const response = await fetch('/api/verify-position', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...data, miner: currentDevice.miner_key, address: activeAccount?.address }),
+      });
+      if (response.ok) {
+        setUpdateSuccess({ status: 'success', message: 'position' });
+        closeModal('positionVerification');
+        router.reload();
+        // Optionally update the device list or show a success message
+      } else {
+        console.error('Failed to verify address');
+      }
+    } catch (error) {
+      console.error('An error occurred while verifying the address', error);
+    }
+  };
+
+  if (status === 'loading') {
+    return <p>Loading...</p>;
+  }
+
+
+  return (
+    <main className="p-4 md:p-10 mx-auto flex flex-col gap-6 break-words max-w-7xl">
+      {session ? (
+        <>
+          <Title className="mb-10 md:mb-20 text-center">My Registrations ({session.user.address})</Title>
+          <MessageUpdate updateSuccess={updateSuccess} />
+
+          {/* Filter section */}
+          <Flex justifyContent="end" className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-4">
+            <TextInput
+              placeholder="Filter by reward wallet"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="w-full md:w-auto"
+            />
+            <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+              <MultiSelect
+                className="w-full md:w-1/2 mb-2"
+                value={typeFilter}
+                onValueChange={(val) => setTypeFilter(val)}
+              >
+                <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+                {minerTypes.map((miner) => (
+                  <MultiSelectItem key={miner.key} value={miner.key}>
+                    {miner.key} - {miner.name}
+                  </MultiSelectItem>
+                ))}
+              </MultiSelect>
+
+              <MultiSelect
+                className="w-full md:w-auto"
+                value={miscFilter}
+                onValueChange={(val) => setMiscFilter(val)}
+              >
+                <MultiSelectItem value="ALL">ALL</MultiSelectItem>
+                <MultiSelectItem value="is_registered">Registered</MultiSelectItem>
+                <MultiSelectItem value="verified">Verified</MultiSelectItem>
+                <MultiSelectItem value="position">Position set</MultiSelectItem>
+                <MultiSelectItem value="!is_registered">Not registered</MultiSelectItem>
+                <MultiSelectItem value="!verified">Not verified</MultiSelectItem>
+                <MultiSelectItem value="!position">Position not set</MultiSelectItem>
+              </MultiSelect>
+            </div>
+          </Flex>
+
+          {/* Devices section */}
+          {filteredDevices && filteredDevices.length > 0 ? (
+            filteredDevices.map((device) => {
+              const verificationDisabled =
+                device.is_registered === false || device.verificationLocked;
+              const verificationReason = device.verificationLocked
+                ? device.verificationDisabledReason ??
+                  'Complete the required staking steps before verification.'
+                : undefined;
+
+              return (
+              <Card key={device._id} className="mb-4 relative p-4 md:p-6">
+                <Title>{device.nickname ? device.nickname : device.name}</Title>
+                <Text>Miner Key: {device.miner_key}</Text>
+                <Text>Creation date: {new Date(device.created_at).toLocaleDateString()}</Text>
+                <Text>Is registered: {device.is_registered ? 'Yes' : 'No'}</Text>
+                <Text>Reward wallet: {device.reward_wallet ?? 'None'}</Text>
+                {device.position && <Text>Position: {device.position?.lat}, {device.position?.lng}</Text>}
+                {device.byod && <Text>BYOD: {device.byod}</Text>}
+
+                {/* Status Section */}
+                {(!device.verified || !device.position || !device.is_registered) ? (
+                  <div className="md:absolute md:top-4 md:right-4">
+                    <Flex flexDirection="row" justifyContent="end" alignItems="end">
+                      <XCircleIcon className="h-6 w-6 text-red-500" />
+                      <Flex flexDirection="col" justifyContent="end" alignItems="end" className="ml-2">
+                        {!device.reward_wallet && <Text className="text-red-500">- Wallet not set</Text>}
+                        {!device.verified && <Text className="text-red-500">- Not verified</Text>}
+                        {!device.position && <Text className="text-red-500">- Position not set</Text>}
+                        {!device.is_registered && <Text className="text-red-500">- Not registered</Text>}
+                      </Flex>
+                    </Flex>
+                  </div>
+                ) : (
+                  <div className="md:absolute md:top-4 md:right-4">
+                    <Flex flexDirection="row" justifyContent="end" alignItems="end">
+                      <CheckCircleIcon className="h-6 w-6 text-green-500" />
+                      <Text className="text-green-500 ml-2">Verified</Text>
+                    </Flex>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <Flex className="mt-4 flex-col md:flex-row justify-start items-center space-y-2 md:space-y-0 md:space-x-4">
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'updateReward')}>
+                    {!device.reward_wallet ? "Set reward wallet" : "Change reward wallet"}
+                  </Button>
+
+                  {device.verified && device.staked ? (
+                    <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'withdraw_stakeVerification')} disabled={device.is_registered === false}>
+                      Withdraw stake
+                    </Button>
+                  ) : (
+                    <Button
+                      className="w-full md:w-auto"
+                      onClick={() => handleOpenModal(device, 'stakeVerification')}
+                      disabled={verificationDisabled}
+                      title={verificationReason}
+                    >
+                      Verify (stake)
+                    </Button>
+                  )}
+
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'positionVerification')}>
+                    {!device.position ? "Set location" : "Change location"}
+                  </Button>
+
+                  <Button className="w-full md:w-auto" onClick={() => handleOpenModal(device, 'changeName')}>
+                    Change name
+                  </Button>
+
+                  {device?.hexId && (
+                    <Button className="w-full md:w-auto" color="yellow" onClick={() => window.open('https://explorer.frynetworks.com/hex/' + device?.hexId, '_blank')}>
+                      <Flex className="flex-row">
+                        Explorer <ExternalLinkIcon className="ml-2 h-5 w-5" />
+                      </Flex>
+                    </Button>
+                  )}
+                </Flex>
+                {device.verificationLocked && verificationReason && (
+                  <Text className="text-amber-500 text-sm mt-2">
+                    {verificationReason}
+                  </Text>
+                )}
+              </Card>
+              );
+            })
+          ) : (
+            <p>No devices found</p>
+          )}
+        </>
+      ) : (
+        <Title className="mb-20 text-center">Please connect your wallet and authenticate</Title>
+      )}
+
+      {/* Modals */}
+      <UpdateRewardModal
+        modalName="updateReward"
+        handleUpdateRewardWallet={handleUpdateRewardWallet}
+        rewardWallet={rewardWallet}
+        setRewardWallet={setRewardWallet}
+        isValid={isValid}
+      />
+      <PositionModal modalName="positionVerification" onSubmit={handleVerify} />
+      <StakeVerification modalName="stakeVerification" miner={currentDevice?.miner_key} byod={!!currentDevice?.byod} />
+      <WithdrawStakeVerification
+        modalName="withdraw_stakeVerification"
+        miner={currentDevice?.miner_key}
+        staked={currentDevice?.staked?.amount ?? undefined}
+      />
+      <NameChangeModal modalName="changeName" address={activeAccount?.address} miner_key={currentDevice?.miner_key} />
+    </main>
+
+  );
+}
+
+
+export async function getServerSideProps(context: any) {
+  // Avoid internal fetch to NEXTAUTH_URL_INTERNAL; read session from cookies directly.
+  const session = await getServerSession(context.req, context.res, authOptions);
+  if (!session || !session.user.address) {
+    return {
+      props: {},
+    };
+  }
+
+  try {
+    const client = await clientPromise;
+    const db = client.db('main');
+
+    const devices = await db.collection('devices').find({ address: session.user.address}).toArray();
+    const products = await db.collection('products').find({}).toArray();
+
+    if (!devices) {
+      return {
+        props: {
+          devices: [],
+        },
+      };
+    }
+
+    const productMap = new Map(
+      products.map((product: any) => [product.key, product])
+    );
+
+    const serializedDevices = devices.map((device: any) => {
+      const productKey = device.miner_key?.split('-')[0];
+      const product = productMap.get(productKey);
+
+      const registerStakeRequired = Boolean(
+        product?.reward?.tokens?.register &&
+          product?.reward?.tokens?.register !== 'none' &&
+          product?.reward?.stake?.register &&
+          product?.reward?.stake?.register > 0
+      );
+
+      const nodeStakeRequired = Boolean(
+        product?.reward?.tokens?.node &&
+          product?.reward?.tokens?.node !== 'none' &&
+          product?.reward?.stake?.node &&
+          product?.reward?.stake?.node > 0
+      );
+
+      const hasRegistrationStake = Boolean(
+        Number(device?.registration?.amount ?? 0) > 0
+      );
+
+      const hasNodeStake = Boolean(Number(device?.node?.amount ?? 0) > 0);
+
+      const missingRequirements: string[] = [];
+      if (registerStakeRequired && !hasRegistrationStake) {
+        missingRequirements.push('registration stake');
+      }
+      if (nodeStakeRequired && !hasNodeStake) {
+        missingRequirements.push('node operation stake');
+      }
+
+      const verificationLocked = missingRequirements.length > 0;
+      const verificationDisabledReason = verificationLocked
+        ? `Complete the ${missingRequirements.join(' and ')} before verification staking.`
+        : null;
+
+      return {
+        _id: device._id?.toString?.() ?? device._id,
+        address: device.address,
+        byod: device.byod,
+        is_registered: device.is_registered,
+        miner_key: device.miner_key,
+        name: device.name,
+        nickname: device.nickname,
+        position: device.position,
+        reward_wallet: device.reward_wallet,
+        staked: device.staked,
+        stake_type: device.stake_type,
+        verified: device.verified,
+        hexId: device.hexId,
+        created_at: device.created_at,
+        registration: device.registration ?? null,
+        node: device.node ?? null,
+        verificationLocked,
+        verificationDisabledReason
+      };
+    });
+
+    return {
+      props: {
+        devices: JSON.parse(JSON.stringify(serializedDevices))
+      }
+    };
+  } catch (e) {
+    console.error(e);
+    return {
+      props: {},
+    };
+  }
+}
