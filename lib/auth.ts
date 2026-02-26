@@ -1,5 +1,6 @@
 import algosdk from 'algosdk';
 import nacl from 'tweetnacl';
+import { getSigningAddress } from './algorand/authAddr';
 
 export async function verifySignature(
   address: string,
@@ -24,10 +25,21 @@ export async function verifySignature(
     msgBytes.set(Buffer.from('TX'));
     msgBytes.set(unsignedBytes, 2);
 
-    // 3) Verify the signature using the address' public key
-    const pkBytes = algosdk.decodeAddress(address).publicKey;
+    // 3) Get the signing address (auth-addr for rekeyed accounts, address for normal)
+    //    This supports rekeyed accounts where the signature comes from the auth-addr's key
+    const signingAddress = await getSigningAddress(address);
+    const pkBytes = algosdk.decodeAddress(signingAddress).publicKey;
     const sigBytes = new Uint8Array(stxn.sig);
-    const valid = nacl.sign.detached.verify(msgBytes, sigBytes, pkBytes);
+    let valid = nacl.sign.detached.verify(msgBytes, sigBytes, pkBytes);
+
+    // If verification failed, try with fresh auth-addr lookup (handles mid-session rekey)
+    if (!valid) {
+      const freshSigningAddress = await getSigningAddress(address, true);
+      if (freshSigningAddress !== signingAddress) {
+        const freshPkBytes = algosdk.decodeAddress(freshSigningAddress).publicKey;
+        valid = nacl.sign.detached.verify(msgBytes, sigBytes, freshPkBytes);
+      }
+    }
 
     if (!valid) return false;
 

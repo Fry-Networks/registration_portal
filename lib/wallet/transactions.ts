@@ -28,6 +28,10 @@ export interface AssetTransferTxnParams extends BaseTxnParams {
   useRawAmount?: boolean;
 }
 
+export interface OptInTxnParams extends BaseTxnParams {
+  assetId: number;
+}
+
 const encodeUnsigned = (txn: Transaction): Uint8Array =>
   algosdk.encodeUnsignedTransaction(txn);
 
@@ -73,6 +77,27 @@ export const buildAssetTransferTxn = async (
     sender: params.sender,
     receiver: params.receiver,
     amount: rawAmount,
+    assetIndex: params.assetId,
+    note: params.note,
+    suggestedParams
+  });
+
+  return encodeUnsigned(txn);
+};
+
+/**
+ * Builds an ASA opt-in transaction.
+ * An opt-in is a 0-amount asset transfer from the sender to themselves.
+ */
+export const buildOptInTxn = async (
+  params: OptInTxnParams
+): Promise<Uint8Array> => {
+  const suggestedParams = await resolveSuggestedParams(params);
+
+  const txn = makeAssetTransferTxnWithSuggestedParamsFromObject({
+    sender: params.sender,
+    receiver: params.sender, // Self-transfer for opt-in
+    amount: 0,               // Zero amount = opt-in
     assetIndex: params.assetId,
     note: params.note,
     suggestedParams
