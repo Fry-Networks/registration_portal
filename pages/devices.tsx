@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ElementType } from 'react';
 import {
   UserIcon,
   UserAddIcon,
@@ -10,7 +10,9 @@ import {
 } from '@heroicons/react/outline';
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
-import { getSession, useSession } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './api/auth/[...nextauth]';
 import { SWRConfig } from 'swr';
 import type { Summary } from '../lib/hooks/useRewardSummary';
 import clientPromise from '../lib/mongoclient';
@@ -597,6 +599,9 @@ const DevicesPage = ({
   const [addr, setAddr] = useState(session?.user.address);
   const [showFry1Check, setShowFry1Check] = useState(false);
   const [showFryConversion, setShowFryConversion] = useState(false);
+  const [securityBlocked, setSecurityBlocked] = useState(false);
+  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
+  const securityToastShown = useRef(false);
   // Ribbon state
   const [countdown, setCountdown] = useState<string>("");
   const [claimCountdown, setClaimCountdown] = useState<string>(""); // Countdown until pending matures to claimable
@@ -641,6 +646,24 @@ const DevicesPage = ({
   const handleConversion = async () => {
     setShowFry1Check(true);
   };
+
+  const handleSecurityBlock = useCallback(
+    (code?: string) => {
+      if (securityToastShown.current) return;
+      securityToastShown.current = true;
+
+      const message =
+        code === 'DEVICE_MISMATCH'
+          ? 'Our system detected a security issue and signed you out to protect your account. Please reconnect with your device wallet to continue.'
+          : 'Security verification failed. Please reconnect with your device wallet to continue.';
+
+      setSecurityBlocked(true);
+      setSecurityMessage(message);
+      toast.error({ heading: 'Security check triggered', message });
+      void signOut({ redirect: true, callbackUrl: '/signin' });
+    },
+    [toast]
+  );
 
   useEffect(() => {
     if (!session?.user?.address || minerKeys.length === 0) {
@@ -1095,6 +1118,16 @@ const DevicesPage = ({
           } catch {
             errorCode = undefined;
           }
+          if (
+            active &&
+            errorCode &&
+            (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH')
+          ) {
+            setTotals(null);
+            stopPolling();
+            handleSecurityBlock(errorCode);
+            return;
+          }
           const expectedSecurityCodes = new Set([
             'MISSING_CLIENT_TOKEN',
             'INVALID_CLIENT_TOKEN',
@@ -1189,7 +1222,7 @@ const DevicesPage = ({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
     };
-  }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint, session]);
+  }, [fingerprintReady, sessionStatus, session?.user?.address, refreshFingerprint, session, handleSecurityBlock]);
 
   // Estimated weekly earnings (per asset) from current week accrual pace
   const { estimatedFnode, estimatedTfry } = useMemo(() => {
@@ -1474,6 +1507,33 @@ const DevicesPage = ({
     [devices, isNodeDevice]
   );
 
+  // Session loading state - show loading spinner while auth resolves
+  if (sessionStatus === 'loading') {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <svg className="animate-spin h-10 w-10 mx-auto mb-4 text-red-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-gray-500 dark:text-gray-400">Loading your devices...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthenticated state - prompt user to connect wallet
+  if (sessionStatus === 'unauthenticated') {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center p-8 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800">
+          <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Connect Your Wallet</h2>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">Connect your wallet to view and manage your devices.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <SWRConfig value={{ fallback: rewardFallback }}>
     <div className="w-full space-y-6">
@@ -1492,6 +1552,12 @@ const DevicesPage = ({
           holidayKey={holidayKey}
         />
       </div>
+      {securityBlocked && (
+        <div className="mx-2 sm:mx-20 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <strong>Security check triggered.</strong>{' '}
+          {securityMessage ?? 'Please reconnect with your device wallet to continue.'}
+        </div>
+      )}
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
       {session?.user?.address && totals && (
         <FloatingTotalsWidget
@@ -1664,7 +1730,7 @@ export async function getServerSideProps(context: any) {
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-  const session = await getSession(context);
+  const session = await getServerSession(context.req, context.res, authOptions);
 
   if (!session || !session.user.address) {
     return {

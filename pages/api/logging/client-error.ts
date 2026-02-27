@@ -119,8 +119,18 @@ export default function handler(
     }
 
     const normalizedMessage = errorMessage.toLowerCase();
+    const stackText = typeof body.stack === 'string' ? body.stack : '';
+    const reasonText =
+      typeof body.reason === 'string'
+        ? body.reason
+        : body.reason instanceof Error
+          ? body.reason.stack ?? body.reason.message
+          : '';
+    const extensionPattern = /chrome-extension:\/\/|moz-extension:\/\/|safari-extension:\/\//i;
     const isExtensionError =
-      source.startsWith('chrome-extension://') ||
+      extensionPattern.test(source) ||
+      extensionPattern.test(stackText) ||
+      extensionPattern.test(reasonText) ||
       normalizedMessage.includes('disconnected port object') ||
       normalizedMessage.includes('metamask') ||
       normalizedMessage.includes('chrome-extension://');

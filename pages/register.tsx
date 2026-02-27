@@ -3,7 +3,10 @@ import { useRouter } from 'next/router';
 import Sidebar from '../components/Sidebar';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import { Device, Product } from '../lib/types';
-import { getSession, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './api/auth/[...nextauth]';
+import { emitClientError } from '../lib/hooks/useClientErrorLogger';
 import clientPromise from '../lib/mongoclient';
 import { useToastContext } from '../hooks/ToastContext';
 import { isNodeStakingNeeded, isRegistrationNeeded } from '../lib/utils';
@@ -303,7 +306,7 @@ export const portalKeyFromMiner = (mk?: string) => {
   return '';
 };
 
-export default function RegisterPage({ products }: { products: Product[] }) {
+export default function RegisterPage({ products = [] }: { products?: Product[] }) {
   const router = useRouter();
   type NextRoute = Parameters<typeof router.push>[0];
   const [displayedHex, setDisplayedHex] = useState<string | null>(null);
@@ -364,8 +367,10 @@ export default function RegisterPage({ products }: { products: Product[] }) {
   // Note: we derive any explicit `type` query inside effectivePortalKey below.
   const [device, setDevice] = useState<Device | undefined>(undefined);
   const [product, setProduct] = useState<Product | undefined>(undefined);
+  const productsSafe = Array.isArray(products) ? products : [];
   const toast = useToastContext();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
+  const initLogRef = useRef({ missingKey: false, unauth: false, missingAddress: false });
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
   const pageBgClass = isDark ? 'bg-gray-950 text-white' : 'bg-slate-50 text-slate-900';
@@ -573,16 +578,71 @@ export default function RegisterPage({ products }: { products: Product[] }) {
             setRegistrationCompleted(true);
           }
         } else {
+          emitClientError({
+            message: `Device lookup failed with status ${res.status}`,
+            issueType: 'REGISTER_FLOW_ERROR',
+            part: 'register.deviceLookup',
+            minerKey: resolvedMinerKey,
+            walletAddress: session?.user?.address,
+            reason: { status: res.status }
+          });
           setDevice(undefined);
         }
       } catch (e) {
         console.error(e);
+        emitClientError({
+          message: `Device lookup exception: ${String(e)}`,
+          issueType: 'REGISTER_FLOW_ERROR',
+          part: 'register.deviceLookup',
+          minerKey: resolvedMinerKey,
+          walletAddress: session?.user?.address,
+          reason: e
+        });
         setDevice(undefined);
       } finally {
         hasFetchedRef.current = true; // <-- important
       }
     })();
   }, [resolvedMinerKey, session?.user?.address]);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (sessionStatus === 'loading') return;
+
+    if (!resolvedMinerKey && !initLogRef.current.missingKey) {
+      initLogRef.current.missingKey = true;
+      emitClientError({
+        message: 'Register page loaded without miner key.',
+        issueType: 'REGISTER_FLOW_ERROR',
+        part: 'register.init',
+        minerKey: undefined,
+        walletAddress: session?.user?.address ?? undefined,
+        reason: { query: router.query }
+      });
+    }
+
+    if (sessionStatus === 'unauthenticated' && !initLogRef.current.unauth) {
+      initLogRef.current.unauth = true;
+      emitClientError({
+        message: 'Register page unauthenticated after session load.',
+        issueType: 'REGISTER_FLOW_ERROR',
+        part: 'register.init',
+        minerKey: resolvedMinerKey ?? undefined,
+        walletAddress: undefined
+      });
+    }
+
+    if (sessionStatus === 'authenticated' && !session?.user?.address && !initLogRef.current.missingAddress) {
+      initLogRef.current.missingAddress = true;
+      emitClientError({
+        message: 'Register page session missing wallet address.',
+        issueType: 'REGISTER_FLOW_ERROR',
+        part: 'register.init',
+        minerKey: resolvedMinerKey ?? undefined,
+        walletAddress: undefined
+      });
+    }
+  }, [router.isReady, router.query, sessionStatus, resolvedMinerKey, session?.user?.address]);
 
 
   // Note: automatic portal-type sync removed. Portal type will be saved explicitly
@@ -591,9 +651,9 @@ export default function RegisterPage({ products }: { products: Product[] }) {
 
   const findProduct = useCallback((minerKey: string) => {
     const key = minerKey.split('-')[0];
-    const specificProduct = products.find((product) => product.key === key);
+    const specificProduct = productsSafe.find((product) => product.key === key);
     return specificProduct;
-  }, [products]);
+  }, [productsSafe]);
 
   // State for each form's data
   const [personalInfoData, setPersonalInfoData] = useState({
@@ -1393,10 +1453,10 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
   const evaluatePostRegistrationRoute = useCallback((): NextRoute => {
     const productMinerKey = device?.miner_key ?? resolvedMinerKey;
-    const haveProducts = Array.isArray(products) && products.length > 0;
+    const haveProducts = productsSafe.length > 0;
     const product =
       haveProducts && productMinerKey
-        ? findProductByMinerKey(productMinerKey, products)
+        ? findProductByMinerKey(productMinerKey, productsSafe)
         : undefined;
     const registrationNeeded = product ? isRegistrationNeeded(product) : null;
     const nodeStakingNeeded = product ? isNodeStakingNeeded(product) : null;
@@ -1406,12 +1466,19 @@ const savePersonalInformation = async (): Promise<boolean> => {
         ? { pathname: '/devices', query: { minerKey: productMinerKey } }
         : '/devices';
     return destination;
-  }, [device?.miner_key, resolvedMinerKey, products]);
+  }, [device?.miner_key, resolvedMinerKey, productsSafe]);
 
   // Update registerDevice to use the new personal+localization flow
   const registerDevice = async () => {
     if (!resolvedMinerKey) {
       toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+      emitClientError({
+        message: 'Register submit blocked: missing miner key.',
+        issueType: 'REGISTER_FLOW_ERROR',
+        part: 'register.submit',
+        minerKey: undefined,
+        walletAddress: session?.user?.address ?? undefined
+      });
       return;
     }
 
@@ -1427,6 +1494,13 @@ const savePersonalInformation = async (): Promise<boolean> => {
     if (!clickable) {
       if (!session?.user.address) {
         toast.error({ heading: 'Error', message: 'Your wallet session has expired.' });
+        emitClientError({
+          message: 'Register submit blocked: missing session address.',
+          issueType: 'REGISTER_FLOW_ERROR',
+          part: 'register.submit',
+          minerKey: resolvedMinerKey ?? undefined,
+          walletAddress: undefined
+        });
         return;
       }
 
@@ -2724,7 +2798,8 @@ const savePersonalInformation = async (): Promise<boolean> => {
 }
 
 export async function getServerSideProps(context: any) {
-  const session = await getSession(context);
+  // Use getServerSession to avoid internal fetch errors to NEXTAUTH_URL_INTERNAL.
+  const session = await getServerSession(context.req, context.res, authOptions);
   if (!session || !(session as any).user?.address) {
     return { props: {} };
   }

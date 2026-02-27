@@ -3,7 +3,9 @@ import { CalendarIcon, ClockIcon } from '@heroicons/react/outline';
 import type { GetServerSidePropsContext } from 'next';
 import bgImg from '../assets/background.png';
 import HeroBanner from '../components/HeroBanner';
-import { getSession, useSession } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
+import { getServerSession } from 'next-auth';
+import { authOptions } from './api/auth/[...nextauth]';
 import clientPromise from '../lib/mongoclient';
 import rewardsClientPromise from '../lib/rewardsMongoClient';
 import { Reward } from '../lib/types';
@@ -209,6 +211,9 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   const [withdrawAcknowledged, setWithdrawAcknowledged] = useState(false);
   const [withdrawPromptLoading, setWithdrawPromptLoading] = useState(false);
   const [deviceRefreshToken, setDeviceRefreshToken] = useState(0);
+  const [securityBlocked, setSecurityBlocked] = useState(false);
+  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
+  const securityToastShown = useRef(false);
   const hasStakeHistory = useMemo(() => {
     if (!stakeHistoryData) return false;
     return (
@@ -245,6 +250,24 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   const isLoadingAllRef = useRef(false);
   const [isLoadingAll, setIsLoadingAll] = useState(false);
   const activeWithdrawWarning = withdrawPrompt ? STAKE_WITHDRAW_WARNINGS[withdrawPrompt] : null;
+
+  const handleSecurityBlock = useCallback(
+    (code?: string) => {
+      if (securityToastShown.current) return;
+      securityToastShown.current = true;
+
+      const message =
+        code === 'DEVICE_MISMATCH'
+          ? 'Our system detected a security issue and signed you out to protect your account. Please reconnect with your device wallet to continue.'
+          : 'Security verification failed. Please reconnect with your device wallet to continue.';
+
+      setSecurityBlocked(true);
+      setSecurityMessage(message);
+      toast.error({ heading: 'Security check triggered', message });
+      void signOut({ redirect: true, callbackUrl: '/signin' });
+    },
+    [toast]
+  );
 
   // Mirror reactive state into refs so loadPage can stay memoised without re-running parent effects.
   useEffect(() => {
@@ -361,6 +384,17 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         );
 
         if (!response.ok) {
+          let errorCode: string | undefined;
+          try {
+            const payload = await response.clone().json();
+            errorCode = typeof payload?.code === 'string' ? payload.code : undefined;
+          } catch {
+            errorCode = undefined;
+          }
+          if (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH') {
+            handleSecurityBlock(errorCode);
+            return null;
+          }
           console.error('Failed to fetch rewards page', response.status);
           return null;
         }
@@ -379,7 +413,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         return null;
       }
     },
-    [fingerprintReady, minerKey, refreshFingerprint]
+    [fingerprintReady, minerKey, refreshFingerprint, handleSecurityBlock]
   );
 
   const applyPageData = useCallback(
@@ -572,7 +606,20 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           refreshFingerprint
         );
         if (!active) return;
-        if (!res.ok) return;
+        if (!res.ok) {
+          let errorCode: string | undefined;
+          try {
+            const payload = await res.clone().json();
+            errorCode = typeof payload?.code === 'string' ? payload.code : undefined;
+          } catch {
+            errorCode = undefined;
+          }
+          if (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH') {
+            handleSecurityBlock(errorCode);
+            return;
+          }
+          return;
+        }
         const json = await res.json();
         const deviceDetail = json?.device;
         const nick = deviceDetail?.nickname;
@@ -603,7 +650,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
       } catch {}
     })();
     return () => { active = false; };
-  }, [miner_key, session?.user?.address, refreshFingerprint, deviceRefreshToken]);
+  }, [miner_key, session?.user?.address, refreshFingerprint, deviceRefreshToken, handleSecurityBlock]);
 
   useEffect(() => {
     if (typeof miner_key !== 'string' || !session?.user?.address) {
@@ -957,6 +1004,12 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           holidayKey={holidayKey}
         />
       </div>
+      {securityBlocked && (
+        <div className="mx-2 sm:mx-20 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <strong>Security check triggered.</strong>{' '}
+          {securityMessage ?? 'Please reconnect with your device wallet to continue.'}
+        </div>
+      )}
       <div className="px-2 sm:px-20">
         <Link href="/devices">
           <Button className="mt-6 min-w-[150px] bg-transparent border-red-600 text-slate-900 dark:text-white hover:bg-red-600 hover:border-red-600 hover:text-white">
@@ -1847,7 +1900,8 @@ const EMPTY_HISTORY_PROPS = {
 };
 
 export async function getServerSideProps(context: GetServerSidePropsContext) {
-  const session = await getSession(context);
+  // Avoid internal fetch to NEXTAUTH_URL_INTERNAL; read session from cookies directly.
+  const session = await getServerSession(context.req, context.res, authOptions);
   if (!session?.user) {
     return EMPTY_HISTORY_PROPS;
   }
