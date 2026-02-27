@@ -1,33 +1,30 @@
-# Use official Node.js image
-FROM node:22
-RUN npm install -g npm@latest
+FROM 1password/op:2@sha256:57d7d6a2bb2b74b2cf8111f6afb2973c74772198f82ea30359a53faae9fff5b1 AS op
 
-# Install 1Password CLI (op) for runtime secret injection
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl gnupg \
-  && curl -sS https://downloads.1password.com/linux/keys/1password.asc | gpg --dearmor -o /usr/share/keyrings/1password-archive-keyring.gpg \
-  && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main" > /etc/apt/sources.list.d/1password.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends 1password-cli \
-  && apt-get purge -y --auto-remove gnupg \
-  && rm -rf /var/lib/apt/lists/*
-
-# Workdir
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-
-# Install deps first (better cache)
+RUN npm install -g npm@11.8.0
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm ci || npm install
+RUN npm ci
 
-# Provide placeholder values for env vars that are validated during build.
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+RUN npm install -g npm@11.8.0
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY package*.json ./
+
+# Build-time placeholders (no secrets)
 ARG MONGO_URI_PLACEHOLDER="mongodb://placeholder.invalid:27017/dummy"
-ENV MONGO_URI=${MONGO_URI_PLACEHOLDER}
 ARG NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED="true"
 ARG NEXT_PUBLIC_TEST_MODE="false"
 ARG NEXT_PUBLIC_CREDENTIALS_NEEDED="AEM"
 ARG NEXT_PUBLIC_DIMO_CLIENT_ID=""
 ARG NEXT_PUBLIC_DIMO_REDIRECT_URI=""
 ARG NEXT_PUBLIC_DIMO_ENV="production"
+ENV MONGO_URI=${MONGO_URI_PLACEHOLDER}
 ENV NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED=${NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED}
 ENV NEXT_PUBLIC_TEST_MODE=${NEXT_PUBLIC_TEST_MODE}
 ENV NEXT_PUBLIC_CREDENTIALS_NEEDED=${NEXT_PUBLIC_CREDENTIALS_NEEDED}
@@ -35,18 +32,58 @@ ENV NEXT_PUBLIC_DIMO_CLIENT_ID=${NEXT_PUBLIC_DIMO_CLIENT_ID}
 ENV NEXT_PUBLIC_DIMO_REDIRECT_URI=${NEXT_PUBLIC_DIMO_REDIRECT_URI}
 ENV NEXT_PUBLIC_DIMO_ENV=${NEXT_PUBLIC_DIMO_ENV}
 
-# Copy the rest
 COPY . .
-
-# Build (adjust if your build script differs)
 RUN npm run build
 
-# Run as non-root
-RUN chown -R node:node /app
-USER node
+FROM node:22-bookworm-slim AS dev
+WORKDIR /app
+RUN npm install -g npm@11.8.0
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=op /usr/local/bin/op /usr/local/bin/op
+COPY --from=deps /app/node_modules ./node_modules
+COPY package*.json ./
+COPY . .
+COPY op-entrypoint.sh /usr/local/bin/op-entrypoint.sh
+RUN chmod 755 /usr/local/bin/op-entrypoint.sh \
+  && groupadd -g 1001 app \
+  && useradd -u 1001 -g 1001 -m -s /usr/sbin/nologin app \
+  && chown -R app:app /app
+USER app
+ENTRYPOINT ["/usr/local/bin/op-entrypoint.sh"]
+CMD ["bash", "start-dev-with-1password.sh"]
 
-# App port (internal)
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3007
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# Copy 1Password CLI from the official image
+COPY --from=op /usr/local/bin/op /usr/local/bin/op
+
+# Next.js standalone output
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+RUN mkdir -p /app/scripts
+COPY --from=builder /app/scripts/sync-creds-hardware-verified.js /app/scripts/sync-creds-hardware-verified.js
+
+# Runtime entrypoint for 1Password secrets
+COPY op-entrypoint.sh /usr/local/bin/op-entrypoint.sh
+RUN chmod 755 /usr/local/bin/op-entrypoint.sh \
+  && groupadd -g 1001 app \
+  && useradd -u 1001 -g 1001 -m -s /usr/sbin/nologin app \
+  && chown -R app:app /app
+
+USER app
 EXPOSE 3007
-
-# Start (adjust if your start script differs)
-CMD ["sh", "-c", "op run -- npm start"]
+ENTRYPOINT ["/usr/local/bin/op-entrypoint.sh"]
+CMD ["node", "server.js"]

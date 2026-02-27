@@ -1,5 +1,6 @@
 import { Algodv2, Indexer } from 'algosdk';
 import { normalizeAssetId } from '../utils';
+import { withAlgorandRetry } from './withRetry';
 
 /*
 const ALGOD_TOKEN = '';
@@ -25,7 +26,7 @@ const indexerClient = new Indexer('', INDEXER_SERVER, '');
 
 export async function getAlgoBalance(address: string): Promise<number | null> {
   try {
-    const accountInfo = await algodClient.accountInformation(address).do();
+    const accountInfo = await withAlgorandRetry(algodClient.accountInformation(address));
     return Number(accountInfo.amount) / 1e6;
   } catch (error) {
     console.error('Error fetching ALGO balance:', error);
@@ -35,7 +36,7 @@ export async function getAlgoBalance(address: string): Promise<number | null> {
 
 export async function getAssetDecimals(assetId: number): Promise<number | null> {
   try {
-    const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
+    const assetInfo = await withAlgorandRetry(indexerClient.lookupAssetByID(assetId));
     return assetInfo.asset.params.decimals;
   } catch (error) {
     console.error(`Failed to fetch asset info for Asset ID ${assetId}:`, error);
@@ -48,7 +49,7 @@ export async function getAssetBalance(
   assetId: string
 ): Promise<number | null> {
   try {
-    const accountInfo = await algodClient.accountInformation(address).do();
+    const accountInfo = await withAlgorandRetry(algodClient.accountInformation(address));
     // Compare with normalized ids so bigint asset identifiers do not break lookups.
     const normalizedAssetId = assetId === 'none' ? 0 : normalizeAssetId(assetId);
     const assets = (accountInfo.assets ?? []) as Array<Record<string, any>>;

@@ -15,6 +15,44 @@ export class WalletRequestInFlightError extends Error {
 // Note: This is local to the browser session and doesn't persist
 const activeRequests = new Map<string, number>();
 
+// Subscribers for reactive state updates
+type Subscriber = () => void;
+const subscribers = new Set<Subscriber>();
+
+/**
+ * Subscribe to pending state changes
+ */
+export const subscribeToWalletPending = (callback: Subscriber): (() => void) => {
+  subscribers.add(callback);
+  return () => subscribers.delete(callback);
+};
+
+/**
+ * Notify all subscribers of state change
+ */
+const notifySubscribers = (): void => {
+  subscribers.forEach(callback => callback());
+};
+
+/**
+ * Get the global pending state for UI components
+ * Returns true if any wallet operation is currently active
+ */
+export const isAnyWalletRequestPending = (): boolean => {
+  const now = Date.now();
+  // Clean up expired entries and check if any are still active
+  const entries = Array.from(activeRequests.entries());
+  for (let i = 0; i < entries.length; i++) {
+    const [key, timestamp] = entries[i];
+    if (now - timestamp > 30000) {
+      activeRequests.delete(key);
+    } else {
+      return true;
+    }
+  }
+  return false;
+};
+
 /**
  * Client-side check for active wallet requests
  * Returns synchronously (unlike the server version)
@@ -47,6 +85,7 @@ export const markWalletRequestActive = (
 ): void => {
   const key = `${address}:${operation}`;
   activeRequests.set(key, Date.now());
+  notifySubscribers();
 };
 
 /**
@@ -58,6 +97,7 @@ export const clearWalletRequest = (
 ): void => {
   const key = `${address}:${operation}`;
   activeRequests.delete(key);
+  notifySubscribers();
 };
 
 /**

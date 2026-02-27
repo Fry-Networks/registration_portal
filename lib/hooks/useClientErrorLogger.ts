@@ -149,6 +149,23 @@ export function useClientErrorLogger(session: Session | null | undefined) {
     ) {
       return true;
     }
+    const stack = typeof payload?.stack === 'string' ? payload.stack : '';
+    const source = typeof payload?.source === 'string' ? payload.source : '';
+    const reasonDetails = payload?.reason;
+    const reasonStack =
+      reasonDetails instanceof Error && typeof reasonDetails.stack === 'string'
+        ? reasonDetails.stack
+        : typeof reasonDetails === 'string'
+          ? reasonDetails
+          : '';
+    const extensionPattern = /chrome-extension:\/\/|moz-extension:\/\/|safari-extension:\/\//i;
+    if (
+      extensionPattern.test(source) ||
+      extensionPattern.test(stack) ||
+      extensionPattern.test(reasonStack)
+    ) {
+      return true;
+    }
     if (typeof message === 'string' && message.toLowerCase().includes('no accounts found')) {
       return true;
     }
