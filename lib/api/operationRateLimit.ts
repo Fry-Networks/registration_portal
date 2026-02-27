@@ -22,6 +22,16 @@ const OPERATION_LIMITS: Partial<Record<DeviceAction, OperationRateLimitConfig>> 
   'dimo:claim': { windowMs: 5 * 60 * 1000, max: 25, burst: 5 },
   // Sync/login with DIMO should be burst-protected to avoid hammering their API.
   'dimo:sync': { windowMs: 5 * 60 * 1000, max: 6, burst: 2 },
+  // Explorer map reads are lightweight but should still be bounded per wallet/IP.
+  'map:my-hexes': { windowMs: 60 * 1000, max: 30, burst: 5 },
+  'map:hex-details': { windowMs: 60 * 1000, max: 60, burst: 10 },
+  // Wallet device lists can be heavier; cap separately from hex summaries.
+  'map:my-devices': { windowMs: 60 * 1000, max: 20, burst: 5 },
+  // Global stats should be refreshed but not hammered.
+  'map:stats': { windowMs: 60 * 1000, max: 10, burst: 3 },
+  // Device Health telemetry reads are lightweight but should be rate limited.
+  'device-health-summary': { windowMs: 60 * 1000, max: 20, burst: 5 },
+  'device-health-history': { windowMs: 60 * 1000, max: 12, burst: 3 },
   // Users need to sweep dozens of devices during the FRY1 → FRY2 migration, so allow a high per-miner cadence.
   // 'withdraw:verification_check': { windowMs: 30 * 60 * 1000, max: 6, burst: 2 }
   'withdraw:verification_check': { windowMs: 5 * 60 * 1000, max: 60, burst: 10 }

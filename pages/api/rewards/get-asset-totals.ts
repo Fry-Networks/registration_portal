@@ -2,11 +2,20 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import { FRY_1, fNODE, tFRY, normalizeAssetId } from '../../../lib/utils';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import {
+  getDailyRewardDate,
+  getWeeklyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../../../lib/rewardsDb';
 import {
   CommonErrors,
   createApiError,
@@ -15,8 +24,6 @@ import {
 } from '../../../lib/api-errors';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
-const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
-const CUTOFF_DATE = new Date(CUTOFF_ISO);
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
@@ -147,6 +154,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const client = await clientPromise;
     const db = client.db('main');
+    // Load the rewards database client explicitly; rewards are split post-cutoff.
+    const rewardsClient = await rewardsClientPromise;
+    const rewardsDb = rewardsClient.db('dbrewards');
 
     // Get all devices owned by this user
     const devices = await db
@@ -180,10 +190,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
 
-    const devRewards = await db
-      .collection('device-rewards')
-      .find({ miner_key: { $in: minerKeys } })
-      .toArray();
+    // Fetch rewards from both databases to merge totals per device.
+    const [mainRewards, newRewards] = await Promise.all([
+      db
+        .collection(resolveRewardsCollectionName('main', testMode))
+        .find({ miner_key: { $in: minerKeys } })
+        .toArray(),
+      rewardsDb
+        .collection(resolveRewardsCollectionName('dbrewards', testMode))
+        .find({ miner_key: { $in: minerKeys } })
+        .toArray()
+    ]);
+    const devRewards: Array<{ source: RewardsDbSource; doc: any }> = [
+      ...mainRewards.map((doc) => ({ source: 'main' as const, doc })),
+      ...newRewards.map((doc) => ({ source: 'dbrewards' as const, doc }))
+    ];
 
     const fnode = createBucket();
     const tfry = createBucket();
@@ -194,11 +215,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { dateStrings, nextUnlockAt } = getCurrentWeekDates();
     const nowMs = Date.now();
 
-    for (const doc of devRewards) {
+    for (const { source, doc } of devRewards) {
       const deviceKey = doc?.miner_key as string | undefined;
       const isMinerDevice = deviceKey ? isMinerDeviceByKey.get(deviceKey) !== false : true;
       const bucket = isMinerDevice ? tfry : fnode;
 
+      // Totals are stored per-doc; sum across both databases.
       bucket.pending = round2(bucket.pending + Number(doc?.total_pending ?? 0));
       bucket.claimable = round2(bucket.claimable + Number(doc?.total_claimable ?? 0));
       bucket.claimed = round2(bucket.claimed + Number(doc?.total_claimed ?? 0));
@@ -216,7 +238,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (!allowedAssets.has(assetKey)) {
             continue;
           }
-          if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
+          // Enforce the post-cutoff split when counting accruing rewards.
+          const rewardDate = getDailyRewardDate(dr);
+          const includeForSource = source === 'main'
+            ? isBeforeRewardsCutoff(rewardDate)
+            : isOnOrAfterRewardsCutoff(rewardDate);
+          if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date) && includeForSource) {
             bucket.accruing = round2(bucket.accruing + (dr.amount || 0));
           }
         }
@@ -225,6 +252,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (Array.isArray(doc.weekly_rewards)) {
         for (const wr of doc.weekly_rewards) {
           if (wr?.status !== 'pending' || !wr?.unlock_at) continue;
+          // Enforce the post-cutoff split when calculating pending maturity windows.
+          const weeklyDate = getWeeklyRewardDate(wr);
+          const includeForSource = source === 'main'
+            ? isBeforeRewardsCutoff(weeklyDate)
+            : isOnOrAfterRewardsCutoff(weeklyDate);
+          if (!includeForSource) continue;
           const unlockMs = new Date(wr.unlock_at).getTime();
           if (!Number.isFinite(unlockMs)) continue;
           const maturityMs = unlockMs + 30 * DAY_MS;

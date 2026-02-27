@@ -21,12 +21,16 @@ export default function BoostModal({
   modalName,
   miner_key,
   no,
+  reward_db,
+  reward_id,
   rewardAssetId,
   handleBoost
 }: {
   modalName: string;
   miner_key: string;
   no?: number;
+  reward_db?: 'main' | 'dbrewards';
+  reward_id?: string;
   rewardAssetId?: string;
   handleBoost: (ret: boolean, message: string) => Promise<void>;
 }) {
@@ -166,7 +170,13 @@ export default function BoostModal({
       const clientToken = await getClientToken();
       
       // Generate request signature for extra security
-      const body = no ? { miner_key: miner_key, no: no } : { miner_key: miner_key };
+      // Include reward source metadata when targeting a single reward in split databases.
+      const body = {
+        miner_key,
+        ...(typeof no === 'number' ? { no } : {}),
+        ...(reward_db ? { reward_db } : {}),
+        ...(reward_id ? { reward_id } : {})
+      };
       const timestamp = Math.floor(Date.now() / 1000);
       const signature = await generateRequestSignatureAsync('POST', '/api/rewards/boost', body, timestamp);
       

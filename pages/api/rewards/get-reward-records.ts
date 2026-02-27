@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
@@ -12,6 +13,14 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import {
+  getDailyRewardDate,
+  getWeeklyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../../../lib/rewardsDb';
 
 interface GetRewardAmountData {
   miner_key: string;
@@ -65,9 +74,8 @@ export default async function handler(
   }
 
   // Layer 3: Session check
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+  // Normalize test mode flag to a strict boolean for type safety.
+  const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   if (!session || !session.user) {
     res.status(401).json(CommonErrors.noSession());
@@ -87,6 +95,10 @@ export default async function handler(
     return;
   }
 
+  // Weekly cutoff still gates weekly vs daily classification (distinct from DB split cutoff).
+  const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
+  const CUTOFF_DATE = new Date(CUTOFF_ISO);
+
   // Layer 4: Verify device fingerprint to prevent cookie replay from different devices/scripts
   // Admins can use scripts; non-admins must use same browser/device
   const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, { walletAddress: session.user.address, minerKey: miner_key });
@@ -104,9 +116,6 @@ export default async function handler(
       message: 'Request originated from different device or script'
     });
   }
-  const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
-  const CUTOFF_DATE = new Date(CUTOFF_ISO);
-
   function formatDateUTC(d: Date): string {
     const yyyy = d.getUTCFullYear();
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -124,6 +133,9 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db('main');
+    // Rewards are split post-cutoff; pull both databases for merged views.
+    const rewardsClient = await rewardsClientPromise;
+    const rewardsDb = rewardsClient.db('dbrewards');
 
     const device = await db
       .collection(testMode ? 'test-devices' : 'devices')
@@ -138,15 +150,19 @@ export default async function handler(
       return;
     }
 
-    // Always use device-rewards as SoT; legacy only as soft fallback
-    const devRewardsCol = db.collection('device-rewards');
-    const doc = await devRewardsCol.findOne({ miner_key });
-
-    if (!doc) {
-      // Strict device-rewards only: return empty if not yet migrated
+    // Load reward docs from both databases and combine them by cutoff.
+    const [mainDoc, newDoc] = await Promise.all([
+      db.collection(resolveRewardsCollectionName('main', testMode)).findOne({ miner_key }),
+      rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode)).findOne({ miner_key })
+    ]);
+    if (!mainDoc && !newDoc) {
       res.status(200).json({ success: true, records: [] });
       return;
     }
+    const docs: Array<{ source: RewardsDbSource; doc: any | null }> = [
+      { source: 'main', doc: mainDoc },
+      { source: 'dbrewards', doc: newDoc }
+    ];
 
     const daysBetween = (a: Date, b: Date): number => {
       const ms = Math.max(0, b.getTime() - a.getTime());
@@ -158,41 +174,68 @@ export default async function handler(
     };
 
     if (mode === 'weekly') {
-      // Weekly entries (post-cutoff) + daily historical entries (pre-cutoff)
-      const weeklyList = (doc.weekly_rewards || [])
-        .filter((wr: any) => wr.status === status && wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
-        .map((wr: any) => ({
-          _id: wr._id,
-          miner_key,
-          no: wr.reward_number,
-          status: wr.status,
-          asset_id: wr.asset_id,
-          amount: wr.amount,
-          txId: wr.tx_id,
-          createdAt: wr.unlock_at,
-          claimedAt: wr.claimed_at,
-          isWeekly: true,
-          progressDays: daysBetween(new Date(wr.unlock_at), new Date()),
-          etaDate: new Date(new Date(wr.unlock_at).getTime() + 30 * 24 * 60 * 60 * 1000),
-          weekLabel: weekLabelForRange(new Date(wr.week_start), new Date(wr.week_end))
-        }));
+      // Weekly entries (post-cutoff) + daily historical entries (pre-cutoff) across both DBs.
+      const weeklyList = docs.flatMap(({ source, doc }) =>
+        (doc?.weekly_rewards || [])
+          .filter((wr: any) => {
+            if (wr.status !== status) return false;
+            const rewardDate = getWeeklyRewardDate(wr);
+            if (!wr?.unlock_at || !rewardDate) return false;
+            const inDbSplit = source === 'main'
+              ? isBeforeRewardsCutoff(rewardDate)
+              : isOnOrAfterRewardsCutoff(rewardDate);
+            // Weekly cutoff remains in effect for weekly records.
+            return inDbSplit && rewardDate >= CUTOFF_DATE;
+          })
+          .map((wr: any) => ({
+            _id: wr._id,
+            miner_key,
+            no: wr.reward_number,
+            status: wr.status,
+            asset_id: wr.asset_id,
+            amount: wr.amount,
+            txId: wr.tx_id,
+            createdAt: wr.unlock_at,
+            claimedAt: wr.claimed_at,
+            isWeekly: true,
+            progressDays: daysBetween(new Date(wr.unlock_at), new Date()),
+            etaDate: new Date(new Date(wr.unlock_at).getTime() + 30 * 24 * 60 * 60 * 1000),
+            weekLabel: weekLabelForRange(new Date(wr.week_start), new Date(wr.week_end)),
+            // Include source metadata so claim/boost can route correctly.
+            reward_db: source,
+            reward_id: wr?._id ? String(wr._id) : undefined
+          }))
+      );
 
-      const dailyList = (doc.daily_rewards || [])
-        .filter((dr: any) => dr.status === status && dr.created_at && new Date(dr.created_at) < CUTOFF_DATE)
-        .map((dr: any) => ({
-          _id: dr._id,
-          miner_key,
-          no: dr.reward_number,
-          status: dr.status,
-          asset_id: dr.asset_id,
-          amount: dr.amount,
-          txId: dr.tx_id,
-          createdAt: dr.created_at,
-          claimedAt: dr.claimed_at,
-          isWeekly: false,
-          progressDays: daysBetween(new Date(dr.created_at), new Date()),
-          etaDate: new Date(new Date(dr.created_at).getTime() + 30 * 24 * 60 * 60 * 1000)
-        }));
+      const dailyList = docs.flatMap(({ source, doc }) =>
+        (doc?.daily_rewards || [])
+          .filter((dr: any) => {
+            if (dr.status !== status) return false;
+            const rewardDate = getDailyRewardDate(dr);
+            // dbrewards does not store daily rewards; keep daily strictly in main pre-cutoff.
+            if (source !== 'main') return false;
+            const inDbSplit = isBeforeRewardsCutoff(rewardDate);
+            return inDbSplit && rewardDate !== null && rewardDate < CUTOFF_DATE;
+          })
+          .map((dr: any) => ({
+            _id: dr._id,
+            miner_key,
+            no: dr.reward_number,
+            status: dr.status,
+            asset_id: dr.asset_id,
+            amount: dr.amount,
+            txId: dr.tx_id,
+            // Preserve date fallback when created_at is missing in legacy records.
+            createdAt: dr.created_at ?? dr.date,
+            claimedAt: dr.claimed_at,
+            isWeekly: false,
+            progressDays: daysBetween(new Date(dr.created_at ?? dr.date), new Date()),
+            etaDate: new Date(new Date(dr.created_at ?? dr.date).getTime() + 30 * 24 * 60 * 60 * 1000),
+            // Include source metadata so claim/boost can route correctly.
+            reward_db: source,
+            reward_id: dr?._id ? String(dr._id) : undefined
+          }))
+      );
 
       const list = weeklyList.concat(dailyList)
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -207,22 +250,35 @@ export default async function handler(
       const d = new Date(thisFridayStart.getTime() + i * 24 * 60 * 60 * 1000);
       dateStrings.push(formatDateUTC(d));
     }
-    const list = (doc.daily_rewards || [])
-      .filter((dr: any) => dr.status === 'accruing' && dateStrings.includes(dr.date))
-      .map((dr: any) => ({
-        _id: dr._id,
-        miner_key,
-        no: dr.reward_number,
-        status: dr.status,
-        asset_id: dr.asset_id,
-        amount: dr.amount,
-        txId: dr.tx_id,
-        createdAt: dr.created_at,
-        claimedAt: dr.claimed_at,
-        isWeekly: false,
-        progressDays: daysBetween(new Date(dr.created_at), new Date()),
-        etaDate: new Date(new Date(dr.created_at).getTime() + 30 * 24 * 60 * 60 * 1000)
-      }))
+    const list = docs.flatMap(({ source, doc }) =>
+      (doc?.daily_rewards || [])
+        .filter((dr: any) => {
+          if (dr.status !== 'accruing' || !dateStrings.includes(dr.date)) return false;
+          const rewardDate = getDailyRewardDate(dr);
+          // dbrewards does not store daily rewards; keep daily strictly in main pre-cutoff.
+          if (source !== 'main') return false;
+          const inDbSplit = isBeforeRewardsCutoff(rewardDate);
+          return inDbSplit && rewardDate !== null && rewardDate < CUTOFF_DATE;
+        })
+        .map((dr: any) => ({
+          _id: dr._id,
+          miner_key,
+          no: dr.reward_number,
+          status: dr.status,
+          asset_id: dr.asset_id,
+          amount: dr.amount,
+          txId: dr.tx_id,
+          // Preserve date fallback when created_at is missing in legacy records.
+          createdAt: dr.created_at ?? dr.date,
+          claimedAt: dr.claimed_at,
+          isWeekly: false,
+          progressDays: daysBetween(new Date(dr.created_at ?? dr.date), new Date()),
+          etaDate: new Date(new Date(dr.created_at ?? dr.date).getTime() + 30 * 24 * 60 * 60 * 1000),
+          // Include source metadata so claim/boost can route correctly.
+          reward_db: source,
+          reward_id: dr?._id ? String(dr._id) : undefined
+        }))
+    )
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.status(200).json({ success: true, records: list });
     return;

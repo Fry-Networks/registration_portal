@@ -54,6 +54,8 @@ import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
+import { secureFetch } from '../lib/api/secureFetch';
+import { isDeviceHealthSupported } from '../lib/minerKeyCategories';
 import { useTheme } from 'next-themes';
 
 const logClientError = async (payload: Record<string, unknown>) => {
@@ -100,6 +102,19 @@ type HardwareStatus = {
   miner_mac?: string;
   reason?: 'missing_mac' | 'invalid_mac';
   detail?: string;
+};
+
+// Device Health summary payload returned by /api/hardware/health-summary.
+type DeviceHealthSummary = {
+  available: boolean;
+  status: 'online' | 'offline' | 'unknown';
+  uptimePercent24h: number | null;
+  downtimeDetected: boolean;
+  macStatus: boolean | null;
+  polStatus: boolean | null;
+  poiStatus: boolean | null;
+  toolsActive: number | null;
+  lastUpdated: string | null;
 };
 
 const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
@@ -597,6 +612,9 @@ const DevicesPage = ({
   } | null>(null);
   const fmt = (v?: number) => (v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [hardwareStatus, setHardwareStatus] = useState<Record<string, HardwareStatus>>({});
+  // Device Health telemetry is fetched separately from PoC.hardware.
+  const [deviceHealthSummaries, setDeviceHealthSummaries] = useState<Record<string, DeviceHealthSummary>>({});
+  const [deviceHealthLoading, setDeviceHealthLoading] = useState(false);
   const {
     setNotifications: syncNotifications,
     dismissedIds: dismissedNotificationIds
@@ -605,6 +623,11 @@ const DevicesPage = ({
     const keys = devices.map((d) => d.miner_key).filter(Boolean);
     return Array.from(new Set(keys));
   }, [devices]);
+  // Limit health requests to AEM/BM/Node device prefixes.
+  const healthMinerKeys = useMemo(
+    () => minerKeys.filter((key) => isDeviceHealthSupported(key)),
+    [minerKeys]
+  );
 
   const handleAdd = () => {
     openModal('addDevice');
@@ -662,6 +685,50 @@ const DevicesPage = ({
       cancelled = true;
     };
   }, [minerKeys, session?.user?.address, refreshFingerprint]);
+
+  useEffect(() => {
+    if (!session?.user?.address || healthMinerKeys.length === 0) {
+      setDeviceHealthSummaries({});
+      setDeviceHealthLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadDeviceHealth = async () => {
+      // Use secureFetch so the PoC health endpoints get the full security stack.
+      setDeviceHealthLoading(true);
+      try {
+        const response = await fetchWithFingerprintRetry(
+          () => secureFetch('/api/hardware/health-summary', { miner_keys: healthMinerKeys }),
+          refreshFingerprint
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to load device health (${response.status})`);
+        }
+
+        const data = await response.json();
+        if (!cancelled) {
+          setDeviceHealthSummaries(data?.summaries ?? {});
+        }
+      } catch (error) {
+        console.error('Failed to load device health summaries', error);
+        if (!cancelled) {
+          setDeviceHealthSummaries({});
+        }
+      } finally {
+        if (!cancelled) {
+          setDeviceHealthLoading(false);
+        }
+      }
+    };
+
+    loadDeviceHealth();
+    return () => {
+      cancelled = true;
+    };
+  }, [healthMinerKeys, refreshFingerprint, session?.user?.address]);
 
   const notifications = useMemo<AppNotification[]>(() => {
     if (!devices || devices.length === 0) {
@@ -1502,6 +1569,8 @@ const DevicesPage = ({
                 stakeable={isProductStakeAvailable(product!)}
                 initialStatus={statusFallback[device.miner_key]}
                 hardwareStatus={hardwareStatus[device.miner_key]}
+                deviceHealth={deviceHealthSummaries[device.miner_key]}
+                deviceHealthLoading={deviceHealthLoading}
                 handleStakeRequirement={handleStakeRequirement}
                 handleDeleteButton={handleDeleteButton}
                 handleChange={handleChange}

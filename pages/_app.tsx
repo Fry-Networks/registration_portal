@@ -15,6 +15,9 @@ import { ToastProvider } from '../hooks/ToastContext';
 import { NotificationProvider } from '../app/notificationcontext';
 import { ThemeProvider } from 'next-themes';
 import 'leaflet/dist/leaflet.css';
+// Explorer map uses Mapbox GL, so include its base styles globally.
+// MapLibre CSS is required for the Explorer map styles and controls.
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { useRouter } from 'next/router';
 import { getClientToken } from '../lib/clientToken';
 import { FingerprintProvider, useFingerprintReady, useRegisterFingerprintRefresh } from '../app/fingerprintcontext';

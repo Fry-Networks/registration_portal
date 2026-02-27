@@ -121,6 +121,9 @@ export interface Reward extends mongoose.Document {
   txId?: string;
   createdAt: Date;
   claimedAt?: Date;
+  // Optional metadata to disambiguate rewards across split databases.
+  reward_db?: 'main' | 'dbrewards';
+  reward_id?: string;
 }
 
 export interface RewardBoost extends mongoose.Document {

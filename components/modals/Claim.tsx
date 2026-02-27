@@ -32,11 +32,15 @@ export default function ClaimModal({
   modalName,
   miner_key,
   no,
+  reward_db,
+  reward_id,
   handleClaim
 }: {
   modalName: string;
   miner_key: string;
   no?: number;
+  reward_db?: 'main' | 'dbrewards';
+  reward_id?: string;
   handleClaim: (ret: boolean, message: string, context?: ClaimContext) => Promise<void>;
 }) {
   const { activeAddress, signAndSubmit } = useWalletActions();
@@ -198,7 +202,13 @@ export default function ClaimModal({
         return;
       }
 
-      const baseBody = no ? { miner_key, no } : { miner_key };
+      // Include reward source metadata when targeting a single reward in split databases.
+      const baseBody = {
+        miner_key,
+        ...(typeof no === 'number' ? { no } : {}),
+        ...(reward_db ? { reward_db } : {}),
+        ...(reward_id ? { reward_id } : {})
+      };
       const clientToken = await getClientToken();
 
       const previewTimestamp = Math.floor(Date.now() / 1000);

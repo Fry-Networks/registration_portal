@@ -7,6 +7,14 @@ export type DeviceAction =
   | 'boost'
   | 'dimo:claim'
   | 'dimo:sync'
+  // Explorer map read endpoints (including global stats) are rate-limited using the same action enum.
+  | 'map:my-hexes'
+  | 'map:hex-details'
+  | 'map:my-devices'
+  | 'map:stats'
+  // Device Health (PoC) telemetry reads for AEM/BM/Nodes.
+  | 'device-health-summary'
+  | 'device-health-history'
   | 'stake:registration'
   | 'stake:node'
   | 'stake:verification'

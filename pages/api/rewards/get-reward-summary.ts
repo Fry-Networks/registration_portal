@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import {
   CommonErrors,
   createApiError,
@@ -13,10 +14,15 @@ import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.serve
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { tFRY, fNODE, FRY_1, normalizeAssetId } from '../../../lib/utils';
+import {
+  getDailyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../../../lib/rewardsDb';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
-const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
-const CUTOFF_DATE = new Date(CUTOFF_ISO);
 const round2 = (value: number) => Math.round(value * 100) / 100;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
 const fNodeAssetId = String(normalizeAssetId(fNODE.id));
@@ -105,9 +111,8 @@ export default async function handler(
   }
 
   // Layer 3: Session check
-  const testMode =
-    process.env.NEXT_PUBLIC_TEST_MODE &&
-    process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+  // Normalize test mode flag to a strict boolean for type safety.
+  const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
   if (!session || !session.user) {
     res.status(401).json(CommonErrors.noSession());
@@ -139,6 +144,9 @@ export default async function handler(
   try {
     const client = await clientPromise;
     const db = client.db('main');
+    // Rewards are split post-cutoff; load the dbrewards client for the current view.
+    const rewardsClient = await rewardsClientPromise;
+    const rewardsDb = rewardsClient.db('dbrewards');
 
     const device = await db
       .collection(testMode ? 'test-devices' : 'devices')
@@ -153,19 +161,25 @@ export default async function handler(
       return;
     }
 
-    // Device-rewards is the single source of truth
-    const devRewardsCol = db.collection('device-rewards');
-    const doc = await devRewardsCol.findOne({ miner_key });
+    // Pull reward docs from both databases and merge totals post-cutoff.
+    const [mainDoc, newDoc] = await Promise.all([
+      db.collection(resolveRewardsCollectionName('main', testMode)).findOne({ miner_key }),
+      rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode)).findOne({ miner_key })
+    ]);
+    const docs: Array<{ source: RewardsDbSource; doc: any | null }> = [
+      { source: 'main', doc: mainDoc },
+      { source: 'dbrewards', doc: newDoc }
+    ];
     const totals = {
-      pending: round2(doc?.total_pending ?? 0),
-      claimable: round2(doc?.total_claimable ?? 0),
-      claimed: round2(doc?.total_claimed ?? 0),
+      pending: 0,
+      claimable: 0,
+      claimed: 0,
       accruing: 0
     };
     let nextUnlockAt: string | null = null;
     let firstRewardAt: string | null = null;
     let firstRewardMs = Number.POSITIVE_INFINITY;
-    let legacyFryClaimedSnapshot = round2(doc?.legacy_fry_claimed_snapshot ?? 0);
+    let legacyFryClaimedSnapshot = 0;
 
     const devicePrefix = (device?.miner_key || '').split('-')[0] || '';
     const isNodeDevice = NODE_PREFIXES.has(devicePrefix);
@@ -184,7 +198,16 @@ export default async function handler(
       }
     };
 
-    if (doc) {
+    for (const { source, doc } of docs) {
+      if (!doc) continue;
+      // Sum totals across both reward databases.
+      totals.pending = round2(totals.pending + Number(doc?.total_pending ?? 0));
+      totals.claimable = round2(totals.claimable + Number(doc?.total_claimable ?? 0));
+      totals.claimed = round2(totals.claimed + Number(doc?.total_claimed ?? 0));
+      legacyFryClaimedSnapshot = round2(
+        legacyFryClaimedSnapshot + Number(doc?.legacy_fry_claimed_snapshot ?? 0)
+      );
+
       if (Array.isArray(doc.weekly_rewards)) {
         for (const wr of doc.weekly_rewards) {
           considerDate(wr?.unlock_at);
@@ -205,7 +228,12 @@ export default async function handler(
           if (!allowedAssets.has(assetKey)) {
             continue;
           }
-          if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
+          // Enforce the rewards split when counting accruing amounts.
+          const rewardDate = getDailyRewardDate(dr);
+          const includeForSource = source === 'main'
+            ? isBeforeRewardsCutoff(rewardDate)
+            : isOnOrAfterRewardsCutoff(rewardDate);
+          if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date) && includeForSource) {
             totals.accruing = round2(totals.accruing + (dr.amount || 0));
           }
         }

@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import { getFRYPrice } from '../../../lib/price';
 import type { Account, Transaction } from 'algosdk';
 import { fixedInputSwap, FRY_2, fNODE, fVPN, ALGO, FRYALGO_WALLET, tFRY } from '../../../lib/utils';
@@ -25,10 +26,17 @@ import { notifyDiscordError } from '../../../lib/discord-webhook';
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import {
+  getDailyRewardDate,
+  getWeeklyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../../../lib/rewardsDb';
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+// Normalize test mode flag to a strict boolean for type safety.
+const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 const WEEKLY_FLAG =
   process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' ||
   process.env.WEEKLY_REWARDS_ENABLED === 'true';
@@ -62,7 +70,16 @@ const toError = (err: unknown): Error => {
   }
 };
 
-type BoostRecord = { reward_number: number; asset_id: string; amount: number };
+type BoostRecord = {
+  reward_number: number;
+  asset_id: string;
+  amount: number;
+  // Track origin DB so updates are routed correctly.
+  reward_db: RewardsDbSource;
+  reward_id?: string;
+  reward_date?: Date | null;
+  source: 'weekly' | 'daily';
+};
 
 const buildBoostTotals = (records: BoostRecord[]) => {
   let sumOriginal = 0;
@@ -192,9 +209,17 @@ export default async function handler(
   const data: {
     miner_key: string;
     no?: number;
+    reward_db?: 'main' | 'dbrewards';
+    reward_id?: string;
   } = req.body;
 
-  const { miner_key, no } = data;
+  const { miner_key, no, reward_db, reward_id } = data;
+  // Normalize optional reward routing hints to avoid ambiguous boosts.
+  const normalizedRewardDb = reward_db === 'main' || reward_db === 'dbrewards' ? reward_db : undefined;
+  if (reward_db && !normalizedRewardDb) {
+    res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Invalid reward database selection'));
+    return;
+  }
 
   const fingerprintStatus = await verifyDeviceFingerprintMiddleware(req, session, isAdmin, {
     walletAddress: session.user.address,
@@ -232,6 +257,9 @@ export default async function handler(
     try {
       const client = await clientPromise;
       const db = client.db('main');
+      // Rewards are split post-cutoff; load both collections for routing.
+      const rewardsClient = await rewardsClientPromise;
+      const rewardsDb = rewardsClient.db('dbrewards');
 
       const device = await db
         .collection(testMode ? 'test-devices' : 'devices')
@@ -259,35 +287,108 @@ export default async function handler(
         };
       }
 
-      const weeklyCollection = db.collection('device-rewards');
+      const mainRewardsCollection = db.collection(resolveRewardsCollectionName('main', testMode));
+      const newRewardsCollection = rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode));
       const bCollection = db.collection('reward-boosts');
 
       let records: BoostRecord[] = [];
       let mode: 'weekly' | 'daily' = 'weekly';
-      const weeklyDoc = await weeklyCollection.findOne({ miner_key });
-      const weeklyPendings = (weeklyDoc?.weekly_rewards || []).filter((wr: any) => wr.status === 'pending');
-      const dailyPendings = (weeklyDoc?.daily_rewards || []).filter((dr: any) => dr.status === 'pending');
+      const [mainDoc, newDoc] = await Promise.all([
+        mainRewardsCollection.findOne({ miner_key }),
+        newRewardsCollection.findOne({ miner_key })
+      ]);
+      const rewardDocs: Array<{ source: RewardsDbSource; doc: any | null }> = [
+        { source: 'main', doc: mainDoc },
+        { source: 'dbrewards', doc: newDoc }
+      ];
+      const weeklyPendings = rewardDocs.flatMap(({ source, doc }) =>
+        (doc?.weekly_rewards || [])
+          .filter((wr: any) => {
+            const rewardDate = getWeeklyRewardDate(wr);
+            if (!wr?.unlock_at || !rewardDate) return false;
+            const inRange = source === 'main'
+              ? isBeforeRewardsCutoff(rewardDate)
+              : isOnOrAfterRewardsCutoff(rewardDate);
+            return wr.status === 'pending' && inRange;
+          })
+          .map((wr: any) => ({
+            reward_number: wr.reward_number,
+            asset_id: wr.asset_id,
+            amount: wr.amount,
+            reward_db: source,
+            reward_id: wr?._id ? String(wr._id) : undefined,
+            reward_date: getWeeklyRewardDate(wr),
+            source: 'weekly' as const
+          }))
+      );
+      const dailyPendings = rewardDocs.flatMap(({ source, doc }) =>
+        (doc?.daily_rewards || [])
+          .filter((dr: any) => {
+            const rewardDate = getDailyRewardDate(dr);
+            const inRange = source === 'main'
+              ? isBeforeRewardsCutoff(rewardDate)
+              : isOnOrAfterRewardsCutoff(rewardDate);
+            return dr.status === 'pending' && inRange;
+          })
+          .map((dr: any) => ({
+            reward_number: dr.reward_number,
+            asset_id: dr.asset_id,
+            amount: dr.amount,
+            reward_db: source,
+            reward_id: dr?._id ? String(dr._id) : undefined,
+            reward_date: getDailyRewardDate(dr),
+            source: 'daily' as const
+          }))
+      );
 
-      if (typeof no === 'number') {
-        const weeklyRecords = weeklyPendings.filter((wr: any) => wr.reward_number === no);
-        if (weeklyRecords && weeklyRecords.length > 0) {
-          records = weeklyRecords;
-          mode = 'weekly';
-        } else {
-          const dailyRecords = dailyPendings.filter((dr: any) => dr.reward_number === no);
-          if (dailyRecords && dailyRecords.length > 0) {
-            records = dailyRecords;
-            mode = 'daily';
-          } else {
+      // Filter helpers to avoid ambiguous reward_number collisions across databases.
+      const matchesSelection = (reward: BoostRecord): boolean => {
+        if (typeof no === 'number' && reward.reward_number !== no) return false;
+        if (reward_id && String(reward.reward_id) !== String(reward_id)) return false;
+        if (normalizedRewardDb && reward.reward_db !== normalizedRewardDb) return false;
+        return true;
+      };
+
+      if (typeof no === 'number' || reward_id) {
+        const weeklyRecords = weeklyPendings.filter(matchesSelection);
+        const dailyRecords = dailyPendings.filter(matchesSelection);
+        if (!weeklyRecords.length && !dailyRecords.length) {
+          throw {
+            status: 404,
+            response: createApiError(
+              ErrorCodes.NO_REWARDS,
+              'No pending reward with that number. If it shows claimable, please use Claim.'
+            )
+          };
+        }
+        if (!normalizedRewardDb && typeof no === 'number') {
+          const sources = new Set<string>([
+            ...weeklyRecords.map((r) => `${r.reward_db}:${r.source}`),
+            ...dailyRecords.map((r) => `${r.reward_db}:${r.source}`)
+          ]);
+          if (sources.size > 1) {
             throw {
-              status: 404,
+              status: 409,
               response: createApiError(
-                ErrorCodes.NO_REWARDS,
-                'No pending reward with that number. If it shows claimable, please use Claim.'
+                ErrorCodes.INVALID_INPUT,
+                'Ambiguous reward number across reward databases',
+                'Refresh the page and retry the instant claim for this specific reward.'
               )
             };
           }
         }
+        if (weeklyRecords.length > 0 && dailyRecords.length > 0 && !reward_id) {
+          throw {
+            status: 409,
+            response: createApiError(
+              ErrorCodes.INVALID_INPUT,
+              'Ambiguous reward selection across weekly and daily records',
+              'Refresh the page and retry the instant claim for this specific reward.'
+            )
+          };
+        }
+        records = weeklyRecords.length > 0 ? weeklyRecords : dailyRecords;
+        mode = weeklyRecords.length > 0 ? 'weekly' : 'daily';
       } else {
         if (weeklyPendings.length === 0 && dailyPendings.length === 0) {
           throw {
@@ -298,14 +399,14 @@ export default async function handler(
             )
           };
         }
-      if (WEEKLY_FLAG) {
-        records = weeklyPendings;
-        mode = 'weekly';
-      } else {
-        records = dailyPendings;
-        mode = 'daily';
+        if (WEEKLY_FLAG) {
+          records = weeklyPendings;
+          mode = 'weekly';
+        } else {
+          records = dailyPendings;
+          mode = 'daily';
+        }
       }
-    }
       const { sumOriginal, sumBoosted } = buildBoostTotals(records);
 
       type Result = {
@@ -479,15 +580,48 @@ export default async function handler(
       let rewards_nos: number[] = [];
       let totalOriginalAmount = sumOriginal;
       let totalBoostedAmount = sumBoosted;
-      if (mode === 'daily') {
-        let modifiedAny = false;
-        for (let i = 0; i < records.length; i++) {
-          const r = records[i];
-          const num = r.reward_number;
-          const amt = r.amount;
-          const boostedAmount = computeBoostedAmount(amt);
+      // Apply boosts per source database to keep totals consistent.
+      const perSource = records.reduce((acc, record) => {
+        const entry = acc.get(record.reward_db) ?? {
+          weekly: [] as BoostRecord[],
+          daily: [] as BoostRecord[],
+          sumOriginal: 0,
+          sumBoosted: 0
+        };
+        const original = quantizeForStorage(record.amount);
+        const boosted = computeBoostedAmount(record.amount);
+        entry.sumOriginal = quantizeForStorage(entry.sumOriginal + original);
+        entry.sumBoosted = quantizeForStorage(entry.sumBoosted + boosted);
+        if (record.source === 'weekly') {
+          entry.weekly.push(record);
+        } else {
+          entry.daily.push(record);
+        }
+        acc.set(record.reward_db, entry);
+        return acc;
+      }, new Map<RewardsDbSource, { weekly: BoostRecord[]; daily: BoostRecord[]; sumOriginal: number; sumBoosted: number }>());
 
-          const devRes = await weeklyCollection.updateOne(
+      let modifiedAny = false;
+      const sourceContexts: Array<{ source: RewardsDbSource; collection: any; doc: any | null }> = [
+        { source: 'main', collection: mainRewardsCollection, doc: mainDoc },
+        { source: 'dbrewards', collection: newRewardsCollection, doc: newDoc }
+      ];
+      for (const ctx of sourceContexts) {
+        const payload = perSource.get(ctx.source);
+        if (!payload) continue;
+        if (!ctx.doc) {
+          throw {
+            status: 409,
+            response: createApiError(
+              ErrorCodes.INTERNAL_ERROR,
+              'Reward document missing for boost routing',
+              'Please refresh and retry your instant claim.'
+            )
+          };
+        }
+        for (const record of payload.daily) {
+          const boostedAmount = computeBoostedAmount(record.amount);
+          const devRes = await ctx.collection.updateOne(
             { miner_key },
             {
               $set: {
@@ -495,32 +629,15 @@ export default async function handler(
                 'daily_rewards.$[elem].amount': boostedAmount
               }
             },
-            { arrayFilters: [{ 'elem.reward_number': num, 'elem.status': 'pending' }] }
+            { arrayFilters: [{ 'elem.reward_number': record.reward_number, 'elem.status': 'pending' }] }
           );
           if (devRes.modifiedCount && devRes.modifiedCount > 0) modifiedAny = true;
-          rewards_nos.push(num);
+          rewards_nos.push(record.reward_number);
         }
 
-        await weeklyCollection.updateOne(
-          { miner_key },
-          { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
-        );
-        if (!modifiedAny) {
-          throw {
-            status: 409,
-            response: createApiError(
-              ErrorCodes.UPDATE_FAILED,
-              'Nothing to boost — selected rewards are no longer pending',
-              'Please refresh and try again.'
-            )
-          };
-        }
-      } else {
-        let modifiedAny = false;
-        const updatedNos: number[] = [];
-        for (const record of records) {
+        for (const record of payload.weekly) {
           const boostedAmount = computeBoostedAmount(record.amount);
-          const updateRes = await weeklyCollection.updateOne(
+          const updateRes = await ctx.collection.updateOne(
             { miner_key },
             {
               $set: {
@@ -530,28 +647,25 @@ export default async function handler(
             },
             { arrayFilters: [{ 'elem.reward_number': record.reward_number, 'elem.status': 'pending' }] }
           );
-          if (updateRes.modifiedCount && updateRes.modifiedCount > 0) {
-            modifiedAny = true;
-            updatedNos.push(record.reward_number);
-          }
+          if (updateRes.modifiedCount && updateRes.modifiedCount > 0) modifiedAny = true;
+          rewards_nos.push(record.reward_number);
         }
 
-        await weeklyCollection.updateOne(
+        await ctx.collection.updateOne(
           { miner_key },
-          { $inc: { total_pending: -sumOriginal, total_claimable: sumBoosted } }
+          { $inc: { total_pending: -payload.sumOriginal, total_claimable: payload.sumBoosted } }
         );
+      }
 
-        if (!modifiedAny) {
-          throw {
-            status: 409,
-            response: createApiError(
-              ErrorCodes.UPDATE_FAILED,
-              'Nothing to boost — selected rewards are no longer pending',
-              'Please refresh and try again.'
-            )
-          };
-        }
-        rewards_nos = updatedNos;
+      if (!modifiedAny) {
+        throw {
+          status: 409,
+          response: createApiError(
+            ErrorCodes.UPDATE_FAILED,
+            'Nothing to boost — selected rewards are no longer pending',
+            'Please refresh and try again.'
+          )
+        };
       }
 
       const feeAssetIds = Object.keys(feeTotals);
