@@ -5,6 +5,7 @@ import bgImg from '../assets/background.png';
 import HeroBanner from '../components/HeroBanner';
 import { getSession, useSession } from 'next-auth/react';
 import clientPromise from '../lib/mongoclient';
+import rewardsClientPromise from '../lib/rewardsMongoClient';
 import { Reward } from '../lib/types';
 import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 import WeeklyCard, { WeeklyRewardView } from '../components/WeeklyCard';
@@ -31,7 +32,16 @@ import { REWARD_STATUS_DESCRIPTIONS, getAssetDisplay } from '../lib/utils';
 import { isLegacyVerificationStake } from '../lib/legacyStake';
 import { useToastContext } from '../hooks/ToastContext';
 import { secureFetch } from '../lib/api/secureFetch';
+import { isDeviceHealthSupported } from '../lib/minerKeyCategories';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
+import {
+  getDailyRewardDate,
+  getWeeklyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../lib/rewardsDb';
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -61,9 +71,8 @@ function computeNextFrydayUnlock(now: Date): Date {
   return thisUnlock;
 }
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+// Normalize test mode flag to a strict boolean for type safety.
+const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
@@ -95,6 +104,31 @@ type StakeAvailability = {
 };
 
 type StakeAvailabilityMap = Record<StakeCategory, StakeAvailability>;
+
+// Device Health history payload returned by /api/hardware/health-history.
+type DeviceHealthHistory = {
+  available: boolean;
+  miner_key?: string | null;
+  miner_type?: string | null;
+  lastUpdated?: string | null;
+  boot_time?: string | null;
+  current_run_started_at?: string | null;
+  poi_status?: boolean | null;
+  software?: {
+    os?: string;
+    software_version_installed?: string;
+    software_version_needed?: string;
+    software_uptodate?: boolean;
+    poc_version_installed?: string;
+    poc_version_needed?: string;
+    poc_uptodate?: boolean;
+    is_uptodate?: boolean;
+  } | null;
+  rewards_multiplier_day?: number | null;
+  rewards_multiplier_day_counted_slots?: number | null;
+  rewards_multiplier_history?: Array<{ day: string; avg: number | null; counted_slots: number | null }>;
+  tools_history?: Array<{ day: string; avgToolsCount: number | null; countedSlots: number }>;
+};
 
 const STAKE_LABELS: Record<StakeCategory, string> = {
   verification: 'Verification Stake',
@@ -200,6 +234,11 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     if (NODE_PREFIXES.has(prefix) || prefix === AEM_PREFIX) return false;
     return true;
   }, [minerKey]);
+  // Gate Device Health so it only renders for AEM/BM/Nodes.
+  const showDeviceHealthSection = useMemo(
+    () => (typeof miner_key === 'string' ? isDeviceHealthSupported(miner_key) : false),
+    [miner_key]
+  );
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
   const [now, setNow] = useState(() => Date.now());
   const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
@@ -506,6 +545,10 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
 
   // Device identity (nickname/name and product name)
   const [deviceMeta, setDeviceMeta] = useState<{ nickname?: string; name?: string; productName?: string } | null>(null);
+  // Device Health history is populated for AEM/BM/Nodes only.
+  const [deviceHealthHistory, setDeviceHealthHistory] = useState<DeviceHealthHistory | null>(null);
+  const [deviceHealthLoading, setDeviceHealthLoading] = useState(false);
+  const [deviceHealthError, setDeviceHealthError] = useState<string | null>(null);
   useEffect(() => {
     if (typeof miner_key !== 'string' || !session?.user?.address) {
       setStakeHistoryData(null);
@@ -561,6 +604,77 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     })();
     return () => { active = false; };
   }, [miner_key, session?.user?.address, refreshFingerprint, deviceRefreshToken]);
+
+  useEffect(() => {
+    if (typeof miner_key !== 'string' || !session?.user?.address) {
+      setDeviceHealthHistory(null);
+      setDeviceHealthError(null);
+      setDeviceHealthLoading(false);
+      return;
+    }
+
+    if (!isDeviceHealthSupported(miner_key)) {
+      setDeviceHealthHistory(null);
+      setDeviceHealthError(null);
+      setDeviceHealthLoading(false);
+      return;
+    }
+
+    let active = true;
+    setDeviceHealthLoading(true);
+    setDeviceHealthError(null);
+
+    (async () => {
+      try {
+        const res = await fetchWithFingerprintRetry(
+          () => secureFetch('/api/hardware/health-history', { miner_key, days: 7 }),
+          refreshFingerprint
+        );
+        if (!active) return;
+
+        if (!res.ok) {
+          throw new Error(`Health history request failed (${res.status})`);
+        }
+
+        const json = await res.json();
+        if (!active) return;
+
+        setDeviceHealthHistory({
+          available: Boolean(json?.available),
+          miner_key: json?.miner_key ?? null,
+          miner_type: json?.miner_type ?? null,
+          lastUpdated: json?.lastUpdated ?? null,
+          boot_time: json?.boot_time ?? null,
+          current_run_started_at: json?.current_run_started_at ?? null,
+          poi_status: typeof json?.poi_status === 'boolean' ? json.poi_status : null,
+          software: json?.software ?? null,
+          rewards_multiplier_day:
+            typeof json?.rewards_multiplier_day === 'number' ? json.rewards_multiplier_day : null,
+          rewards_multiplier_day_counted_slots:
+            typeof json?.rewards_multiplier_day_counted_slots === 'number'
+              ? json.rewards_multiplier_day_counted_slots
+              : null,
+          rewards_multiplier_history: Array.isArray(json?.rewards_multiplier_history)
+            ? json.rewards_multiplier_history
+            : [],
+          tools_history: Array.isArray(json?.tools_history) ? json.tools_history : []
+        });
+      } catch (error) {
+        console.error('Failed to load device health history', error);
+        if (!active) return;
+        setDeviceHealthHistory(null);
+        setDeviceHealthError('Device Health history is not available yet.');
+      } finally {
+        if (active) {
+          setDeviceHealthLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [miner_key, refreshFingerprint, session?.user?.address]);
 
   // (moved) Infinite scroll observer defined after derived lists for type safety
 
@@ -930,6 +1044,16 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
       </div>
     </div>
   )}
+  {showDeviceHealthSection && (
+    <div className="px-2 sm:px-20 mt-6">
+      <DeviceHealthSection
+        history={deviceHealthHistory}
+        loading={deviceHealthLoading}
+        error={deviceHealthError}
+        isDark={isDark}
+      />
+    </div>
+  )}
   {(hasStakeHistory || Object.values(stakeAvailability).some((entry) => entry.hasStake)) && (
     <div className="px-2 sm:px-20 mt-6">
       <StakeHistorySection
@@ -1132,17 +1256,22 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
 
       {selReward && (
         <>
+          {/* Pass reward source metadata so claim/boost routes to the correct database. */}
           <ClaimModal
             modalName="claim"
             miner_key={selReward.miner_key}
             no={selReward.no}
+            reward_db={selReward.reward_db}
+            reward_id={selReward.reward_id}
             handleClaim={handleClaim}
           />
           <BoostModal
             modalName="boost"
             miner_key={selReward.miner_key}
             no={selReward.no}
-            rewardAssetId={(selReward as any)?.asset_id}
+            reward_db={selReward.reward_db}
+            reward_id={selReward.reward_id}
+            rewardAssetId={selReward.asset_id}
             handleBoost={handleBoost}
           />
         </>
@@ -1206,6 +1335,264 @@ function MinerSelect() {
         </option>
       ))}
     </select>
+  );
+}
+
+// Device Health sits above stake history and isolates PoC stats from reward history.
+function DeviceHealthSection({
+  history,
+  loading,
+  error,
+  isDark
+}: {
+  history: DeviceHealthHistory | null;
+  loading: boolean;
+  error: string | null;
+  isDark: boolean;
+}) {
+  // Allow users to switch between local time and UTC for device health timestamps.
+  const [timeMode, setTimeMode] = useState<'local' | 'utc'>('local');
+  const containerClass = isDark
+    ? 'rounded-2xl border border-white/10 bg-black/60 text-gray-100 shadow-xl shadow-black/30'
+    : 'rounded-2xl border border-slate-200 bg-white/90 text-slate-900 shadow-sm';
+  const labelClass = isDark ? 'text-gray-400' : 'text-slate-600';
+  const valueClass = isDark ? 'text-gray-100' : 'text-slate-900';
+  const softCardClass = isDark
+    ? 'rounded-xl border border-white/10 bg-black/70'
+    : 'rounded-xl border border-slate-200 bg-white';
+
+  // Format timestamps based on the selected time mode.
+  const formatTime = (value?: string | null) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    if (timeMode === 'utc') {
+      return date.toLocaleString(undefined, { timeZone: 'UTC' });
+    }
+    return date.toLocaleString();
+  };
+
+  if (loading) {
+    return (
+      <div className={containerClass}>
+        <div className="px-4 py-4 text-sm">
+          <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Device Health</div>
+          <div className="mt-2">Loading Device Health history...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={containerClass}>
+        <div className="px-4 py-4 text-sm">
+          <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Device Health</div>
+          <div className="mt-2">{error}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!history || !history.available) {
+    return (
+      <div className={containerClass}>
+        <div className="px-4 py-4 text-sm">
+          <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Device Health</div>
+          <div className="mt-2">Device Health data is not available yet for this device.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const softwareStatus =
+    history.software?.is_uptodate === true
+      ? { label: 'Up to date', tone: isDark ? 'text-emerald-300' : 'text-emerald-700' }
+      : history.software?.is_uptodate === false
+        ? { label: 'Update required', tone: isDark ? 'text-amber-300' : 'text-amber-700' }
+        : { label: 'Unknown', tone: labelClass };
+  // Proof of Install (POI) is an AEM-only signal.
+  const isAemDevice = (history.miner_key ?? '').startsWith('AEM-');
+  const poiStatusLabel =
+    history.poi_status === true ? 'Detected' : history.poi_status === false ? 'Missing' : 'Unknown';
+  const poiStatusTone =
+    history.poi_status === true
+      ? isDark
+        ? 'text-emerald-300'
+        : 'text-emerald-700'
+      : history.poi_status === false
+        ? isDark
+          ? 'text-amber-300'
+          : 'text-amber-700'
+        : labelClass;
+
+  const multiplierHistory = Array.isArray(history.rewards_multiplier_history)
+    ? [...history.rewards_multiplier_history].sort((a, b) => b.day.localeCompare(a.day))
+    : [];
+  const toolsHistory = Array.isArray(history.tools_history)
+    ? [...history.tools_history].sort((a, b) => b.day.localeCompare(a.day))
+    : [];
+
+  return (
+    <div className={containerClass}>
+      <div className="px-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Device Health</div>
+          <div className="flex items-center gap-3">
+            {/* Toggle between local time and UTC for timestamp displays. */}
+            <div className="inline-flex rounded-full border border-slate-500/30 bg-transparent text-[0.65rem] font-semibold">
+              <button
+                type="button"
+                onClick={() => setTimeMode('local')}
+                className={`px-3 py-1 rounded-full ${
+                  timeMode === 'local'
+                    ? isDark
+                      ? 'bg-red-500/20 text-red-100'
+                      : 'bg-red-100 text-red-700'
+                    : labelClass
+                }`}
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimeMode('utc')}
+                className={`px-3 py-1 rounded-full ${
+                  timeMode === 'utc'
+                    ? isDark
+                      ? 'bg-red-500/20 text-red-100'
+                      : 'bg-red-100 text-red-700'
+                    : labelClass
+                }`}
+              >
+                UTC
+              </button>
+            </div>
+            {history.lastUpdated && (
+              <div className={`text-[0.65rem] ${labelClass}`}>
+                Last updated {formatTime(history.lastUpdated)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className={softCardClass}>
+            <div className="px-4 py-3 text-sm">
+              <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Runtime</div>
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className={labelClass}>Current run started</span>
+                  <span className={`font-semibold ${valueClass}`}>
+                    {formatTime(history.current_run_started_at)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className={labelClass}>Boot time</span>
+                  <span className={`font-semibold ${valueClass}`}>{formatTime(history.boot_time)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className={softCardClass}>
+            <div className="px-4 py-3 text-sm">
+              <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Software health</div>
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className={labelClass}>Status</span>
+                  <span className={`font-semibold ${softwareStatus.tone}`}>{softwareStatus.label}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className={labelClass}>Software version</span>
+                  <span className={`font-semibold ${valueClass}`}>
+                    {history.software?.software_version_installed ?? '—'} / {history.software?.software_version_needed ?? '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className={labelClass}>PoC version</span>
+                  <span className={`font-semibold ${valueClass}`}>
+                    {history.software?.poc_version_installed ?? '—'} / {history.software?.poc_version_needed ?? '—'}
+                  </span>
+                </div>
+                {isAemDevice && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className={labelClass}>Proof of install</span>
+                    <span className={`font-semibold ${poiStatusTone}`}>{poiStatusLabel}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className={softCardClass}>
+            <div className="px-4 py-3 text-sm">
+              <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Reward multiplier</div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <span className={labelClass}>Today avg</span>
+                <span className={`font-semibold ${valueClass}`}>
+                  {typeof history.rewards_multiplier_day === 'number'
+                    ? `${history.rewards_multiplier_day.toFixed(2)}x`
+                    : '—'}
+                </span>
+              </div>
+              <div className="mt-1 text-[0.7rem] text-gray-500 dark:text-gray-400">
+                Slots counted:{' '}
+                {typeof history.rewards_multiplier_day_counted_slots === 'number'
+                  ? history.rewards_multiplier_day_counted_slots.toLocaleString()
+                  : '—'}
+              </div>
+              <div className="mt-3 space-y-2">
+                {multiplierHistory.length === 0 ? (
+                  <div className={`text-xs ${labelClass}`}>No multiplier history yet.</div>
+                ) : (
+                  multiplierHistory.map((entry) => (
+                    <div key={entry.day} className="flex items-center justify-between text-xs">
+                      <span className={labelClass}>{entry.day}</span>
+                      <span className={`font-semibold ${valueClass}`}>
+                        {typeof entry.avg === 'number' ? `${entry.avg.toFixed(2)}x` : '—'}
+                      </span>
+                      <span className={labelClass}>
+                        {typeof entry.counted_slots === 'number'
+                          ? `${entry.counted_slots.toLocaleString()} slots`
+                          : '—'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {toolsHistory.length > 0 && (
+            <div className={softCardClass}>
+              <div className="px-4 py-3 text-sm">
+                <div className={`text-xs uppercase tracking-wide ${labelClass}`}>Tools active (last 24h)</div>
+                <div className="mt-2 space-y-2">
+                  {toolsHistory.map((entry) => (
+                    <div key={entry.day} className="flex items-center justify-between text-xs">
+                      <span className={labelClass}>{entry.day}</span>
+                      <span className={`font-semibold ${valueClass}`}>
+                        {typeof entry.avgToolsCount === 'number'
+                          ? `${entry.avgToolsCount.toFixed(2)} / 3`
+                          : '—'}
+                      </span>
+                      <span className={labelClass}>
+                        {typeof entry.countedSlots === 'number'
+                          ? `${entry.countedSlots.toLocaleString()} slots`
+                          : '—'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1474,13 +1861,25 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   try {
     const client = await clientPromise;
     const db = client.db('main');
+    // Rewards are split post-cutoff; load the dbrewards client for SSR.
+    const rewardsClient = await rewardsClientPromise;
+    const rewardsDb = rewardsClient.db('dbrewards');
+    // Weekly cutoff still gates weekly vs daily classification (distinct from DB split cutoff).
     const cutoffIso = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
     const cutoffDate = new Date(cutoffIso);
 
-    const doc = await db.collection('device-rewards').findOne({ miner_key });
-    if (!doc) {
+    // Load reward docs from both databases and merge by cutoff for SSR.
+    const [mainDoc, newDoc] = await Promise.all([
+      db.collection(resolveRewardsCollectionName('main', testMode)).findOne({ miner_key }),
+      rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode)).findOne({ miner_key })
+    ]);
+    if (!mainDoc && !newDoc) {
       return EMPTY_HISTORY_PROPS;
     }
+    const docs: Array<{ source: RewardsDbSource; doc: any | null }> = [
+      { source: 'main', doc: mainDoc },
+      { source: 'dbrewards', doc: newDoc }
+    ];
 
     const daysBetween = (a: Date, b: Date): number => {
       const ms = Math.max(0, b.getTime() - a.getTime());
@@ -1493,52 +1892,79 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
       return `${fmt(start)} – ${fmt(end)}`;
     };
 
-    const weekly = (doc?.weekly_rewards || [])
-      .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= cutoffDate)
-      .map((wr: any) => {
-        const unlockAt = new Date(wr.unlock_at);
-        return {
-          _id: wr._id,
-          miner_key,
-          no: wr.reward_number,
-          status: wr.status,
-          asset_id: wr.asset_id,
-          amount: wr.amount,
-          txId: wr.tx_id,
-          createdAt: wr.unlock_at,
-          claimedAt: wr.claimed_at,
-          isWeekly: true,
-          progressDays: daysBetween(unlockAt, new Date()),
-          etaDate: new Date(unlockAt.getTime() + 30 * dayMs),
-          weekLabel: (() => {
-            const wkStart = wr.week_start
-              ? new Date(wr.week_start)
-              : new Date(getThisFridayStartUTC(unlockAt).getTime() - 7 * dayMs);
-            const wkEnd = wr.week_end ? new Date(wr.week_end) : new Date(wkStart.getTime() + 6 * dayMs);
-            return formatRange(wkStart, wkEnd);
-          })()
-        };
-      });
+    const weekly = docs.flatMap(({ source, doc }) =>
+      (doc?.weekly_rewards || [])
+        .filter((wr: any) => {
+          const rewardDate = getWeeklyRewardDate(wr);
+          if (!wr?.unlock_at || !rewardDate) {
+            return false;
+          }
+          const inDbSplit = source === 'main'
+            ? isBeforeRewardsCutoff(rewardDate)
+            : isOnOrAfterRewardsCutoff(rewardDate);
+          // Weekly cutoff remains in effect for weekly records.
+          return inDbSplit && rewardDate >= cutoffDate;
+        })
+        .map((wr: any) => {
+          const unlockAt = new Date(wr.unlock_at);
+          return {
+            _id: wr._id,
+            miner_key,
+            no: wr.reward_number,
+            status: wr.status,
+            asset_id: wr.asset_id,
+            amount: wr.amount,
+            txId: wr.tx_id,
+            createdAt: wr.unlock_at,
+            claimedAt: wr.claimed_at,
+            isWeekly: true,
+            progressDays: daysBetween(unlockAt, new Date()),
+            etaDate: new Date(unlockAt.getTime() + 30 * dayMs),
+            weekLabel: (() => {
+              const wkStart = wr.week_start
+                ? new Date(wr.week_start)
+                : new Date(getThisFridayStartUTC(unlockAt).getTime() - 7 * dayMs);
+              const wkEnd = wr.week_end ? new Date(wr.week_end) : new Date(wkStart.getTime() + 6 * dayMs);
+              return formatRange(wkStart, wkEnd);
+            })(),
+            // Include source metadata so claim/boost can route correctly.
+            reward_db: source,
+            reward_id: wr?._id ? String(wr._id) : undefined
+          };
+        })
+    );
 
-    const daily = (doc?.daily_rewards || [])
-      .filter((dr: any) => dr.created_at && new Date(dr.created_at) < cutoffDate)
-      .map((dr: any) => {
-        const createdAt = new Date(dr.created_at);
-        return {
-          _id: dr._id,
-          miner_key,
-          no: dr.reward_number,
-          status: dr.status,
-          asset_id: dr.asset_id,
-          amount: dr.amount,
-          txId: dr.tx_id,
-          createdAt: dr.created_at,
-          claimedAt: dr.claimed_at,
-          isWeekly: false,
-          progressDays: daysBetween(createdAt, new Date()),
-          etaDate: new Date(createdAt.getTime() + 30 * dayMs)
-        };
-      });
+    const daily = docs.flatMap(({ source, doc }) =>
+      (doc?.daily_rewards || [])
+        .filter((dr: any) => {
+          const rewardDate = getDailyRewardDate(dr);
+          // dbrewards does not store daily rewards; keep daily strictly in main pre-cutoff.
+          if (source !== 'main') return false;
+          const inDbSplit = isBeforeRewardsCutoff(rewardDate);
+          return inDbSplit && rewardDate !== null && rewardDate < cutoffDate;
+        })
+        .map((dr: any) => {
+          const createdAt = new Date(dr.created_at ?? dr.date);
+          return {
+            _id: dr._id,
+            miner_key,
+            no: dr.reward_number,
+            status: dr.status,
+            asset_id: dr.asset_id,
+            amount: dr.amount,
+            txId: dr.tx_id,
+            // Preserve date fallback when created_at is missing in legacy records.
+            createdAt: dr.created_at ?? dr.date,
+            claimedAt: dr.claimed_at,
+            isWeekly: false,
+            progressDays: daysBetween(createdAt, new Date()),
+            etaDate: new Date(createdAt.getTime() + 30 * dayMs),
+            // Include source metadata so claim/boost can route correctly.
+            reward_db: source,
+            reward_id: dr?._id ? String(dr._id) : undefined
+          };
+        })
+    );
 
     const allRewards = weekly
       .concat(daily)

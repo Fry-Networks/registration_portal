@@ -21,7 +21,7 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
   - Code: `lib/WalletAuthProvider.ts:6`, `lib/auth.ts:5`.
 - All application data lives in MongoDB `main` (plus a separate `creds` DB for portal credentials and hardware MAC credentials).
   - Shared client: `lib/mongoclient.ts:1`.
-- Devices (aka registrations) are stored per wallet, with per-device staking state, reward wallet, nickname, and position.
+- Devices (aka registrations) are stored per wallet, with per-device staking state, reward wallet, and nickname.
   - Type: `lib/types.ts:3`.
 - Device credentials are managed in-app:
   - Fetch: `pages/api/credentials/get.ts:1`
@@ -34,6 +34,16 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
   - Claim: `pages/api/rewards/claim.ts:1`
   - Boost: `pages/api/rewards/boost.ts:1`
   - Totals/Summary/Paging: `pages/api/rewards/get-asset-totals.ts:1`, `pages/api/rewards/get-reward-summary.ts:1`, `pages/api/rewards/get-rewards-page.ts:1`
+<!-- Updated: multi-resolution tiles + telemetry-backed statuses. -->
+- Explorer map renders hex-only coverage with MapLibre, using multi-resolution global tiles plus wallet overlays from `creds.*` (not `main.devices`).
+  <!-- Updated: global tiles include telemetry counts for online/offline outlines. -->
+  - Global tile properties now include `online_count`/`offline_count` for outline styling.
+  <!-- Updated: intermediate resolutions keep hex sizes steady while zooming. -->
+  - Default global layers now include `hex_grid_r3` and `hex_grid_r5` in addition to the existing set.
+  <!-- Updated: labels render from point-only layers to avoid duplicates. -->
+  - Label layers are `hex_grid_r*_labels` (one per resolution).
+  - UI: `pages/explorer.tsx:1`, `components/explorer/*`
+  - APIs: `pages/api/map/*`
 
 
 ## Databases and Collections
@@ -43,7 +53,7 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
     - Write path: `lib/WalletAuthProvider.ts:36`
   - `devices`: one doc per miner/node; core fields include:
     - `address` (owner/sign-in wallet), `email`, `name`, `nickname`, `reward_wallet`,
-    - `position` `{ lat, lng }`, `is_registered`, `verified`, `registered_portal_model`, `hexId`
+    - `is_registered`, `verified`, `registered_portal_model`
     - staking blocks:
       - `registration`: `{ amount, txId, asset_id, time }`
       - `node`: `{ amount, txId, asset_id, time }`
@@ -62,10 +72,13 @@ Scope: this file documents the user-dashboard Next.js app only. Ignore `.next/` 
 
 - Database: `creds`
   - Portal credential collections (`air`, `camera`, `energy`, `weather`, `water`, `radiation`, `hardware`, `other`) keyed by `miner_key` + owner `address`
+    - Location data lives here: `position { lat, lng, hexId }` for the Explorer map.
     - Persist: `pages/api/devices/save-credentials.ts:1`
     - Fetch: `pages/api/credentials/get.ts:1`
     - Validate: `pages/api/credentials/validate.ts:1` (+ vendor endpoints under `/api/credentials/*`)
     - Unlink/reset: `pages/api/credentials/unlink.ts:1`
+- Database: `PoC`
+  - `hardware`: per-device telemetry keyed by `miner_key` (uses `uptime.status` + `lastUpdated` for explorer online/offline).
 
 
 ## Wallets
@@ -179,6 +192,10 @@ Required (examples in `.env`):
   - `WEEKLY_REWARDS_ENABLED=true|false` (or `NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED`)
   - `WEEKLY_CUTOFF_UTC=YYYY-MM-DDTHH:mm:ss.sssZ` (switch from daily → weekly SoT)
 - Hardware DB overrides (optional): `MONGO_CREDS_DB`, `MONGO_CREDS_COLLECTION`
+- Explorer map:
+  - `NEXT_PUBLIC_TILES_URL`, `NEXT_PUBLIC_EXPLORER_STYLE_LIGHT`, `NEXT_PUBLIC_EXPLORER_STYLE_DARK`,
+    `NEXT_PUBLIC_EXPLORER_GLOBAL_HEX_RESOLUTION`
+  - Tiles service: `MONGO_TILES_URI`, `OP_TILES_SERVICE_ACCOUNT_TOKEN`, `TILESERVER_K_ANON`
 
 
 ## Where to Change Things
@@ -189,6 +206,7 @@ Required (examples in `.env`):
 - Staking and withdrawals: see `pages/api/stake/*`, `pages/api/stake/precheck.ts`, and `components/modals/*`
 - Announcements banner + tray entries: see `pages/api/announcements/*`, `app/notificationcontext.tsx`, and `components/AnnouncementBanner.tsx`
 - Authentication rules: `lib/WalletAuthProvider.ts:18`, `lib/auth.ts:5`
+- Explorer map: `pages/explorer.tsx:1`, `components/explorer/*`, `pages/api/map/*`, `lib/db/mapIndexes.ts:1`
 
 
 ## Conventions and Tips
@@ -197,6 +215,7 @@ Required (examples in `.env`):
 - Prefer `client.db('main')` collections; use test collections when `NEXT_PUBLIC_TEST_MODE === 'true'`.
 - When building UI for staking, use product tokens and amounts; do not hardcode asset ids.
 - Rewards SoT is `device-rewards`; legacy per-miner `rewards` is not used by the dashboard.
+- Explorer map uses `creds.*.position.hexId` for location; do not re-introduce lat/lng into `main.devices`.
 - Use `rg` (ripgrep) when searching; ignore `.next` and `node_modules`.
 
 
@@ -207,6 +226,7 @@ Required (examples in `.env`):
 - Staking: `components/modals/Stake.tsx:1`, `pages/api/stake/*.ts`
 - Rewards: `pages/devices.tsx:1` (UI), `pages/api/rewards/*.ts`
 - Hardware creds: `pages/nodeportal.tsx:1`, `pages/api/hardware/register.ts:1`
+- Explorer map: `pages/explorer.tsx:1`, `components/explorer/*`, `pages/api/map/*.ts`
 
 
 ## Known Edge Cases

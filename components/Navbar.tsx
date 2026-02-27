@@ -8,6 +8,7 @@ import { useWallet } from '@txnlab/use-wallet-react';
 import Image from 'next/image';
 import { Button, Flex, Title } from '@tremor/react';
 import Link from 'next/link';
+import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
 
 import fryLogo from '../assets/Logo.png';
 import Modal from 'react-modal';
@@ -15,7 +16,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId, tFRY } from '../lib/utils';
-import { BellIcon, HomeIcon } from '@heroicons/react/outline';
+import { BellIcon, DotsHorizontalIcon, GlobeAltIcon, HomeIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
@@ -62,6 +63,8 @@ export default function Navbar() {
   const { notifications, dismiss } = useNotifications();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
+  // Keep a separate ref for the bell trigger so outside clicks behave on desktop.
+  const notificationTriggerRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
   const bugSuccessCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
@@ -128,6 +131,14 @@ export default function Navbar() {
     ? 'inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-red-500/50 via-amber-400/40 to-emerald-400/40 px-5 py-3 text-base font-semibold text-white shadow-xl shadow-red-900/40 backdrop-blur'
     : 'inline-flex items-center gap-3 rounded-2xl border border-red-200 bg-gradient-to-r from-rose-50 via-amber-50 to-emerald-50 px-5 py-3 text-base font-semibold text-red-700 shadow-md';
   const showDimoLink = dimoEnabled === true; // Only surface DIMO when the Mongo toggle is enabled.
+  // Mobile overflow menu styling keeps the nav consistent with light/dark themes.
+  const moreMenuClass = isDark
+    ? 'absolute right-0 z-[240] mt-2 w-56 max-w-[calc(100vw-1rem)] origin-top-right rounded-2xl border border-red-500/40 bg-[#0b0b0f]/95 shadow-xl shadow-red-900/40 focus:outline-none'
+    : 'absolute right-0 z-[240] mt-2 w-56 max-w-[calc(100vw-1rem)] origin-top-right rounded-2xl border border-red-200 bg-white shadow-xl shadow-red-200 focus:outline-none';
+  const moreMenuItemClass = isDark
+    ? 'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-red-100 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+    : 'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm text-red-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
+  const moreMenuActiveClass = isDark ? 'bg-red-500/15' : 'bg-red-100';
 
   useEffect(() => {
     console.log('[Wallet] hook activeAccount', activeAccount);
@@ -228,6 +239,14 @@ export default function Navbar() {
     setBugSubmitError(null);
     setBugSuccessMessage(null);
     setIsBugModalOpen(true);
+  };
+
+  // Share notification toggle behavior between desktop and mobile triggers.
+  const toggleNotifications = () => {
+    if (notifications.length === 0) {
+      return;
+    }
+    setShowNotifications(prev => !prev);
   };
 
   const closeBugModal = () => {
@@ -415,10 +434,11 @@ export default function Navbar() {
     }
 
     const handleOutsideClick = (event: MouseEvent) => {
-      if (
-        notificationTrayRef.current &&
-        !notificationTrayRef.current.contains(event.target as Node)
-      ) {
+      const target = event.target as Node;
+      const clickedTray = notificationTrayRef.current?.contains(target);
+      const clickedTrigger = notificationTriggerRef.current?.contains(target);
+      // Ignore clicks within the tray or on the bell trigger to avoid instant dismisses.
+      if (!clickedTray && !clickedTrigger) {
         setShowNotifications(false);
       }
     };
@@ -542,7 +562,6 @@ export default function Navbar() {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3 relative z-[200]">
-            <ThemeControls />
             {!address || address.length === 0 ? (
               <Button
                 className={
@@ -562,95 +581,209 @@ export default function Navbar() {
               </Button>
             ) : (
               <Fragment>
+                {/* Desktop priority order: wallet, home, DIMO, explorer, bug, notifications. */}
                 <DownMenu address={address} disconnect={handleDisconnect} />
                 <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
-                  {showDimoLink && (
+                  {/* Desktop: full action row in priority order. */}
+                  <div className="hidden sm:flex items-center gap-2.5">
                     <Link
-                      href="/dimo"
-                      className={
-                        isDark
-                          ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
-                          : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
-                      }
-                      aria-label="Login with DIMO"
-                      title="DIMO login & eligibility"
+                      href="/devices"
+                      className={actionButtonClass}
+                      aria-label="Go to devices"
+                      title="Devices home"
                     >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
-                        <Image
-                          src={dimoIcon}
-                          alt="DIMO"
-                          width={36}
-                          height={36}
-                          className="h-9 w-9"
-                          priority={false}
-                        />
-                      </div>
+                      <HomeIcon className="h-5 w-5" />
                     </Link>
-                  )}
-                  <Link
-                    href="/devices"
-                    className={actionButtonClass}
-                    aria-label="Go to devices"
-                    title="Devices home"
-                  >
-                    <HomeIcon className="h-5 w-5" />
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={openBugModal}
-                    aria-label="Report a bug"
-                    className={actionButtonClass}
-                    title="Report a bug"
-                  >
-                    <RiBugLine className="h-5 w-5" />
-                  </button>
-                  <div className="relative" ref={notificationTrayRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (notifications.length === 0) {
-                          return;
-                        }
-                        setShowNotifications(prev => !prev);
-                      }}
-                      aria-expanded={showNotifications}
-                      aria-label="View device notifications"
-                      title={
-                        notifications.length > 0
-                          ? `${notifications.length} notification${notifications.length === 1 ? '' : 's'}`
-                          : 'No new notifications'
-                      }
-                      className={`${actionButtonClass} relative disabled:cursor-not-allowed disabled:opacity-60`}
-                      disabled={notifications.length === 0}
-                    >
-                      <BellIcon className="h-5 w-5" aria-hidden="true" />
-                      {notifications.length > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          {notifications.length}
-                        </span>
-                      )}
-                    </button>
-                    {showNotifications && notifications.length > 0 && (
-                      <div
-                        // Mobile: use a fixed overlay anchored below the navbar so it never clips or forces layout; desktop keeps the anchored tray.
-                        className={`overflow-hidden rounded-2xl border shadow-2xl z-[240] ${
+                    {showDimoLink && (
+                      <Link
+                        href="/dimo"
+                        className={
                           isDark
-                            ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
-                            : 'border-red-200 bg-white shadow-red-200/60'
-                        } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
+                            ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+                            : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
+                        }
+                        aria-label="Login with DIMO"
+                        title="DIMO login & eligibility"
                       >
-                        <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
-                          <NotificationCenter
-                            notifications={notifications}
-                            onDismiss={dismiss}
-                            isDark={isDark}
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
+                          <Image
+                            src={dimoIcon}
+                            alt="DIMO"
+                            width={36}
+                            height={36}
+                            className="h-9 w-9"
+                            priority={false}
                           />
                         </div>
-                      </div>
+                      </Link>
                     )}
+                    {/* Explorer entry point for the privacy-safe hex map. */}
+                    <Link
+                      href="/explorer"
+                      className={actionButtonClass}
+                      aria-label="Open Explorer map"
+                      title="Explorer map"
+                    >
+                      <GlobeAltIcon className="h-5 w-5" />
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={openBugModal}
+                      aria-label="Report a bug"
+                      className={actionButtonClass}
+                      title="Report a bug"
+                    >
+                      <RiBugLine className="h-5 w-5" />
+                    </button>
+                    <div className="relative" ref={notificationTriggerRef}>
+                      <button
+                        type="button"
+                        onClick={toggleNotifications}
+                        aria-expanded={showNotifications}
+                        aria-label="View device notifications"
+                        title={
+                          notifications.length > 0
+                            ? `${notifications.length} notification${notifications.length === 1 ? '' : 's'}`
+                            : 'No new notifications'
+                        }
+                        className={`${actionButtonClass} relative disabled:cursor-not-allowed disabled:opacity-60`}
+                        disabled={notifications.length === 0}
+                      >
+                        <BellIcon className="h-5 w-5" aria-hidden="true" />
+                        {notifications.length > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            {notifications.length}
+                          </span>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {/* Mobile: show Home, DIMO, and an overflow menu for the rest. */}
+                  <div className="flex items-center gap-2 sm:hidden">
+                    <Link
+                      href="/devices"
+                      className={actionButtonClass}
+                      aria-label="Go to devices"
+                      title="Devices home"
+                    >
+                      <HomeIcon className="h-5 w-5" />
+                    </Link>
+                    {showDimoLink && (
+                      <Link
+                        href="/dimo"
+                        className={
+                          isDark
+                            ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
+                            : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
+                        }
+                        aria-label="Login with DIMO"
+                        title="DIMO login & eligibility"
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
+                          <Image
+                            src={dimoIcon}
+                            alt="DIMO"
+                            width={36}
+                            height={36}
+                            className="h-9 w-9"
+                            priority={false}
+                          />
+                        </div>
+                      </Link>
+                    )}
+                    <Menu as="div" className="relative">
+                      <MenuButton
+                        className={`${actionButtonClass} relative`}
+                        aria-label="Open more actions"
+                        title="More actions"
+                      >
+                        <DotsHorizontalIcon className="h-5 w-5" aria-hidden="true" />
+                        {notifications.length > 0 && (
+                          <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            {notifications.length}
+                          </span>
+                        )}
+                      </MenuButton>
+                      <MenuItems transition className={moreMenuClass}>
+                        <div className="py-1">
+                          <MenuItem>
+                            {({ active }) => (
+                              <Link
+                                href="/explorer"
+                                className={classNames(moreMenuItemClass, active ? moreMenuActiveClass : '')}
+                              >
+                                <GlobeAltIcon className="h-4 w-4" />
+                                Explorer map
+                              </Link>
+                            )}
+                          </MenuItem>
+                          <MenuItem>
+                            {({ active }) => (
+                              <button
+                                type="button"
+                                onClick={openBugModal}
+                                className={classNames(moreMenuItemClass, active ? moreMenuActiveClass : '')}
+                              >
+                                <RiBugLine className="h-4 w-4" />
+                                Report a bug
+                              </button>
+                            )}
+                          </MenuItem>
+                          <MenuItem disabled={notifications.length === 0}>
+                            {({ active, disabled }) => (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (disabled) {
+                                    return;
+                                  }
+                                  setShowNotifications(true);
+                                }}
+                                className={classNames(
+                                  moreMenuItemClass,
+                                  active && !disabled ? moreMenuActiveClass : '',
+                                  disabled ? 'cursor-not-allowed opacity-60' : ''
+                                )}
+                              >
+                                <BellIcon className="h-4 w-4" />
+                                Notifications
+                                {notifications.length > 0 && (
+                                  <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-semibold text-white">
+                                    {notifications.length}
+                                  </span>
+                                )}
+                              </button>
+                            )}
+                          </MenuItem>
+                        </div>
+                      </MenuItems>
+                    </Menu>
                   </div>
                 </div>
               </Fragment>
+            )}
+            {/* Desktop-only theme controls to keep the mobile action row minimal. */}
+            <div className="hidden sm:flex items-center">
+              <ThemeControls />
+            </div>
+            {showNotifications && notifications.length > 0 && (
+              <div
+                ref={notificationTrayRef}
+                // Mobile: use a fixed overlay anchored below the navbar so it never clips or forces layout; desktop keeps the anchored tray.
+                className={`overflow-hidden rounded-2xl border shadow-2xl z-[240] ${
+                  isDark
+                    ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
+                    : 'border-red-200 bg-white shadow-red-200/60'
+                } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:right-0 sm:top-full sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
+              >
+                <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
+                  <NotificationCenter
+                    notifications={notifications}
+                    onDismiss={dismiss}
+                    isDark={isDark}
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>

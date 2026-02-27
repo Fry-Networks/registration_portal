@@ -18,6 +18,9 @@ export type WeeklyRewardView = {
   etaDate: string | Date;
   weekLabel?: string;
   fiatValue?: number;
+  // Optional metadata to disambiguate split reward databases.
+  reward_db?: 'main' | 'dbrewards';
+  reward_id?: string;
 };
 
 export default function WeeklyCard({

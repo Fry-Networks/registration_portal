@@ -40,6 +40,7 @@ You need to create an item in your **Dashboard** vault with the following fields
 | `REWARD_REKEY`    | password | Reward rekey credential                   |
 | `REWARD_MNEMONIC` | password | Reward wallet mnemonic                    |
 | `MONGO_URI`       | password | MongoDB connection string                 |
+| `MONGO_REWARDS_URI` | password | MongoDB connection string for dbrewards |
 
 5. Save the item
 
@@ -61,7 +62,8 @@ op item create \
   STAKE_REKEY[password]="your-stake-rekey" \
   REWARD_REKEY[password]="your-reward-rekey" \
   REWARD_MNEMONIC[password]="your-reward-mnemonic" \
-  MONGO_URI[password]="your-mongo-uri"
+  MONGO_URI[password]="your-mongo-uri" \
+  MONGO_REWARDS_URI[password]="your-rewards-mongo-uri"
 ```
 
 ## Step 3: Configure Service Account Token on VPS

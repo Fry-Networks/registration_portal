@@ -15,31 +15,39 @@ services:
       NODE_ENV: development
       NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
       OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN?missing_OP_SERVICE_ACCOUNT_TOKEN}
-      NEXTAUTH_URL: 'op://Dashboard/Dash Secrets/NEXTAUTH_URL'
-      NEXTAUTH_SECRET: 'op://Dashboard/Dash Secrets/NEXT_AUTH_SECRET'
-      STAKE_MNEMONIC: 'op://Dashboard/Dash Secrets/STAKE_MNEMONIC'
-      STAKE_REKEY: 'op://Dashboard/Dash Secrets/STAKE_REKEY'
-      REWARD_MNEMONIC: 'op://Dashboard/Dash Secrets/REWARD_MNEMONIC'
-      REWARD_REKEY: 'op://Dashboard/Dash Secrets/REWARD_REKEY'
-      MONGO_URI: 'op://Dashboard/Dash Secrets/MONGO_URI'
-      VER_MONGO_URI: 'op://Dashboard/Dash Secrets/VER_MONGO_URI'
-      DISCORD_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
+      NEXTAUTH_URL: 'op://TestersDashboard/Dash Secrets/NEXTAUTH_URL'
+      NEXTAUTH_SECRET: 'op://TestersDashboard/Dash Secrets/NEXT_AUTH_SECRET'
+      STAKE_MNEMONIC: 'op://TestersDashboard/Dash Secrets/STAKE_MNEMONIC'
+      STAKE_REKEY: 'op://TestersDashboard/Dash Secrets/STAKE_REKEY'
+      REWARD_MNEMONIC: 'op://TestersDashboard/Dash Secrets/REWARD_MNEMONIC'
+      REWARD_REKEY: 'op://TestersDashboard/Dash Secrets/REWARD_REKEY'
+      MONGO_URI: 'op://TestersDashboard/Dash Secrets/MONGO_URI'
+      # Rewards DB (post-2026-01-24 cutoff) lives in dbrewards.
+      MONGO_REWARDS_URI: 'op://TestersDashboard/Dash Secrets/MONGO_REWARDS_URI'
+      VER_MONGO_URI: 'op://TestersDashboard/Dash Secrets/VER_MONGO_URI'
+      DISCORD_BUG_WEBHOOK_URL: 'op://TestersDashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
+      DISCORD_USER_BUG_WEBHOOK_URL: 'op://TestersDashboard/Dash Secrets/DISCORD_USER_BUG_WEBHOOK_URL'
       NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
       NEXT_PUBLIC_TEST_MODE: 'false'
+      POC_REWARD_BM: 'true' # Enable PoC slot-based rewards for BM devices.
+      POC_REWARD_AEM: 'true' # Enable PoC slot-based rewards for AEM devices.
       WEEKLY_CUTOFF_UTC: '2025-09-12T00:00:00.000Z'
       LEGACY_VERIFICATION_FORCE_UTC: ${LEGACY_VERIFICATION_FORCE_UTC:-'2025-11-27T00:00:00.000Z'}
       NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC: ${NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC:-'2025-11-27T00:00:00.000Z'}
       BUG_REPORT_RATE_LIMIT_HOURS: 1
       NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
       DISABLE_DEVICE_FINGERPRINT: 'false'
-      DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'
-      DIMO_CLIENT_SECRET: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_SECRET'
-      DIMO_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'
-      DIMO_HASH_SECRET: 'op://Dashboard/Dash Secrets/DIMO_HASH_SECRET'
+      DIMO_CLIENT_ID: 'op://TestersDashboard/Dash Secrets/DIMO_CLIENT_ID'
+      DIMO_CLIENT_SECRET: 'op://TestersDashboard/Dash Secrets/DIMO_CLIENT_SECRET'
+      DIMO_REDIRECT_URI: 'op://TestersDashboard/Dash Secrets/DIMO_REDIRECT_URI'
+      DIMO_HASH_SECRET: 'op://TestersDashboard/Dash Secrets/DIMO_HASH_SECRET'
       DIMO_LOGIN_BASE: 'https://login.dimo.org'
       DIMO_JWKS_URL: 'https://auth.dimo.zone/keys'
       DIMO_API_BASE: 'https://api.dimo.co'
       NEXT_PUBLIC_DIMO_ENV: 'production'
+      # Explorer map hex tile service (global anonymized coverage layer).
+      # Avoid quoting defaults so the URL isn't treated as a literal with quotes.
+      NEXT_PUBLIC_TILES_URL: ${NEXT_PUBLIC_TILES_URL:-https://tiles.aitechbit.xyz}
       DIMO_ANNOUNCE_UTC: '2025-12-08T00:00:00.000Z'
       DIMO_GRACE_DAYS: 7
       DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE: 'true'
@@ -51,13 +59,64 @@ services:
     volumes:
       - .:/app:cached
       - /app/node_modules
-      - /home/fryadmin/dude-dashboard/logs:/app/logs # Persist logs outside container
+      - /home/helpdesk/user-testing-dashboard/user-dashboard/logs:/app/logs # Persist logs outside container
     restart: unless-stopped
     networks:
       - frynet
+
+  # Tileserver builder: generates anonymized hex MBTiles from creds data.
+  fry-dashboard-tiles-builder:
+    container_name: fry-dashboard-tiles-builder
+    build:
+      # tilesServer now lives next to user-dashboard (../tilesServer).
+      context: ../tilesServer
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - frynet
+    environment:
+      # 1Password CLI token needed to resolve op:// secrets at runtime.
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_TILES_SERVICE_ACCOUNT_TOKEN?missing_OP_TILES_SERVICE_ACCOUNT_TOKEN}
+      # Tileserver uses a dedicated Mongo user stored in its own vault (field: MONGO_TILES_URI).
+      MONGO_TILES_URI: 'op://TilesServer/TilesSecrets/MONGO_TILES_URI'
+      # Avoid quoting defaults so the db name isn't wrapped in literal quotes.
+      MONGO_CREDS_DB: ${MONGO_CREDS_DB:-creds}
+      TILESERVER_K_ANON: ${TILESERVER_K_ANON:-3}
+      TILESERVER_REFRESH_MINUTES: ${TILESERVER_REFRESH_MINUTES:-10}
+      # Write tiles to a shared volume so the server can read them.
+      TILESERVER_DATA_DIR: /data
+      # Builder does not spawn the tileserver process.
+      TILESERVER_ENABLE_SERVER: 'false'
+    # Build on container start because the dev volume hides the prebuilt output.
+    command: sh -c "npm run build && op run -- npm start"
+    volumes:
+      # Bind the sibling tilesServer source for live rebuilds.
+      - ../tilesServer:/app:cached
+      - tileserver-data:/data
+
+  # Tileserver runtime: serves MBTiles from the shared volume.
+  fry-dashboard-tiles:
+    container_name: fry-dashboard-tiles
+    image: maptiler/tileserver-gl:latest
+    restart: unless-stopped
+    networks:
+      - frynet
+    ports:
+      # Map host 3018 to the container's default 8080 to keep healthchecks happy.
+      - '3018:8080'
+    volumes:
+      - tileserver-data:/data
+      # Use the sibling tilesServer config from the parent directory.
+      - ../tilesServer/config.json:/data/config.json:ro
+    # tileserver-gl image already sets its entrypoint; pass flags only to avoid positional-arg errors.
+    # Keep the internal port at 8080 to align with the image healthcheck.
+    command: ['--config', '/data/config.json', '--port', '8080']
 
 networks:
   frynet:
     name: frynet
     driver: bridge
     external: true
+
+volumes:
+  tileserver-data:

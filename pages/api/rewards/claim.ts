@@ -4,6 +4,7 @@ import type { Transaction } from 'algosdk';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import type { Device } from '../../../lib/types';
 import { getAssetDecimals, fNODE, tFRY, getRewardsVaultAddress } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
@@ -24,6 +25,14 @@ import {
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import {
+  getDailyRewardDate,
+  getWeeklyRewardDate,
+  isBeforeRewardsCutoff,
+  isOnOrAfterRewardsCutoff,
+  resolveRewardsCollectionName,
+  RewardsDbSource
+} from '../../../lib/rewardsDb';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
@@ -35,6 +44,10 @@ type DeviceClaimTarget = {
   reward_number: number;
   asset_id: string;
   amount: number;
+  // Track origin DB so updates are routed correctly.
+  reward_db: RewardsDbSource;
+  reward_id?: string;
+  reward_date?: Date | null;
 };
 
 // Define proper types for the claim response variants
@@ -130,7 +143,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Input validation mirrors the legacy handler (miner key required, optional reward number).
-  const { miner_key, no, preview } = req.body ?? {};
+  const { miner_key, no, preview, reward_db, reward_id } = req.body ?? {};
+  // Normalize optional reward routing hints to avoid ambiguous claims.
+  const normalizedRewardDb = reward_db === 'main' || reward_db === 'dbrewards' ? reward_db : undefined;
+  if (reward_db && !normalizedRewardDb) {
+    res.status(400).json(
+      createApiError(ErrorCodes.INVALID_INPUT, 'Invalid reward database selection')
+    );
+    return;
+  }
   if (typeof miner_key !== 'string' || miner_key.length === 0) {
     res.status(400).json(
       createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for claim request')
@@ -175,7 +196,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Load the same device + rewards data the previous handler inspected.
       const client = await clientPromise;
       const db = client.db('main');
-      const rewardsCollection = db.collection('device-rewards');
+      // Rewards are split post-cutoff; load both collections for routing.
+      const rewardsClient = await rewardsClientPromise;
+      const rewardsDb = rewardsClient.db('dbrewards');
+      const mainRewardsCollection = db.collection(resolveRewardsCollectionName('main', testMode));
+      const newRewardsCollection = rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode));
       const deviceCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
       const device = await deviceCollection.findOne({ miner_key });
       if (!device) {
@@ -199,27 +224,105 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         };
       }
 
-      const rewardsDoc = await rewardsCollection.findOne({ miner_key });
+      const [mainRewardsDoc, newRewardsDoc] = await Promise.all([
+        mainRewardsCollection.findOne({ miner_key }),
+        newRewardsCollection.findOne({ miner_key })
+      ]);
       const algodClient = getAlgodClient();
       const rewardsVaultAddress = getRewardsVaultAddress();
-      const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable');
-      const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable');
+      const rewardDocs: Array<{ source: RewardsDbSource; doc: any | null }> = [
+        { source: 'main', doc: mainRewardsDoc },
+        { source: 'dbrewards', doc: newRewardsDoc }
+      ];
+      const weeklyClaimables = rewardDocs.flatMap(({ source, doc }) =>
+        (doc?.weekly_rewards || [])
+          .filter((r: any) => {
+            const rewardDate = getWeeklyRewardDate(r);
+            if (!r?.unlock_at || !rewardDate) return false;
+            const inRange = source === 'main'
+              ? isBeforeRewardsCutoff(rewardDate)
+              : isOnOrAfterRewardsCutoff(rewardDate);
+            return r.status === 'claimable' && inRange;
+          })
+          .map((r: any) => ({
+            ...r,
+            reward_db: source,
+            reward_id: r?._id ? String(r._id) : undefined,
+            reward_date: getWeeklyRewardDate(r)
+          }))
+      );
+      const dailyClaimables = rewardDocs.flatMap(({ source, doc }) =>
+        (doc?.daily_rewards || [])
+          .filter((r: any) => {
+            const rewardDate = getDailyRewardDate(r);
+            const inRange = source === 'main'
+              ? isBeforeRewardsCutoff(rewardDate)
+              : isOnOrAfterRewardsCutoff(rewardDate);
+            return r.status === 'claimable' && inRange;
+          })
+          .map((r: any) => ({
+            ...r,
+            reward_db: source,
+            reward_id: r?._id ? String(r._id) : undefined,
+            reward_date: getDailyRewardDate(r)
+          }))
+      );
 
       const records: DeviceClaimTarget[] = [];
-      if (typeof no === 'number') {
-        const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
-        const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
+      // Filter helpers to avoid ambiguous reward_number collisions across databases.
+      const matchesSelection = (reward: any): boolean => {
+        if (typeof no === 'number' && reward.reward_number !== no) return false;
+        if (reward_id && String(reward.reward_id) !== String(reward_id)) return false;
+        if (normalizedRewardDb && reward.reward_db !== normalizedRewardDb) return false;
+        return true;
+      };
+
+      if (typeof no === 'number' || reward_id) {
+        const weeklyTargets = weeklyClaimables.filter(matchesSelection);
+        const dailyTargets = dailyClaimables.filter(matchesSelection);
         if (!weeklyTargets.length && !dailyTargets.length) {
           throw {
             status: 404,
             response: createApiError(ErrorCodes.NO_REWARDS, 'No rewards available to claim.', 'Wait for new rewards to unlock and try again or refresh the page if you believe this is not right.')
           };
         }
+        if (!normalizedRewardDb && typeof no === 'number') {
+          const sources = new Set<string>([
+            ...weeklyTargets.map((r: any) => r.reward_db),
+            ...dailyTargets.map((r: any) => r.reward_db)
+          ]);
+          if (sources.size > 1) {
+            throw {
+              status: 409,
+              response: createApiError(
+                ErrorCodes.INVALID_INPUT,
+                'Ambiguous reward number across reward databases',
+                'Refresh the page and retry the claim for this specific reward.'
+              )
+            };
+          }
+        }
         weeklyTargets.forEach((wr: any) =>
-          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+          records.push({
+            source: 'weekly',
+            reward_number: wr.reward_number,
+            asset_id: wr.asset_id,
+            amount: wr.amount,
+            reward_db: wr.reward_db as RewardsDbSource,
+            reward_id: wr.reward_id,
+            reward_date: wr.reward_date
+          })
         );
         dailyTargets.forEach((dr: any) =>
-          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+          records.push({
+            source: 'daily',
+            reward_number: dr.reward_number,
+            asset_id: dr.asset_id,
+            amount: dr.amount,
+            reward_db: dr.reward_db as RewardsDbSource,
+            reward_id: dr.reward_id,
+            reward_date: dr.reward_date
+          })
         );
       } else {
         if (!weeklyClaimables.length && !dailyClaimables.length) {
@@ -229,10 +332,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           };
         }
         weeklyClaimables.forEach((wr: any) =>
-          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+          records.push({
+            source: 'weekly',
+            reward_number: wr.reward_number,
+            asset_id: wr.asset_id,
+            amount: wr.amount,
+            reward_db: wr.reward_db as RewardsDbSource,
+            reward_id: wr.reward_id,
+            reward_date: wr.reward_date
+          })
         );
         dailyClaimables.forEach((dr: any) =>
-          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+          records.push({
+            source: 'daily',
+            reward_number: dr.reward_number,
+            asset_id: dr.asset_id,
+            amount: dr.amount,
+            reward_db: dr.reward_db as RewardsDbSource,
+            reward_id: dr.reward_id,
+            reward_date: dr.reward_date
+          })
         );
       }
 
@@ -414,8 +533,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new Error('Reward transfer could not be submitted to Algorand.');
       }
 
-      const weeklyNos = records.filter((r) => r.source === 'weekly').map((r) => r.reward_number);
-      const dailyNos = records.filter((r) => r.source === 'daily').map((r) => r.reward_number);
+      // Group updates per database so totals and statuses remain consistent.
+      const totalsBySource = records.reduce((acc, record) => {
+        const prev = acc.get(record.reward_db) ?? 0;
+        acc.set(record.reward_db, quantizeForStorage(prev + record.amount));
+        return acc;
+      }, new Map<RewardsDbSource, number>());
       monitorTransaction(txId, {
         minerKey: miner_key,
         walletAddress: session.user.address,
@@ -427,50 +550,75 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       let modifiedAny = false;
-      if (weeklyNos.length > 0) {
-        const updateWeekly = await rewardsCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'weekly_rewards.$[elem].status': 'claimed',
-              'weekly_rewards.$[elem].tx_id': txId,
-              'weekly_rewards.$[elem].claimed_at': new Date()
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
-        );
-        if (updateWeekly.modifiedCount) modifiedAny = true;
-      }
-
-      if (dailyNos.length > 0) {
-        const updateDaily = await rewardsCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'daily_rewards.$[elem].status': 'claimed',
-              'daily_rewards.$[elem].tx_id': txId,
-              'daily_rewards.$[elem].claimed_at': new Date()
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
-        );
-        if (updateDaily.modifiedCount) modifiedAny = true;
-      }
-
-      const currentClaimable = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimable));
-      const currentClaimed = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimed));
-      const nextClaimable = Math.max(0, quantizeForStorage(currentClaimable - totalAmountNumeric));
-      const nextClaimed = quantizeForStorage(currentClaimed + totalAmountNumeric);
-
-      await rewardsCollection.updateOne(
-        { miner_key },
-        {
-          $set: {
-            total_claimable: nextClaimable,
-            total_claimed: nextClaimed
-          }
+      const sourceContexts: Array<{ source: RewardsDbSource; collection: any; doc: any | null }> = [
+        { source: 'main', collection: mainRewardsCollection, doc: mainRewardsDoc },
+        { source: 'dbrewards', collection: newRewardsCollection, doc: newRewardsDoc }
+      ];
+      for (const ctx of sourceContexts) {
+        const delta = totalsBySource.get(ctx.source) ?? 0;
+        if (!delta) continue;
+        if (!ctx.doc) {
+          throw {
+            status: 409,
+            response: createApiError(
+              ErrorCodes.INTERNAL_ERROR,
+              'Reward document missing for claim routing',
+              'Please refresh and retry your claim.'
+            )
+          };
         }
-      );
+        const weeklyNos = records
+          .filter((r) => r.source === 'weekly' && r.reward_db === ctx.source)
+          .map((r) => r.reward_number);
+        const dailyNos = records
+          .filter((r) => r.source === 'daily' && r.reward_db === ctx.source)
+          .map((r) => r.reward_number);
+
+        if (weeklyNos.length > 0) {
+          const updateWeekly = await ctx.collection.updateOne(
+            { miner_key },
+            {
+              $set: {
+                'weekly_rewards.$[elem].status': 'claimed',
+                'weekly_rewards.$[elem].tx_id': txId,
+                'weekly_rewards.$[elem].claimed_at': new Date()
+              }
+            },
+            { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
+          );
+          if (updateWeekly.modifiedCount) modifiedAny = true;
+        }
+
+        if (dailyNos.length > 0) {
+          const updateDaily = await ctx.collection.updateOne(
+            { miner_key },
+            {
+              $set: {
+                'daily_rewards.$[elem].status': 'claimed',
+                'daily_rewards.$[elem].tx_id': txId,
+                'daily_rewards.$[elem].claimed_at': new Date()
+              }
+            },
+            { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
+          );
+          if (updateDaily.modifiedCount) modifiedAny = true;
+        }
+
+        const currentClaimable = quantizeForStorage(parseCurrencyValue(ctx.doc?.total_claimable));
+        const currentClaimed = quantizeForStorage(parseCurrencyValue(ctx.doc?.total_claimed));
+        const nextClaimable = Math.max(0, quantizeForStorage(currentClaimable - delta));
+        const nextClaimed = quantizeForStorage(currentClaimed + delta);
+
+        await ctx.collection.updateOne(
+          { miner_key },
+          {
+            $set: {
+              total_claimable: nextClaimable,
+              total_claimed: nextClaimed
+            }
+          }
+        );
+      }
 
       if (!modifiedAny) {
         throw {

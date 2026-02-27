@@ -45,6 +45,7 @@ import fNodeOptInQr from '../opt-in-qrcodes/fNode-Opt-in.png';
 import fry2OptInQr from '../opt-in-qrcodes/FRY2-Opt-in.png';
 import fVpnOptInQr from '../opt-in-qrcodes/fVPN-Opt-in.png';
 import { FRY_2, fNODE, fVPN, tFRY } from '../lib/utils';
+import { isDeviceHealthSupported } from '../lib/minerKeyCategories';
 
 // Env-driven portal credential requirement parsing (matches logic in pages/devices.tsx)
 const _CREDENTIALS_NEEDED_RAW = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
@@ -106,6 +107,19 @@ type IssueBadgeInfo = {
 
 type RewardWalletOptInStatus = 'unknown' | 'checking' | 'missing' | 'present';
 
+// Device Health summary is hydrated from PoC.hardware.
+type DeviceHealthSummary = {
+  available: boolean;
+  status: 'online' | 'offline' | 'unknown';
+  uptimePercent24h: number | null;
+  downtimeDetected: boolean;
+  macStatus: boolean | null;
+  polStatus: boolean | null;
+  poiStatus: boolean | null;
+  toolsActive: number | null;
+  lastUpdated: string | null;
+};
+
 export default function DeviceListItem({
   initialDevice,
   product,
@@ -120,7 +134,9 @@ export default function DeviceListItem({
   handleWithdrawStake,
   handleWithdrawAllButton,
   initialStatus,
-  hardwareStatus
+  hardwareStatus,
+  deviceHealth,
+  deviceHealthLoading
   // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
@@ -143,6 +159,8 @@ export default function DeviceListItem({
     reason?: string;
     detail?: string;
   };
+  deviceHealth?: DeviceHealthSummary;
+  deviceHealthLoading?: boolean;
   // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
   const toast = useToastContext();
@@ -237,6 +255,8 @@ export default function DeviceListItem({
     ['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM'].includes(minerPrefix) &&
     isHardwareCheckRequiredForPrefix(minerPrefix);
   const hardwareWarning = needsHardwareCheck && hardwareStatus ? (!hardwareStatus.linked || !hardwareStatus.valid) : false;
+  // Device Health only applies to AEM, BM, and Node prefixes.
+  const isHealthSupported = isDeviceHealthSupported(device.miner_key);
   // Track whether computeDeviceStatus flagged any blocking profile/setup issues.
   const hasDeviceStatusIssues = alertShow && Object.keys(deviceStatus).length > 0;
   const hasVerificationStake = Boolean(device?.verified);
@@ -1443,7 +1463,7 @@ export default function DeviceListItem({
   }, [rewardSummary?.nextUnlockAt]);
 
   type SectionConfig = {
-    key: 'rewards' | 'contact' | 'status';
+    key: 'rewards' | 'contact' | 'status' | 'health';
     title: string;
     content: ReactNode;
     important?: boolean;
@@ -1452,8 +1472,157 @@ export default function DeviceListItem({
   
   const statusImportant = shouldShowRed || shouldShowYellow;
 
-const collapsibleSections: SectionConfig[] = useMemo(
-    () => [
+  const deviceHealthContent = useMemo(() => {
+    if (!isHealthSupported) {
+      return null;
+    }
+
+    if (deviceHealthLoading && !deviceHealth) {
+      return (
+        <div className={modalTextMuted}>
+          Loading Device Health...
+        </div>
+      );
+    }
+
+    if (!deviceHealth || !deviceHealth.available) {
+      return (
+        <div className={modalTextMuted}>
+          Device Health data is not available yet for this device.
+        </div>
+      );
+    }
+
+    const statusLabel =
+      deviceHealth.status === 'online'
+        ? 'Online'
+        : deviceHealth.status === 'offline'
+          ? 'Offline'
+          : 'Unknown';
+    const statusTone =
+      deviceHealth.status === 'online'
+        ? textGreen
+        : deviceHealth.status === 'offline'
+          ? textRed
+          : textGray;
+    const uptimeLabel =
+      typeof deviceHealth.uptimePercent24h === 'number'
+        ? `${deviceHealth.uptimePercent24h.toFixed(1)}%`
+        : 'N/A';
+    const downtimeLabel = deviceHealth.downtimeDetected ? 'Downtime detected (24h)' : 'No downtime (24h)';
+    const downtimeTone = deviceHealth.downtimeDetected ? textRed : textGreen;
+    const macLabel =
+      deviceHealth.macStatus === true
+        ? 'Verified'
+        : deviceHealth.macStatus === false
+          ? 'Failed'
+          : 'Unknown';
+    const macTone =
+      deviceHealth.macStatus === true
+        ? textGreen
+        : deviceHealth.macStatus === false
+          ? textRed
+          : textGray;
+    const polLabel =
+      deviceHealth.polStatus === true
+        ? 'Verified'
+        : deviceHealth.polStatus === false
+          ? 'Failed'
+          : 'Unknown';
+    const polTone =
+      deviceHealth.polStatus === true
+        ? textGreen
+        : deviceHealth.polStatus === false
+          ? textRed
+          : textGray;
+    // AEM proof-of-install check is only available for AEM devices.
+    const poiLabel =
+      deviceHealth.poiStatus === true
+        ? 'Detected'
+        : deviceHealth.poiStatus === false
+          ? 'Missing'
+          : 'Unknown';
+    const poiTone =
+      deviceHealth.poiStatus === true
+        ? textGreen
+        : deviceHealth.poiStatus === false
+          ? textRed
+          : textGray;
+    const toolsActiveLabel =
+      typeof deviceHealth.toolsActive === 'number' ? `${deviceHealth.toolsActive}/3` : 'N/A';
+    const toolsTone =
+      typeof deviceHealth.toolsActive === 'number'
+        ? deviceHealth.toolsActive === 3
+          ? textGreen
+          : deviceHealth.toolsActive > 0
+            ? textAmber
+            : textRed
+        : textGray;
+
+    return (
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className={metricTileClass}>
+            <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>Status</div>
+            <div className={`mt-1 text-sm font-semibold ${statusTone}`}>{statusLabel}</div>
+          </div>
+          <div className={metricTileClass}>
+            <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>Uptime (24h avg)</div>
+            <div className={`mt-1 text-sm font-semibold ${textStrong}`}>{uptimeLabel}</div>
+            <div className={`mt-1 text-[0.65rem] ${downtimeTone}`}>{downtimeLabel}</div>
+          </div>
+          <div className={metricTileClass}>
+            <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>MAC check</div>
+            <div className={`mt-1 text-sm font-semibold ${macTone}`}>{macLabel}</div>
+          </div>
+          <div className={metricTileClass}>
+            <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>POL check</div>
+            <div className={`mt-1 text-sm font-semibold ${polTone}`}>{polLabel}</div>
+          </div>
+          {minerPrefix === 'AEM' && (
+            <div className={metricTileClass}>
+              <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>POI check</div>
+              <div className={`mt-1 text-sm font-semibold ${poiTone}`}>{poiLabel}</div>
+              <div className={`mt-1 text-[0.65rem] ${textGray}`}>Proof of install</div>
+            </div>
+          )}
+          {minerPrefix === 'BM' && (
+            <div className={metricTileClass}>
+              <div className={`text-xs uppercase tracking-wide ${metricLabelClass}`}>Tools active</div>
+              <div className={`mt-1 text-sm font-semibold ${toolsTone}`}>{toolsActiveLabel}</div>
+              <div className={`mt-1 text-[0.65rem] ${textGray}`}>Current tool count</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, [
+    deviceHealth,
+    deviceHealthLoading,
+    isHealthSupported,
+    metricLabelClass,
+    metricTileClass,
+    minerPrefix,
+    textAmber,
+    textGray,
+    textGreen,
+    textRed,
+    textStrong,
+    modalTextMuted
+  ]);
+
+  const collapsibleSections: SectionConfig[] = useMemo(
+    () => {
+      // Keep the conditional health section strongly typed for TS inference.
+      const healthSection: SectionConfig | null = isHealthSupported
+        ? {
+            key: 'health',
+            title: 'Device Health',
+            content: deviceHealthContent
+          }
+        : null;
+
+      return [
       {
         key: 'rewards',
         title: 'Rewards & multipliers',
@@ -1815,8 +1984,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
             )}
           </div>
         )
-      }
-    ],
+      },
+      ...(healthSection ? [healthSection] : [])
+    ];
+    },
     [
       byodDiscountApplied,
       dailyRewardEntries,
@@ -1853,13 +2024,16 @@ const collapsibleSections: SectionConfig[] = useMemo(
       nodeTokenDetail.id,
       nodeTokenDetail.label,
       nodeTokenDetail.name,
+      deviceHealthContent,
+      isHealthSupported,
       isDark,
       modalTextMuted
     ]
   );
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
-    const baseState: Record<string, boolean> = { rewards: true, contact: true, status: true };
+    // Default to showing Device Health alongside rewards/contact/status.
+    const baseState: Record<string, boolean> = { rewards: true, contact: true, status: true, health: true };
     if (typeof window === 'undefined') {
       return statusImportant ? { ...baseState, status: true } : baseState;
     }
@@ -1883,7 +2057,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
         ...initial,
         rewards: false,
         contact: false,
-        status: statusImportant ? true : false
+        status: statusImportant ? true : false,
+        health: true
       };
     }
 

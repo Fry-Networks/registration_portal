@@ -13,6 +13,7 @@ This document explains how the Fry user dashboard works end‑to‑end: authenti
 - Rewards modeled weekly (with support for historical pre‑cutoff daily entries).
 - FRY 1.0 reward buckets are retired; any legacy FRY 1.0 entries are aggregated into the tFry totals, and conversions remain available via the `fry-conversions` flow.
 - Device credential intake and validation handled in-app (`/api/credentials/*`, `/api/devices/save-credentials`), replacing the legacy AirAPI dependency.
+- Explorer map at `/explorer` uses MapLibre and hex-only tiles for global visibility without exposing exact device locations.
 
 
 ## Authentication
@@ -56,8 +57,8 @@ Database: `main`
 - `devices`: per device registration (miner or node)
   - Ownership and profile: `address` (owner wallet), `email`, `name`, `nickname`
   - Reward wallet: `reward_wallet` (destination for claims)
-  - Location: `position { lat, lng }`
-  - Status flags: `is_registered`, `verified`, `registered_portal_model`, `hexId`
+  - Location: stored in `creds.*` (`position.hexId`); `main.devices` location fields are legacy-only
+  - Status flags: `is_registered`, `verified`, `registered_portal_model`
   - Staking blocks:
     - `registration`: `{ amount, txId, asset_id, time }`
     - `node`: `{ amount, txId, asset_id, time }`
@@ -69,9 +70,9 @@ Database: `main`
   - `reward.stake`: `{ stake_one, stake_two, register, node }` — USD amounts
   - Type: `lib/types.ts:75`
 
-- `device-rewards`: single source of truth for rewards per device
-  - `weekly_rewards`: post‑cutoff records; fields include `reward_number`, `status` (`pending|claimable|claimed`), `asset_id`, `amount`, `unlock_at`, `tx_id`, `claimed_at`, and week boundaries for UI.
-  - `daily_rewards`: pre‑cutoff history used for totals and display.
+- `device-rewards`: single source of truth for rewards per device on/before `2026-01-23T23:59:59Z`
+  - `weekly_rewards`: weekly records; fields include `reward_number`, `status` (`pending|claimable|claimed`), `asset_id`, `amount`, `unlock_at`, `tx_id`, `claimed_at`, and week boundaries for UI.
+  - `daily_rewards`: daily history used for totals and display.
 
 - `registration-users`: NextAuth wallet users.
 
@@ -83,10 +84,75 @@ Database: `main`
 
 Database: `creds`
 - Portal credential collections (`air`, `camera`, `energy`, `weather`, `water`, `radiation`, `hardware`, `other`) keyed by `miner_key` + owner `address`.
+  - Location fields live here: `position { lat, lng, hexId }` (server-only, hex ids only reach clients).
   - Persist: `pages/api/devices/save-credentials.ts:1`
   - Fetch: `pages/api/credentials/get.ts:1`
   - Validate: `pages/api/credentials/validate.ts:1` (+ vendor endpoints under `/api/credentials/*`)
   - Unlink/reset: `pages/api/credentials/unlink.ts:1`
+
+Database: `dbrewards`
+- `device_rewards`: post‑cutoff rewards for `>= 2026-01-24T00:00:00Z` with the same schema as `main.device-rewards`
+
+
+## Explorer Map
+
+- Route: `pages/explorer.tsx:1` (`/explorer`).
+- Map stack: MapLibre globe (`components/explorer/ExplorerMap.tsx`) with hex-only overlays; no Mapbox token required.
+<!-- Updated: multi-resolution global tiles + telemetry-backed statuses. -->
+<!-- Updated: include intermediate resolutions for steadier hex sizing. -->
+- Global hex coverage: vector tiles from `NEXT_PUBLIC_TILES_URL` (layers `hex_grid_r2`, `hex_grid_r3`,
+  `hex_grid_r4`, `hex_grid_r5`, `hex_grid_r6`, `hex_grid_r7`, `hex_grid_r8`, `hex_grid_r9`) with zoom-driven splits and count labels.
+  <!-- Updated: label layers are point-only to avoid duplicated counts. -->
+  - Label layers: `hex_grid_r2_labels` ... `hex_grid_r9_labels`.
+  <!-- Updated: global outlines reflect online/offline telemetry counts when available. -->
+  - Outline colors: green if any device reports online telemetry, red if any device reports offline telemetry, gray if unknown.
+- Wallet overlays and details:
+  - `/api/map/my-hexes` — wallet-owned hexes + status (registered/unregistered/offline via PoC telemetry).
+  - `/api/map/hex-details` — selected-hex device list (wallet-scoped).
+  - `/api/map/my-devices` — quick-jump list of wallet devices and hex ids.
+- Global stats: `/api/map/stats` (registered totals + miner key prefix breakdown; online/offline from PoC telemetry).
+- UI panels: stats, legend, and selected-hex panels are collapsible and docked as icons when hidden.
+
+### PoC.hardware telemetry fields
+<!-- Added: document PoC.hardware fields for explorer telemetry usage. -->
+
+- `_id`: MongoDB ObjectId for the telemetry document.
+- `miner_key`: full miner key string (includes prefixes like BM/AEM/RDN/SVN/SDN).
+- `miner_type`: short prefix derived from the miner key (ex: `BM`).
+- `day`: `YYYY-MM-DD` date string for the daily aggregation window.
+- `lastUpdated`: ISO timestamp string for the most recent telemetry ingest ("latest").
+- `uptime`: uptime status object.
+  - `uptime.status`: string status (ex: `online`); explorer treats anything other than `online` as offline.
+- `mac`: MAC validation block.
+  - `mac.status`: boolean match status.
+  - `mac.last_changed_at`: ISO timestamp when the MAC status changed.
+  - `mac.last_checked_at`: ISO timestamp when the MAC was last validated.
+  - `mac.evidence`: evidence payload for MAC matching.
+    - `miner_mac`: device-reported MAC address.
+    - `registered_mac`: MAC address stored at registration.
+- `pol`: proof-of-location block.
+  - `pol.status`: boolean match status.
+  - `pol.last_changed_at`: ISO timestamp when the POL status changed.
+  - `pol.last_checked_at`: ISO timestamp when the POL check was last run.
+  - `pol.evidence`: evidence payload for POL checks.
+    - `ip`: device IP (masked in the sample).
+    - `hexID_registered`: registered hex ID for the device.
+    - `ipCountry`: country derived from IP.
+    - `hexCountry`: country derived from the registered hex.
+    - `country_match`: boolean result of country match.
+- `rewards`: nested reward ledger keyed by day string.
+  - `<day>`: date string bucket (ex: `2025-12-26`).
+    - `<bucket>`: string time bucket (ex: `8`, `9`, `10`) for the PoC reward windows.
+      - `slots`: array of slot entries (nullable when no data). Each slot represents 1 hour. <!-- Added: slot duration clarification. -->
+        - `gates`: per-slot eligibility flags.
+          - `data`: data present for the slot.
+          - `online`: online status during the slot.
+          - `mac_match`: MAC check result for the slot.
+          - `pol`: proof-of-location check result (boolean).
+          - `poi`: proof-of-installation check result (required for AEM devices; null/false elsewhere). <!-- Added: AEM-only POI requirement. -->
+        - `tools_active`: list of tools active in the slot (BM devices only: `bright`, `honeygain`, `mysterium`). <!-- Added: BM-only tools context. -->
+        - `tools_count`: count of active tools (BM devices only).
+        - `multiplier`: reward multiplier applied to the slot.
 
 
 ## Wallets
@@ -133,7 +199,7 @@ Database: `creds`
 ## Rewards
 
 Concepts
-- Rewards are recorded per device in `device-rewards`.
+- Rewards are recorded per device in `main.device-rewards` (<= 2026-01-23) and `dbrewards.device_rewards` (>= 2026-01-24).
 - Weekly mode is active post‑cutoff (`WEEKLY_CUTOFF_UTC`); a new reward epoch is computed from Friday 00:00 UTC and unlocks Friday 00:05 UTC the following week.
 - Daily entries pre‑cutoff are retained for history and totals.
 
@@ -182,6 +248,7 @@ Note: The exact assets are controlled centrally by the `products` collection; up
 
 Required
 - `MONGO_URI` — connection string
+- `MONGO_REWARDS_URI` — connection string for post‑cutoff rewards (`dbrewards`)
 - `NEXTAUTH_SECRET` — NextAuth JWT secret
 - Rewards sender: `REWARD_MNEMONIC`, `REWARD_REKEY`
 - Stake withdraw sender: `STAKE_MNEMONIC`, `STAKE_REKEY`
@@ -192,6 +259,32 @@ Feature flags
 - `WEEKLY_REWARDS_ENABLED=true|false` or `NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED`
 - `WEEKLY_CUTOFF_UTC=YYYY-MM-DDTHH:mm:ss.sssZ`
 - Seasonal overrides: `NEXT_PUBLIC_FORCE_SEASONAL_THEME`, `NEXT_PUBLIC_DISABLE_SEASONAL_AUTO`
+
+Explorer map (privacy-safe hexes)
+- `NEXT_PUBLIC_TILES_URL` — vector tile base URL for anonymized global hex coverage
+- `NEXT_PUBLIC_EXPLORER_STYLE_LIGHT` — optional light basemap style URL override
+- `NEXT_PUBLIC_EXPLORER_STYLE_DARK` — optional dark basemap style URL override
+- `NEXT_PUBLIC_EXPLORER_GLOBAL_HEX_RESOLUTION` — fallback H3 resolution for click-derived hex selection
+- `NEXT_PUBLIC_MAPBOX_TOKEN` — optional Mapbox token if your style requires it
+
+Tileserver (global hex layer)
+<!-- Updated: multi-resolution tiles and k-anon tiers. -->
+- `TILESERVER_HEX_RESOLUTIONS` — comma-separated H3 resolutions for global layers (default: `2,3,4,5,6,7,8,9`)
+- `TILESERVER_K_ANON` — minimum devices per hex before it is published for low-resolution layers (default: 3)
+- `TILESERVER_REFRESH_MINUTES` — refresh interval for regenerating tiles (default: 10)
+- `TILESERVER_CREDS_COLLECTIONS` — optional comma-separated creds collections override
+- `TILESERVER_MIN_ZOOM` — min zoom for tippecanoe tiles (default: 0)
+- `TILESERVER_MAX_ZOOM` — max zoom for tippecanoe tiles (default: 12)
+- `TILESERVER_PORT` — tileserver-gl port (default: 3018)
+- `TILESERVER_BIN` — override tileserver-gl binary path if needed
+- `MONGO_TILES_URI` — tileserver Mongo connection string (stored in 1Password vault)
+<!-- Updated: optional telemetry db overrides for online/offline outlines. -->
+- `MONGO_POC_DB` — PoC telemetry DB override (default: `PoC`)
+- `MONGO_POC_COLLECTION` — PoC telemetry collection override (default: `hardware`)
+- `TILESERVER_DATA_DIR` — output directory for generated MBTiles (shared with the tileserver container)
+- `TILESERVER_ENABLE_SERVER` — set to `false` to disable tileserver-gl inside the builder container
+- `OP_SERVICE_ACCOUNT_TOKEN` — required inside the tileserver builder container to resolve op:// secrets
+- `OP_TILES_SERVICE_ACCOUNT_TOKEN` — host-exported service token mapped to `OP_SERVICE_ACCOUNT_TOKEN` via docker-compose
 
 Bug reporting
 - `DISCORD_BUG_WEBHOOK_URL` — Discord webhook that receives application bug reports (required to enable the UI button)
@@ -213,6 +306,7 @@ DIMO (public)
 ## Key UI Entry Points
 
 - Devices: `pages/devices.tsx:1` (overview, actions, staking/boost/claim modals)
+- Explorer map: `pages/explorer.tsx:1`
 - My registrations (legacy staking path): `pages/my_registrations.tsx:1`
 - Registration wizard & staking modals: `pages/register.tsx:1` and device actions in `pages/devices.tsx:1`
 - Hardware portal: `pages/nodeportal.tsx:1`
@@ -298,7 +392,7 @@ History SSR seeds the first page straight from Mongo: getServerSideProps slices 
 
 main.devices stores owner profile, reward wallet, geo, and three stake segments (registration, node, staked) plus histories (lib/types.ts (lines 3-94)). APIs mutate these blocks during staking/withdrawing, and the history helper snapshots additional metadata by backfilling withdrawal transactions when necessary (pages/api/devices/[miner_key].ts (lines 200-320)).
 main.products defines staking tokens/amounts per product key and drives permission logic for registration/node staking (lib/types.ts (lines 75-105), lib/utils.ts (lines 182-244)).
-main.device-rewards is the SoT for reward accrual. Each doc holds weekly_rewards, daily_rewards, total aggregates (total_*), and legacy FRY snapshots; all reward APIs touch this collection when changing statuses or totals (pages/api/rewards/claim.ts (lines 332-414), pages/api/rewards/boost.ts (lines 267-421), pages/api/rewards/get-reward-summary.ts (lines 174-256)).
+Reward accrual is split by cutoff: `main.device-rewards` covers `<= 2026-01-23T23:59:59Z`, and `dbrewards.device_rewards` covers `>= 2026-01-24T00:00:00Z`. Each doc holds weekly_rewards, daily_rewards, total aggregates (total_*), and legacy FRY snapshots; reward APIs merge both sources when reading and route updates to the correct database (pages/api/rewards/claim.ts, pages/api/rewards/boost.ts, pages/api/rewards/get-reward-summary.ts).
 main.reward-boosts captures every instant-claim fee payment with per-asset fee maps for audit (pages/api/rewards/boost.ts (lines 421-454)).
 main.registration-users backs NextAuth and the admin bypass checks (lib/adminCheck.ts (lines 5-44)).
 Concurrency/audit data lives in main.device_request_locks and main.device_transactions (lib/db/requestLocks.ts (lines 5-162)), while wallet UX locking uses main.wallet_operation_locks (lib/wallet/requestCoordinator.ts (lines 5-120)). Security telemetry (client token/signature/fingerprint failures) rolls up inside main.security-events (lib/securityEventAggregation.ts (lines 1-138)).

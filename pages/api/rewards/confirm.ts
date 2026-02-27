@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import rewardsClientPromise from '../../../lib/rewardsMongoClient';
 import { getTransactionTime } from '../../../lib/utils';
 import { loadMnemonicAccountPair } from '../../../lib/algorand/admin';
 import { verifyTransaction } from '../algorand/verify-txn';
@@ -17,10 +18,10 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import { resolveRewardsCollectionName } from '../../../lib/rewardsDb';
 
-const testMode =
-  process.env.NEXT_PUBLIC_TEST_MODE &&
-  process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+// Normalize test mode flag to a strict boolean for type safety.
+const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 export default async function handler(
   req: NextApiRequest,
@@ -121,18 +122,25 @@ export default async function handler(
 
     const client = await clientPromise;
     const db = client.db('main');
-    // Update device-rewards entries (weekly and daily) with chain timestamp
-    const weeklyCollection = db.collection('device-rewards');
-    await weeklyCollection.updateMany(
-      { 'weekly_rewards.tx_id': txId },
-      { $set: { 'weekly_rewards.$[elem].claimed_at': claimedAt } },
-      { arrayFilters: [{ 'elem.tx_id': txId }] }
-    );
-    await weeklyCollection.updateMany(
-      { 'daily_rewards.tx_id': txId },
-      { $set: { 'daily_rewards.$[elem].claimed_at': claimedAt } },
-      { arrayFilters: [{ 'elem.tx_id': txId }] }
-    );
+    // Update both reward databases with the confirmed chain timestamp.
+    const rewardsClient = await rewardsClientPromise;
+    const rewardsDb = rewardsClient.db('dbrewards');
+    const collections = [
+      db.collection(resolveRewardsCollectionName('main', testMode)),
+      rewardsDb.collection(resolveRewardsCollectionName('dbrewards', testMode))
+    ];
+    for (const collection of collections) {
+      await collection.updateMany(
+        { 'weekly_rewards.tx_id': txId },
+        { $set: { 'weekly_rewards.$[elem].claimed_at': claimedAt } },
+        { arrayFilters: [{ 'elem.tx_id': txId }] }
+      );
+      await collection.updateMany(
+        { 'daily_rewards.tx_id': txId },
+        { $set: { 'daily_rewards.$[elem].claimed_at': claimedAt } },
+        { arrayFilters: [{ 'elem.tx_id': txId }] }
+      );
+    }
 
 
     loggers.txnLog('reward_claim_confirmed', txId, {
