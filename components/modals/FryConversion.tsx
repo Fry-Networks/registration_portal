@@ -5,6 +5,8 @@ import {
   DialogPanel,
   Flex,
   Title,
+  Select,
+  SelectItem
 } from '@tremor/react';
 import Image, { StaticImageData } from 'next/image';
 import { FryConversion } from '../../lib/types';
@@ -16,19 +18,22 @@ import { useTheme } from 'next-themes';
 import {
   BURN_WALLET,
   FRY_1,
-  tFRY,
+  FRY_2,
+  fNODE,
+  CORE_RELEASE_DATE,
+  ALL_RELEASE_DATE,
+  MODS_RELEASE_DATE
 } from '../../lib/utils';
+import ProgressMonthBar from '../ProgressMonthBar';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
 import CopyAddress from '../CopyAddress';
-import tFryOptInQr from '../../opt-in-qrcodes/tFry-Opt-in.png';
+import fry2OptInQr from '../../opt-in-qrcodes/FRY2-Opt-in.png';
+import fNodeOptInQr from '../../opt-in-qrcodes/fNode-Opt-in.png';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-
-// FIP-010: Fixed 40:1 conversion ratio (FRY 1.0 → tFRY)
-const TFRY_RATIO = 40;
 
 export default function FryConversionModal({
   modalName,
@@ -44,6 +49,7 @@ export default function FryConversionModal({
   const [account, setAccount] = useState<FryConversion | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
+  const [selectedTokenType, setSelectedTokenType] = useState('2485314946');
   // When wallet opt-in is missing, capture a guide (ASA id + QR) to unblock the user directly.
   const [optInGuide, setOptInGuide] = useState<{
     assetId: string;
@@ -182,9 +188,17 @@ export default function FryConversionModal({
     return { friendlyMessage: combinedMessage, duplicateTxId };
   };
 
-  // FIP-010: Only tFRY opt-in guidance needed
-  const getOptInGuide = () => {
-    return { assetId: tFRY.id, label: 'tFRY', src: tFryOptInQr };
+  // Map ASA ids to opt-in guidance so the UI can surface QR codes + ASA IDs when claims fail.
+  const getOptInGuide = (assetId?: string | number) => {
+    const normalized = String(assetId ?? '');
+    if (!normalized) return null;
+    if (normalized === FRY_2.id) {
+      return { assetId: FRY_2.id, label: 'FRY 2.0', src: fry2OptInQr };
+    }
+    if (normalized === fNODE.id) {
+      return { assetId: fNODE.id, label: 'fNODE', src: fNodeOptInQr };
+    }
+    return null;
   };
 
   const transferToBurn = async (
@@ -284,6 +298,7 @@ export default function FryConversionModal({
         },
         body: JSON.stringify({
           address: session.user.address,
+          convertType: selectedTokenType
         })
       });
 
@@ -299,18 +314,21 @@ export default function FryConversionModal({
       setIsConverted(result.user.status === 'pending' ? true : false);
       setAccount(result.user);
     } catch (error) {}
-  }, [modalOpen, session, toast]);
+  }, [modalOpen, selectedTokenType, session, toast]);
 
   // Start closed so the first render with an open modal triggers the initial fetch.
   const prevModalOpen = useRef<boolean>(false);
+  const prevSelectedToken = useRef<string>(selectedTokenType);
 
   useEffect(() => {
-    // Only clear opt-in hints when the modal newly opens, not on every render.
+    // Only clear opt-in hints when the modal newly opens or the target asset changes, not on every render.
     const justOpened = modalOpen && !prevModalOpen.current;
+    const tokenChanged = modalOpen && prevSelectedToken.current !== selectedTokenType;
     const needsFirstLoad = modalOpen && !account;
 
-    if (justOpened || needsFirstLoad) {
+    if (justOpened || tokenChanged || needsFirstLoad) {
       setOptInGuide(null);
+      prevSelectedToken.current = selectedTokenType;
       void fetchConversionStatus();
     }
 
@@ -320,7 +338,10 @@ export default function FryConversionModal({
     }
 
     prevModalOpen.current = modalOpen;
-  }, [modalOpen, fetchConversionStatus, account]);
+    if (modalOpen) {
+      prevSelectedToken.current = selectedTokenType;
+    }
+  }, [modalOpen, selectedTokenType, fetchConversionStatus, account]);
 
   const handleConvert = async () => {
     setIsProcessing(true);
@@ -334,17 +355,19 @@ export default function FryConversionModal({
           },
           body: JSON.stringify({
             address: address,
+            convertType: selectedTokenType
           })
         });
 
         if (!response.ok) {
           const failure = await response.json().catch(() => null);
           const failureCode = failure?.code as string | undefined;
+          const failureAssetId = (failure?.assetId ?? failure?.asset_id ?? selectedTokenType) as string;
           const optInHint =
             failureCode === 'WALLET_ASSET_NOT_OPTED_IN' ||
             /opt\s*in/i.test(failure?.action || '') ||
             /opt\s*in/i.test(failure?.message || '');
-          const guide = optInHint ? getOptInGuide() : null;
+          const guide = optInHint ? getOptInGuide(failureAssetId) : null;
           if (guide) {
             setOptInGuide(guide); // Show inline opt-in QR/ASA guidance for desktop/mobile.
           }
@@ -369,11 +392,12 @@ export default function FryConversionModal({
           });
           setOptInGuide(null);
         } else {
+          const failedAssetId = result?.assetId ?? result?.asset_id ?? selectedTokenType;
           const failedGuide =
             result?.code === 'WALLET_ASSET_NOT_OPTED_IN' ||
             /opt\s*in/i.test(result?.action || '') ||
             /opt\s*in/i.test(result?.message || '')
-              ? getOptInGuide()
+              ? getOptInGuide(failedAssetId)
               : null;
           if (failedGuide) {
             setOptInGuide(failedGuide);
@@ -393,7 +417,7 @@ export default function FryConversionModal({
         toast.error({
           heading: 'Claim Error',
           message:
-            'We could not finalize your FRY conversion. Check your wallet for pending prompts, ensure tFRY is opted in, then retry.'
+            'We could not finalize your FRY conversion. Check your wallet for pending prompts, ensure the destination is opted in, then retry.'
         });
         setIsProcessing(false);
         return;
@@ -518,9 +542,13 @@ export default function FryConversionModal({
     }
   };
 
-  // FIP-010: Conversion is always open (no vesting schedule)
+  // Add logic to check if conversion is still allowed
   const isConversionOpen = () => {
-    return true;
+    const now = new Date();
+    const start = account?.ratio ? (account.ratio[2] === 1 ? CORE_RELEASE_DATE : MODS_RELEASE_DATE) : ALL_RELEASE_DATE;
+    const diff = now.getTime() - start.getTime();
+    const monthsSinceRelease = diff / (1000 * 60 * 60 * 24 * 30);
+    return monthsSinceRelease > 0 && monthsSinceRelease <= 13;
   };
 
   return (
@@ -548,11 +576,60 @@ export default function FryConversionModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className={`mb-5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{isConverted ? 'Claim tFRY' : 'FRY 1.0 → tFRY Conversion'}</Title>
+          <Title className={`mb-5 ${isDark ? 'text-white' : 'text-slate-900'}`}>{isConverted ? 'Conversion' : 'Conversion Preview'}</Title>
           <Flex flexDirection="row" justifyContent="start" alignItems="end">
-            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
-              <strong>{`Conversion Rate: `}</strong>40 FRY 1.0 → 1 tFRY
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} hidden sm:block`}>
+              <strong>{`Conversion Type: `}</strong>
             </p>
+            <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'} block sm:hidden mr-4`}>
+              <strong>{`Type: `}</strong>
+            </p>
+            <Select
+              value={selectedTokenType}
+              onValueChange={(val) => setSelectedTokenType(val)}
+              className="ml-1 mb-1 max-w-4 conversion-select"
+            >
+              <SelectItem value="2485314946">FRY 2.0</SelectItem>
+              <SelectItem value="2485202024">fNODE</SelectItem>
+            </Select>
+            {isDark && (
+              <style jsx global>{`
+                /* Dark mode select overrides for conversion modal (Headless UI listbox + trigger). */
+                /* Keep the trigger scoped to the conversion select so other selects stay untouched. */
+                html.dark .conversion-select button[aria-haspopup='listbox'] {
+                  background-color: #0b0f1a !important;
+                  color: #ffffff !important;
+                  border: 1px solid #4b5563 !important;
+                }
+                html.dark .conversion-select button[aria-haspopup='listbox']:focus-visible {
+                  outline: none !important;
+                  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.6) !important;
+                  border-color: #ef4444 !important;
+                }
+                html.dark .conversion-select button[aria-haspopup='listbox'] svg {
+                  color: #d1d5db !important;
+                }
+                /* Listbox panel can render outside the select container; target both scoped and global dark modes. */
+                html.dark .conversion-select [role='listbox'],
+                html.dark [data-headlessui-state][role='listbox'] {
+                  background-color: #0b0f1a !important;
+                  color: #ffffff !important;
+                  border: 1px solid #4b5563 !important;
+                }
+                html.dark .conversion-select [role='option'],
+                html.dark [data-headlessui-state][role='option'] {
+                  color: #ffffff !important;
+                }
+                html.dark .conversion-select [role='option'][data-headlessui-state~='active'],
+                html.dark [data-headlessui-state][role='option'][data-headlessui-state~='active'] {
+                  background-color: rgba(239, 68, 68, 0.25) !important;
+                }
+                html.dark .conversion-select [role='option'][data-headlessui-state~='selected'],
+                html.dark [data-headlessui-state][role='option'][data-headlessui-state~='selected'] {
+                  background-color: rgba(239, 68, 68, 0.35) !important;
+                }
+              `}</style>
+            )}
           </Flex>
           {optInGuide && (
             <div
@@ -604,13 +681,18 @@ export default function FryConversionModal({
             {`${account?.address.slice(0, 6)} ... ${account?.address.slice(-6)}`}
           </p>
           <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
-            <strong>{`FRY 1.0 Amount: `}</strong>
+            <strong>{`FRY1.0 Amount: `}</strong>
             {account?.amount}
           </p>
           {account && account.status === 'valid' && (
             <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
-              <strong>{`tFRY Amount After Conversion: `}</strong>
-              {(account.amount / TFRY_RATIO).toFixed(5)}
+              <strong>{`${selectedTokenType === FRY_2.id ? 'FRY2.0' : 'fNODE'} Amount After Conversion: `}</strong>
+              {(selectedTokenType === FRY_2.id
+                    ? account.amount /
+                      (account?.ratio ? account.ratio[0] : 80)
+                    : account.amount /
+                      (account?.ratio ? account.ratio[1] : 40)
+                  ).toFixed(5)}
             </p>
           )}
 
@@ -622,10 +704,28 @@ export default function FryConversionModal({
                 className="mt-3 w-full sm:auto"
               >
                 <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
-                  <strong>Claimable tFRY: </strong>
-                  {(account.claimableAmount ?? 0).toFixed(5)}
+                  <strong>Remaining Converted Amount: </strong>
+                  {(selectedTokenType === FRY_2.id
+                    ? (account.pendingAmount /
+                      (account?.ratio ? account.ratio[0] : 80)).toFixed(5) + ' FRY2.0'
+                    : (account.pendingAmount /
+                      (account?.ratio ? account.ratio[1] : 40)).toFixed(5) + ' fNODE'
+                  )} 
+                </p>
+                <p className={`${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
+                  <strong>Claimable Amount: </strong>
+                  {/* {account.claimableAmount.toFixed(5)} */}
+                  {(selectedTokenType === FRY_2.id
+                    ? ((account.amount /
+                        (account?.ratio ? account.ratio[0] * 12 : 960)) *
+                      account.claimableMonths).toFixed(5) + ' FRY2.0'
+                    : ((account.amount /
+                        (account?.ratio ? account.ratio[1] * 12 : 480)) *
+                      account.claimableMonths).toFixed(5) + ' fNODE'
+                  )}
                 </p>
               </Flex>
+              <ProgressMonthBar specificDate={account?.ratio ? (account.ratio[2] === 1 ? CORE_RELEASE_DATE : MODS_RELEASE_DATE) : ALL_RELEASE_DATE} pA={account.pendingAmount}/>
             </>
           )}
 
@@ -727,7 +827,7 @@ export default function FryConversionModal({
                     />
                   </svg>
                 ) : (
-                  `${isConverted ? 'Claim tFRY' : 'Convert'}`
+                  `${isConverted ? 'Claim' : 'Convert'}`
                 )}
               </Button>
             )}
