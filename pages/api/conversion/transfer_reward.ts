@@ -5,7 +5,8 @@ import clientPromise from '../../../lib/mongoclient';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import {
-  tFRY,
+  FRY_2,
+  fNODE,
   getFRYAssetBalances,
   normalizeAssetId,
 } from '../../../lib/utils';
@@ -31,9 +32,6 @@ const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-// FIP-010: Fixed 40:1 conversion ratio (FRY 1.0 → tFRY)
-const TFRY_RATIO = 40;
-
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -55,16 +53,17 @@ export default async function handler(
   }
   const walletAddress = session.user.address;
 
-  const { address } = (req.body ?? {}) as {
+  const { address, convertType } = (req.body ?? {}) as {
     address?: string;
+    convertType?: string;
   };
 
-  if (!address || typeof address !== 'string') {
+  if (!address || typeof address !== 'string' || !convertType) {
     return res.status(400).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
         'Missing conversion parameters',
-        'Please include the wallet address.'
+        'Please include the wallet address and conversion type.'
       )
     );
   }
@@ -94,11 +93,8 @@ export default async function handler(
       );
     }
 
-    // FIP-010: Always output tFRY
-    const assetId = tFRY.id;
-    const tokenLabel = 'tFRY';
-
-    // Guard: require the conversion wallet to be opted into tFRY before sending custodial funds.
+    const assetId = convertType === FRY_2.id ? FRY_2.id : fNODE.id;
+    // Guard: require the conversion wallet to be opted into the payout asset before sending custodial funds.
     await ensureWalletAssetOptIn(address, assetId, 'claiming FRY conversion rewards');
     const claimableAmount = Number(user.claimableAmount ?? 0);
 
@@ -125,14 +121,18 @@ export default async function handler(
       return res.status(400).json(
         createApiError(
           ErrorCodes.INVALID_INPUT,
-          'No claimable conversion amount available',
-          'Your conversion has already been fully claimed.'
+          'No claimable conversion amount available yet',
+          'Refresh to check your vesting schedule and try again next month.'
         )
       );
     }
 
-    // FIP-010: Fixed 40:1 ratio for tFRY
-    const fryPortion = claimableAmount * TFRY_RATIO;
+    const ratio = Array.isArray(user.ratio) && user.ratio.length >= 2 ? user.ratio : [80, 40];
+    const tokenLabel = convertType === FRY_2.id ? 'FRY 2.0' : 'fNODE';
+
+    const fryPortion =
+      convertType === FRY_2.id ? claimableAmount * ratio[0] : claimableAmount * ratio[1];
+
     const pendingAfter = Math.max(0, Number((pendingAmount - fryPortion).toFixed(8)));
 
     const lockFilter: Record<string, any> = {
@@ -212,7 +212,7 @@ export default async function handler(
 
       const rawAmount = testMode
         ? 0
-        : Math.round(claimableAmount * Math.pow(10, tFRY.decimals || 0));
+        : Math.round(claimableAmount * Math.pow(10, FRY_2.decimals || 0));
 
       // Conversion payouts stay in microunits so downstream accounting remains exact.
       const encodedTxn = await buildAssetTransferTxn({
@@ -285,10 +285,16 @@ export default async function handler(
 
       shouldReleaseLock = false;
 
-      // FIP-010: No vesting - immediate full payout
+      let completionSuffix = '';
+      if (claimedMonths + claimableMonths >= 12) {
+        completionSuffix = ' You have successfully completed your vesting schedule—no further claims remain.';
+      } else {
+        completionSuffix = ' Check back next month for your next claim!';
+      }
+
       return res.status(200).json({
         success: true,
-        message: `You have received ${claimableAmount.toFixed(5)} ${tokenLabel} from your FRY 1.0 conversion. Conversion complete!`,
+        message: `You have received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule.${completionSuffix}`,
         txId,
       });
     } finally {
@@ -331,6 +337,7 @@ export default async function handler(
         part: 'transfer-reward.handler',
         metadata: {
           address,
+          convertType,
         },
       });
     }
@@ -352,6 +359,7 @@ export default async function handler(
       part: 'transfer-reward.handler',
       metadata: {
         address,
+        convertType,
         rawError: rawMessage,
       },
     });

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { FRY_2, ALL_RELEASE_DATE, CORE_RELEASE_DATE, MODS_RELEASE_DATE } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
 import {
   CommonErrors,
@@ -12,9 +13,6 @@ import {
 } from '../../../lib/api-errors';
 
 const ENDPOINT = '/api/conversion/get_fry_conversion';
-
-// FIP-010: Fixed 40:1 conversion ratio (FRY 1.0 → tFRY)
-const TFRY_RATIO = 40;
 
 export default async function handler(
   req: NextApiRequest,
@@ -27,8 +25,9 @@ export default async function handler(
     return;
   }
 
-  const { address } = (req.body ?? {}) as {
+  const { address, convertType } = (req.body ?? {}) as {
     address?: string;
+    convertType?: string;
   };
 
   if (session.user.address !== address || !address) {
@@ -57,21 +56,29 @@ export default async function handler(
       return;
     }
 
-    // FIP-010: No vesting - calculate full remaining claimable amount immediately
-    const claimedMonths = Number(user.claimedMonths ?? 0);
-    const remainingMonths = Math.max(0, 12 - claimedMonths);
+    const currentDateObj = new Date();
+    // Use RELEASE_DATE for vesting schedule
+    const vestingStart = user?.ratio ? (user.ratio[2] === 1 ? CORE_RELEASE_DATE : MODS_RELEASE_DATE) : ALL_RELEASE_DATE;
+    const differenceInTime = currentDateObj.getTime() - vestingStart.getTime();
+    const differenceInDays = Math.floor(
+      differenceInTime / (1000 * 60 * 60 * 24)
+    );
 
-    if (remainingMonths > 0) {
-      // Calculate remaining FRY 1.0 amount to convert
-      const remainingFry1 = (user.amount / 12) * remainingMonths;
-      // FIP-010: Fixed 40:1 ratio for tFRY output
-      const convertedAmount = remainingFry1 / TFRY_RATIO;
+    // Only allow up to 12 months
+    const monthsVested = Math.min(Math.floor(differenceInDays / 30), 11);
+    if (monthsVested + 1 > user.claimedMonths) {
+      const times = (monthsVested + 1) - user.claimedMonths;
+      const src = (user.amount / 12) * times;
+      const convertedAmount =
+        convertType === FRY_2.id
+          ? src / (user?.ratio ? user.ratio[0] : 80)
+          : src / (user?.ratio ? user.ratio[1] : 40);
 
       const updateResult = await collection.updateOne(
         { address },
         {
           $set: {
-            claimableMonths: remainingMonths,
+            claimableMonths: times,
             claimableAmount: convertedAmount,
             isProcessing: false
           },
@@ -100,7 +107,7 @@ export default async function handler(
       const updated = await collection.findOne({ address });
       res.status(200).json({
         success: true,
-        message: `Conversion ready for claim.`,
+        message: `Started claiming for conversion successfully.`,
         user: updated 
       });
       return;
@@ -108,7 +115,7 @@ export default async function handler(
 
     res.status(200).json({
       success: true,
-      message: `Conversion ready for claim.`,
+      message: `Started claiming for conversion successfully.`,
       user // user object includes 'history' array if present in DB
     });
   } catch (error) {
@@ -123,6 +130,7 @@ export default async function handler(
       part: 'conversion.get-fry.handler',
       metadata: {
         address,
+        convertType,
       },
     });
   }
