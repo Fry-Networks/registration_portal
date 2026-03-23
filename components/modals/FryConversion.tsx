@@ -20,6 +20,7 @@ import {
   FRY_1,
   FRY_2,
   fNODE,
+  tFRY,
   CORE_RELEASE_DATE,
   ALL_RELEASE_DATE,
   MODS_RELEASE_DATE
@@ -35,6 +36,16 @@ import fNodeOptInQr from '../../opt-in-qrcodes/fNode-Opt-in.png';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
+// Post-snapshot state type
+interface PostSnapshotState {
+  eligible_fry1: number;
+  eligible_tFRY: number;
+  burned: boolean;
+  claimed: boolean;
+  claim_txId: string | null;
+  claimed_at: Date | null;
+}
+
 export default function FryConversionModal({
   modalName,
   address,
@@ -47,7 +58,9 @@ export default function FryConversionModal({
   const { activeAddress, signAndSubmit } = useWalletActions();
   const { modals, closeModal } = useModal();
   const [account, setAccount] = useState<FryConversion | null>(null);
+  const [postSnapshot, setPostSnapshot] = useState<PostSnapshotState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPostSnapshotProcessing, setIsPostSnapshotProcessing] = useState(false);
   const [isConverted, setIsConverted] = useState(false);
   const [selectedTokenType, setSelectedTokenType] = useState('2485314946');
   // When wallet opt-in is missing, capture a guide (ASA id + QR) to unblock the user directly.
@@ -313,6 +326,10 @@ export default function FryConversionModal({
       const result = await response.json();
       setIsConverted(result.user.status === 'pending' ? true : false);
       setAccount(result.user);
+      // Set post-snapshot state if available
+      if (result.post_snapshot) {
+        setPostSnapshot(result.post_snapshot);
+      }
     } catch (error) {}
   }, [modalOpen, selectedTokenType, session, toast]);
 
@@ -542,6 +559,138 @@ export default function FryConversionModal({
     }
   };
 
+  // Handle post-snapshot burn
+  const handlePostSnapshotBurn = async () => {
+    if (!session || !session.user || !postSnapshot) return;
+    
+    setIsPostSnapshotProcessing(true);
+    
+    try {
+      // Burn the post-snapshot FRY 1.0
+      const burnResult = await transferToBurn(address, postSnapshot.eligible_fry1);
+      
+      if (burnResult.status === 'success') {
+        // Verify the burn with the API
+        const response = await fetch('/api/conversion/set_post_snapshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            address: session.user.address,
+            txId: burnResult.txId
+          })
+        });
+
+        if (!response.ok) {
+          const failure = await response.json();
+          toast.error({
+            heading: 'Post-Snapshot Burn Error',
+            message: failure.message || 'Failed to verify post-snapshot burn.'
+          });
+          setIsPostSnapshotProcessing(false);
+          return;
+        }
+
+        const result = await response.json();
+        if (result.success) {
+          toast.success({
+            heading: 'Post-Snapshot Burn Complete',
+            message: result.message
+          });
+          if (result.post_snapshot) {
+            setPostSnapshot(result.post_snapshot);
+          }
+        } else {
+          toast.error({
+            heading: 'Post-Snapshot Burn Error',
+            message: result.message
+          });
+        }
+      } else if (burnResult.status === 'cancelled') {
+        toast.info({
+          heading: 'Burn Cancelled',
+          message: 'Post-snapshot burn was cancelled. No changes were made.'
+        });
+      } else {
+        toast.error({
+          heading: 'Burn Error',
+          message: burnResult.reason || 'Post-snapshot burn failed. Please try again.'
+        });
+      }
+    } catch (error) {
+      console.error('[FryConversion] Post-snapshot burn failed', error);
+      toast.error({
+        heading: 'Burn Error',
+        message: 'Failed to process post-snapshot burn. Please try again.'
+      });
+    } finally {
+      setIsPostSnapshotProcessing(false);
+    }
+  };
+
+  // Handle post-snapshot tFRY claim
+  const handlePostSnapshotClaim = async () => {
+    if (!session || !session.user || !postSnapshot) return;
+    
+    setIsPostSnapshotProcessing(true);
+    
+    try {
+      const response = await fetch('/api/conversion/transfer_post_snapshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: session.user.address
+        })
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        // Check for opt-in error
+        const optInHint =
+          result?.code === 'WALLET_ASSET_NOT_OPTED_IN' ||
+          /opt\s*in/i.test(result?.action || '') ||
+          /opt\s*in/i.test(result?.message || '');
+        
+        if (optInHint) {
+          toast.error({
+            heading: 'Opt-In Required',
+            message: `Please opt into tFRY (ASA ${tFRY.id}) in your wallet, then retry.`
+          });
+        } else {
+          toast.error({
+            heading: 'Claim Error',
+            message: result.message || 'Failed to claim post-snapshot tFRY.'
+          });
+        }
+        setIsPostSnapshotProcessing(false);
+        return;
+      }
+
+      if (result.success) {
+        toast.success({
+          heading: 'tFRY Claimed!',
+          message: result.message
+        });
+        if (result.post_snapshot) {
+          setPostSnapshot(result.post_snapshot);
+        }
+      } else {
+        toast.error({
+          heading: 'Claim Error',
+          message: result.message
+        });
+      }
+    } catch (error) {
+      console.error('[FryConversion] Post-snapshot claim failed', error);
+      toast.error({
+        heading: 'Claim Error',
+        message: 'Failed to claim post-snapshot tFRY. Please try again.'
+      });
+    } finally {
+      setIsPostSnapshotProcessing(false);
+    }
+  };
+
   // Add logic to check if conversion is still allowed
   const isConversionOpen = () => {
     const now = new Date();
@@ -760,6 +909,118 @@ export default function FryConversionModal({
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* Post-Snapshot Conversion Section (FIP-010) */}
+          {postSnapshot && postSnapshot.eligible_fry1 > 0 && (
+            <>
+              <div className={`mt-6 mb-4 border-t ${isDark ? 'border-gray-700' : 'border-slate-300'}`} />
+              <div className="mt-4">
+                <h3 className={`text-lg font-semibold mb-3 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                  Post-Snapshot Conversion (FIP-010)
+                </h3>
+                <div className={`rounded-lg border p-4 ${
+                  isDark 
+                    ? 'border-amber-500/30 bg-amber-500/5' 
+                    : 'border-amber-200 bg-amber-50'
+                }`}>
+                  <p className={`mb-2 ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
+                    <strong>Eligible FRY 1.0: </strong>
+                    {postSnapshot.eligible_fry1.toLocaleString()}
+                  </p>
+                  <p className={`mb-3 ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
+                    <strong>tFRY to Receive: </strong>
+                    {postSnapshot.eligible_tFRY.toFixed(5)}
+                    <span className={`ml-2 text-sm ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                      (40:1 ratio, no vesting)
+                    </span>
+                  </p>
+
+                  {/* State 1: Not burned yet */}
+                  {!postSnapshot.burned && !postSnapshot.claimed && (
+                    <div className="mt-3">
+                      <p className={`text-sm mb-3 ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                        Burn your post-snapshot FRY 1.0 to unlock instant tFRY claim.
+                      </p>
+                      <Button
+                        className={`bg-transparent ${
+                          isDark 
+                            ? 'text-white border-amber-500 hover:bg-amber-500/20 hover:border-amber-400' 
+                            : 'text-slate-900 border-amber-500 hover:bg-amber-50 hover:border-amber-600'
+                        } ${isPostSnapshotProcessing ? 'cursor-not-allowed opacity-50' : ''}`}
+                        onClick={handlePostSnapshotBurn}
+                        disabled={isPostSnapshotProcessing || isProcessing}
+                      >
+                        {isPostSnapshotProcessing ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" strokeLinecap="round" />
+                            </svg>
+                            Processing...
+                          </span>
+                        ) : (
+                          `Burn ${postSnapshot.eligible_fry1.toLocaleString()} FRY 1.0`
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* State 2: Burned, not claimed */}
+                  {postSnapshot.burned && !postSnapshot.claimed && (
+                    <div className="mt-3">
+                      <p className={`text-sm mb-3 ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+                        Burn verified! Claim your tFRY now.
+                      </p>
+                      <Button
+                        className={`bg-transparent ${
+                          isDark 
+                            ? 'text-white border-green-500 hover:bg-green-500/20 hover:border-green-400' 
+                            : 'text-slate-900 border-green-500 hover:bg-green-50 hover:border-green-600'
+                        } ${isPostSnapshotProcessing ? 'cursor-not-allowed opacity-50' : ''}`}
+                        onClick={handlePostSnapshotClaim}
+                        disabled={isPostSnapshotProcessing || isProcessing}
+                      >
+                        {isPostSnapshotProcessing ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" strokeLinecap="round" />
+                            </svg>
+                            Claiming...
+                          </span>
+                        ) : (
+                          `Claim ${postSnapshot.eligible_tFRY.toFixed(5)} tFRY`
+                        )}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* State 3: Claimed */}
+                  {postSnapshot.claimed && postSnapshot.claim_txId && (
+                    <div className="mt-3">
+                      <p className={`text-sm mb-2 ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+                        tFRY claimed successfully!
+                      </p>
+                      <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                        <strong>Transaction: </strong>
+                        <a 
+                          href={`https://allo.info/tx/${postSnapshot.claim_txId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`underline ${isDark ? 'text-blue-400 hover:text-blue-300' : 'text-blue-600 hover:text-blue-500'}`}
+                        >
+                          {postSnapshot.claim_txId.slice(0, 8)}...{postSnapshot.claim_txId.slice(-8)}
+                        </a>
+                      </p>
+                      {postSnapshot.claimed_at && (
+                        <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
+                          Claimed: {new Date(postSnapshot.claimed_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
 
           <Flex

@@ -192,4 +192,10 @@ export interface FryConversion extends mongoose.Document {
   lastConversionAttemptAt?: Date;
   lastConversionAt?: Date;
   lastConversionTxId?: string;
+  // Post-snapshot conversion fields (FIP-010 Step 4)
+  post_snapshot_amount?: number;
+  post_claimed?: boolean;
+  post_claim_txId?: string | null;
+  post_claimed_at?: Date | null;
+  post_burn_txId?: string;
 }
