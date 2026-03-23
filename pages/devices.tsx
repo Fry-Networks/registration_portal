@@ -37,6 +37,7 @@ import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
+import PostSnapshotConversionModal from '../components/modals/PostSnapshotConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 import { shouldForceLegacyUnverified, isLegacyVerificationStake } from '../lib/legacyStake';
@@ -584,6 +585,7 @@ const DevicesPage = ({
   const [addr, setAddr] = useState(session?.user.address);
   const [showFry1Check, setShowFry1Check] = useState(false);
   const [showFryConversion, setShowFryConversion] = useState(false);
+  const [showPostSnapshotConversion, setShowPostSnapshotConversion] = useState(false);
   const [securityBlocked, setSecurityBlocked] = useState(false);
   const [securityMessage, setSecurityMessage] = useState<string | null>(null);
   const securityToastShown = useRef(false);
@@ -622,6 +624,11 @@ const DevicesPage = ({
 
   const handleConversion = async () => {
     setShowFry1Check(true);
+  };
+
+  const handlePostSnapshotConversion = () => {
+    setShowPostSnapshotConversion(true);
+    openModal('postSnapshotConversion');
   };
 
   const handleSecurityBlock = useCallback(
@@ -1532,6 +1539,13 @@ const DevicesPage = ({
             onClick={handleConversion}
             loading={isProcessing}
           />
+          <QuickActionCard
+            title="August 2025 FRY 1.0 Conversion"
+            description="Convert FRY 1.0 acquired after Dec 2024 snapshot into tFRY at 40:1 ratio with no vesting."
+            cta="Start conversion"
+            icon={SwitchHorizontalIcon}
+            onClick={handlePostSnapshotConversion}
+          />
         </div>
       </div>
     {/* Totals banner removed; now provided in top Navbar ribbon */}
@@ -1605,6 +1619,13 @@ const DevicesPage = ({
           modalName="fryConversion"
           address={addr}
           onClose={() => setShowFryConversion(false)}
+        />
+      )}
+      {showPostSnapshotConversion && (
+        <PostSnapshotConversionModal
+          modalName="postSnapshotConversion"
+          address={addr}
+          onClose={() => setShowPostSnapshotConversion(false)}
         />
       )}
       {selectedDevice && (
