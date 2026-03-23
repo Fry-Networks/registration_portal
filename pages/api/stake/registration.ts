@@ -18,6 +18,8 @@ type RequestBody = {
   miner_key?: string;
   amount?: number;
   asset_id?: string;
+  // FIP-013: USD amount at stake time for dynamic peg
+  original_usd_amount?: number;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -28,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Step 2: validate the incoming payload matches what the pre-existing code expected.
-  const { txId, address, miner_key: miner, amount, asset_id }: RequestBody = req.body ?? {};
+  const { txId, address, miner_key: miner, amount, asset_id, original_usd_amount }: RequestBody = req.body ?? {};
 
   if (!miner || typeof miner !== 'string') {
     res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for registration stake update.'));
@@ -65,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     action: 'stake:registration',
     miner_key: miner,
     address,
-    metadata: { txId, asset_id, amount }
+    metadata: { txId, asset_id, amount, original_usd_amount }
   }, async () => {
     // Step 4: perform the identical lookups + updates that lived in the legacy handler.
     const client = await clientPromise;
@@ -94,6 +96,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? device.registration?.withdrawals
       : [];
 
+    // FIP-013: Determine USD amount to store for dynamic peg
+    // Priority: request body > product config
+    let usdAmountToStore: number | null = null;
+    if (typeof original_usd_amount === 'number' && original_usd_amount > 0) {
+      usdAmountToStore = original_usd_amount;
+    } else if (typeof product.reward?.stake?.register === 'number' && product.reward.stake.register > 0) {
+      // Use product's register USD config
+      usdAmountToStore = product.reward.stake.register;
+      // Apply BYOD discount if applicable
+      if (device.byod && device.byod.length > 0) {
+        usdAmountToStore = Math.round((usdAmountToStore / 2) * 100) / 100;
+      }
+    }
+
     const updateOps: UpdateFilter<Device> = {
       $set: {
         'registration.amount': amount,
@@ -101,7 +117,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'registration.asset_id': asset_id,
         'registration.time': new Date(),
         'registration.lastWithdrawal': null,
-        'registration.withdrawals': existingWithdrawals
+        'registration.withdrawals': existingWithdrawals,
+        // FIP-013: Store USD amount for dynamic peg recalculation on withdrawal
+        'registration.original_usd_amount': usdAmountToStore
       }
     };
 
@@ -126,6 +144,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         txId,
         asset_id,
         amount,
+        original_usd_amount: usdAmountToStore,
         issueType: 'REGISTRATION_STAKE_UPDATE_FAILED',
         part: 'registration.dbUpdate'
       });
@@ -144,8 +163,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       amount,
       txId,
       asset_id,
+      original_usd_amount: usdAmountToStore,
       matchedCount: result.matchedCount
     });
+
+    console.log(`[REGISTRATION] ${miner} - ${usdAmountToStore ? `USD peg: $${usdAmountToStore}` : 'legacy FRY'} - amount: ${amount}`);
 
     // Step 5: respond and annotate the journal with the same metadata observers rely on.
     return {
@@ -154,7 +176,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         metadata: {
           amount,
           asset_id,
-          txId
+          txId,
+          original_usd_amount: usdAmountToStore
         }
       }
     };

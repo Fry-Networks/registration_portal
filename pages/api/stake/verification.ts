@@ -19,6 +19,8 @@ type RequestBody = {
   miner_key?: string;
   amount?: number;
   asset_id?: string;
+  // FIP-012: USD amount at stake time (optional, sent by frontend if USD peg active)
+  original_usd_amount?: number;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -29,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Ensure the request payload still supplies the same staking fields.
-  const { txId, address, miner_key: miner, amount, asset_id, type }: RequestBody = req.body ?? {};
+  const { txId, address, miner_key: miner, amount, asset_id, type, original_usd_amount }: RequestBody = req.body ?? {};
 
   if (!miner || typeof miner !== 'string') {
     res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Missing miner key for verification stake update.'));
@@ -71,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     action: 'stake:verification',
     miner_key: miner,
     address,
-    metadata: { txId, asset_id, amount, type }
+    metadata: { txId, asset_id, amount, type, original_usd_amount }
   }, async () => {
     // Carry out the same product/device lookups that previously lived in-line.
     const client = await clientPromise;
@@ -100,6 +102,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? device.staked.withdrawals
       : [];
 
+    // FIP-012: Determine if we should store USD amount
+    // Store original_usd_amount if product has USD config OR if client sent it
+    const stakeOneUsd = product.reward?.stake?.stake_one_usd;
+    const stakeTwoUsd = product.reward?.stake?.stake_two_usd;
+    const productHasUsdConfig = (typeof stakeOneUsd === 'number' && stakeOneUsd > 0) ||
+                                 (typeof stakeTwoUsd === 'number' && stakeTwoUsd > 0);
+
+    // Use the USD amount from product config based on stake type, or from request
+    let usdAmountToStore: number | null = null;
+    if (productHasUsdConfig) {
+      usdAmountToStore = type === 'one' ? (stakeOneUsd ?? null) : (stakeTwoUsd ?? null);
+    } else if (typeof original_usd_amount === 'number' && original_usd_amount > 0) {
+      usdAmountToStore = original_usd_amount;
+    }
+
     const updateOps: UpdateFilter<Device> = {
       $set: {
         verified: true,
@@ -110,7 +127,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'staked.time': new Date(),
         'staked.lastWithdrawal': null,
         'staked.withdrawals': existingWithdrawals,
-        legacy_stake_unlocked: false
+        legacy_stake_unlocked: false,
+        // FIP-012: Store USD amount if available (null if legacy stake)
+        'staked.original_usd_amount': usdAmountToStore
       }
     };
 
@@ -137,6 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         asset_id,
         amount,
         type,
+        original_usd_amount: usdAmountToStore,
         issueType: 'VERIFICATION_STAKE_UPDATE_FAILED',
         part: 'verification.dbUpdate'
       });
@@ -156,8 +176,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       amount,
       asset_id,
       type,
+      original_usd_amount: usdAmountToStore,
       matchedCount: result.matchedCount
     });
+
+    console.log(`[VERIFICATION] ${miner} - ${usdAmountToStore ? `USD peg: $${usdAmountToStore}` : 'legacy FRY'} - amount: ${amount}`);
 
     // Return both the API response and the metadata recorded in the journal.
     return {
@@ -167,7 +190,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           amount,
           asset_id,
           txId,
-          type
+          type,
+          original_usd_amount: usdAmountToStore
         }
       }
     };
