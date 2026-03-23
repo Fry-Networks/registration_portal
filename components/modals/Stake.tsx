@@ -60,6 +60,10 @@ const StakeModal = ({
   const [stakeType, setStateType] = useState<string>('one');
   const [tokenName, setTokenName] = useState('');
   const [stakeAmount, setStakeAmount] = useState(0);
+  // FIP-012: Track USD amount for display
+  const [stakeUsdAmount, setStakeUsdAmount] = useState<number | null>(null);
+  // FIP-012: Track price errors
+  const [priceError, setPriceError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
@@ -93,8 +97,13 @@ const StakeModal = ({
         ? `Stake $${usdLabel} USD in ${tokenName || 'the staking asset'} to power your node operations.`
         : null;
     }
+    // FIP-012: Show USD context for verification stakes if available
+    if (effectiveContext === 'verification' && stakeUsdAmount && stakeUsdAmount > 0) {
+      const suffix = device?.byod ? ' (BYOD rate)' : '';
+      return `Stake ~$${formatUsdDisplay(stakeUsdAmount)} USD in ${tokenName || 'FRY 2.0'} for verification${suffix}.`;
+    }
     return null;
-  }, [effectiveContext, formatUsdDisplay, registrationStakeUsd, nodeStakeUsd, tokenName, device?.byod]);
+  }, [effectiveContext, formatUsdDisplay, registrationStakeUsd, nodeStakeUsd, tokenName, device?.byod, stakeUsdAmount]);
   const modalTitle = useMemo(() => {
     if (effectiveContext === 'registration') return 'Stake Registration';
     if (effectiveContext === 'node') return 'Stake Node Operation';
@@ -215,18 +224,73 @@ const StakeModal = ({
       return;
     }
 
+    // FIP-012: For verification context, fetch from stake-amount API to get USD-pegged amounts
     if (effectiveContext === 'verification') {
-      let nextAmount = 0;
-      if (stakeType === 'one') {
-        nextAmount = product.reward.stake?.stake_one ?? 0;
-      } else {
-        nextAmount = product.reward.stake?.stake_two ?? 0;
-      }
-      if (device.byod && device.byod.length > 0) {
-        nextAmount = Math.round((nextAmount * 100) / 2) / 100;
-      }
-      setStakeAmount(nextAmount);
-      return;
+      let cancelled = false;
+      const fetchVerificationAmounts = async () => {
+        if (!session?.user?.address) return;
+        
+        try {
+          const response = await fetch('/api/stake-amount', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              address: session.user.address, 
+              key: device.miner_key.split('-')[0] 
+            })
+          });
+
+          // Handle 503 price unavailable
+          if (response.status === 503) {
+            const errorData = await response.json().catch(() => null);
+            if (!cancelled) {
+              setPriceError(errorData?.message || 'Price unavailable. Please try again later.');
+              setStakeAmount(0);
+              setStakeUsdAmount(null);
+            }
+            return;
+          }
+
+          if (!response.ok) {
+            throw new Error('Failed to fetch stake amounts');
+          }
+
+          const data = await response.json();
+          const stakeData = data.data.stake as { 
+            stake_one: number; 
+            stake_two: number; 
+            stake_one_usd?: number; 
+            stake_two_usd?: number;
+          };
+
+          if (!cancelled) {
+            setPriceError(null);
+            let nextAmount = stakeType === 'one' ? stakeData.stake_one : stakeData.stake_two;
+            let nextUsdAmount = stakeType === 'one' ? stakeData.stake_one_usd : stakeData.stake_two_usd;
+
+            // Apply BYOD discount
+            if (device.byod && device.byod.length > 0) {
+              nextAmount = Math.floor(nextAmount / 2);
+              if (typeof nextUsdAmount === 'number') {
+                nextUsdAmount = nextUsdAmount / 2;
+              }
+            }
+
+            setStakeAmount(nextAmount);
+            setStakeUsdAmount(nextUsdAmount ?? null);
+          }
+        } catch (error) {
+          console.error('[stake-modal] failed to fetch verification amounts', error);
+          if (!cancelled) {
+            setPriceError('Failed to load stake amounts. Please try again.');
+            setStakeAmount(0);
+            setStakeUsdAmount(null);
+          }
+        }
+      };
+
+      fetchVerificationAmounts();
+      return () => { cancelled = true; };
     }
 
     let cancelled = false;
@@ -237,23 +301,35 @@ const StakeModal = ({
           ? product.reward.tokens?.register
           : product.reward.tokens?.node;
       if (!assetId || usdAmount <= 0) {
-        if (!cancelled) setStakeAmount(0);
+        if (!cancelled) {
+          setStakeAmount(0);
+          setStakeUsdAmount(null);
+          setPriceError(null);
+        }
         return;
       }
       try {
         const price = await getFRYPrice(assetId);
         if (!price || !Number.isFinite(price) || price <= 0) {
-          if (!cancelled) setStakeAmount(0);
+          if (!cancelled) {
+            setStakeAmount(0);
+            setStakeUsdAmount(usdAmount);
+            setPriceError('Price unavailable. Please try again later.');
+          }
           return;
         }
         const amount = Math.floor(usdAmount / price);
         if (!cancelled) {
           setStakeAmount(amount);
+          setStakeUsdAmount(usdAmount);
+          setPriceError(null);
         }
       } catch (error) {
         console.error('[stake-modal] failed to compute stake requirement', error);
         if (!cancelled) {
           setStakeAmount(0);
+          setStakeUsdAmount(null);
+          setPriceError('Failed to compute stake amount. Please try again.');
         }
       }
     };
@@ -261,7 +337,7 @@ const StakeModal = ({
     return () => {
       cancelled = true;
     };
-  }, [product, stakeType, device?.byod, effectiveContext, registrationStakeUsd, nodeStakeUsd]);
+  }, [product, stakeType, device?.byod, device?.miner_key, effectiveContext, registrationStakeUsd, nodeStakeUsd, session?.user?.address]);
   useEffect(() => {
     if (!product) {
       return;
@@ -431,7 +507,7 @@ const StakeModal = ({
       if (!stakeAmount || stakeAmount <= 0) {
         toast.error({
           heading: 'Stake Unavailable',
-          message: 'Stake amount could not be determined. Please try again shortly.'
+          message: priceError || 'Stake amount could not be determined. Please try again shortly.'
         });
         return;
       }
@@ -552,6 +628,7 @@ const StakeModal = ({
             ? '/api/stake/node-staking'
             : '/api/stake/verification';
 
+      // FIP-012/013: Include original_usd_amount for registration and verification stakes
       const payload =
         context === 'verification'
           ? {
@@ -560,14 +637,18 @@ const StakeModal = ({
               txId,
               amount: stakeAmount,
               type: stakeType,
-              asset_id
+              asset_id,
+              // FIP-012: Include USD amount if available
+              ...(stakeUsdAmount && stakeUsdAmount > 0 ? { original_usd_amount: stakeUsdAmount } : {})
             }
           : {
               miner_key: device.miner_key,
               address: session.user.address,
               txId,
               amount: stakeAmount,
-              asset_id
+              asset_id,
+              // FIP-013: Include USD amount for registration stakes
+              ...(context === 'registration' && registrationStakeUsd > 0 ? { original_usd_amount: registrationStakeUsd } : {})
             };
 
       const dataResponse = await secureFetch(endpoint, payload);
@@ -633,16 +714,27 @@ const StakeModal = ({
     executeWalletRetry,
     handleStakingUpdate,
     modalName,
+    priceError,
     product.reward.tokens?.node,
     product.reward.tokens?.register,
     product.reward.tokens?.stake,
+    registrationStakeUsd,
     sendTransaction,
     session,
     stakeAmount,
     stakeType,
+    stakeUsdAmount,
     toast,
     tokenName
   ]);
+
+  // FIP-012: Format stake amount with USD equivalent if available
+  const formattedStakeAmount = useMemo(() => {
+    if (stakeUsdAmount && stakeUsdAmount > 0) {
+      return `${stakeAmount.toLocaleString()} (~$${stakeUsdAmount.toFixed(2)} USD)`;
+    }
+    return stakeAmount.toLocaleString();
+  }, [stakeAmount, stakeUsdAmount]);
 
   return (
     <div>
@@ -717,6 +809,21 @@ const StakeModal = ({
                 </div>
               )
             )}
+
+            {/* FIP-012: Show USD context for verification stakes */}
+            {effectiveContext === 'verification' && requirementDescription && (
+              <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:border-blue-500/40 dark:bg-blue-900/20 dark:text-blue-200">
+                {requirementDescription}
+              </div>
+            )}
+
+            {/* FIP-012: Show price error if price unavailable */}
+            {priceError && (
+              <div className="rounded-md border border-yellow-300 bg-yellow-50 px-3 py-2 text-sm text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-900/20 dark:text-yellow-200">
+                {priceError}
+              </div>
+            )}
+
             <div className="flex items-center w-full space-x-2">
               <label
                 htmlFor="stakeAmount"
@@ -726,11 +833,10 @@ const StakeModal = ({
               </label>
               <input
                 id="stakeAmount"
-                type="number"
-                min="0"
+                type="text"
                 className="p-2 w-full border ml-2 text-gray-900 dark:text-gray-100 border-gray-500 dark:border-gray-400 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-red-600 focus:border-red-600 disabled:opacity-50 bg-white dark:bg-gray-800"
                 disabled={true}
-                value={stakeAmount}
+                value={formattedStakeAmount}
                 readOnly
               />
             </div>
@@ -747,7 +853,7 @@ const StakeModal = ({
             <Button
               className={`${primaryButtonClass} relative flex items-center justify-center`}
               onClick={handleSubmit}
-              disabled={isProcessing || stakeAmount <= 0}
+              disabled={isProcessing || stakeAmount <= 0 || !!priceError}
             >
               {isProcessing ? (
                 <div className="flex items-center gap-2">

@@ -24,6 +24,8 @@ import { enforceWalletApiSecurity } from '../../../lib/api/enforceWalletSecurity
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+// FIP-013: Import price oracle for dynamic peg recalculation
+import { getFRYPrice } from '../../../lib/price';
 
 const TEST_MODE = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
@@ -99,8 +101,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       };
     }
 
-    const amount = device.registration.amount;
-    if (!amount) {
+    const originalAmount = device.registration.amount;
+    if (!originalAmount) {
       throw {
         status: 400,
         response: createApiError(ErrorCodes.INVALID_INPUT, 'No registration stake is currently locked for this device.')
@@ -109,11 +111,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const assetId = device.registration.asset_id ?? product.reward.tokens?.register ?? tFRY.id;
 
+    // FIP-013: Dynamic Registration Peg - Recalculate withdrawal amount based on stored USD
+    let withdrawalAmount: number;
+    let withdrawalPath: 'dynamic_peg' | 'grandfathered';
+    const originalUsdAmount = device.registration.original_usd_amount;
+
+    if (typeof originalUsdAmount === 'number' && originalUsdAmount > 0) {
+      // New-style stake with USD peg - recalculate FRY amount at current price
+      withdrawalPath = 'dynamic_peg';
+      
+      const currentPrice = await getFRYPrice(assetId);
+      
+      // Critical: Never use 0 or undefined price - return error to user
+      if (!currentPrice || currentPrice <= 0 || !Number.isFinite(currentPrice)) {
+        loggers.apiError('/api/stake/r-withdraw', new Error('Price oracle unavailable for withdrawal recalculation'), {
+          miner_key: miner,
+          assetId,
+          originalUsdAmount,
+          currentPrice,
+          issueType: 'REGISTRATION_WITHDRAW_PRICE_UNAVAILABLE',
+          part: 'r-withdraw.dynamicPeg'
+        });
+        throw {
+          status: 503,
+          response: createApiError(
+            'SERVICE_UNAVAILABLE',
+            'Price unavailable',
+            'Unable to fetch current token price for withdrawal calculation. Please try again in a few moments.'
+          )
+        };
+      }
+
+      // Recalculate FRY amount from stored USD value at current price
+      withdrawalAmount = Math.floor(originalUsdAmount / currentPrice);
+
+      console.log(`[R-WITHDRAW] ${address} - dynamic peg - USD: $${originalUsdAmount} @ $${currentPrice} = ${withdrawalAmount} FRY (original: ${originalAmount})`);
+    } else {
+      // Grandfathered stake (no original_usd_amount) - return original FRY amount as-is
+      withdrawalPath = 'grandfathered';
+      withdrawalAmount = originalAmount;
+
+      console.log(`[R-WITHDRAW] ${address} - grandfathered - amount: ${withdrawalAmount}`);
+    }
+
     // Step 2: broadcast the same Algorand withdrawal transaction as before.
     // Guard: require registration wallet opt-in before we send the asset back.
     await ensureWalletAssetOptIn(address, assetId, 'receiving registration stake withdrawal');
 
-    const txId = await withdraw(miner, address, amount, assetId);
+    const txId = await withdraw(miner, address, withdrawalAmount, assetId);
     if (!txId) {
       throw {
         status: 500,
@@ -127,7 +172,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Step 3: persist withdrawal history / clear active stake fields.
     const withdrawalRecord = {
-      amount,
+      amount: withdrawalAmount,
       txId,
       time: new Date(),
       asset_id: assetId
@@ -136,7 +181,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const previousStakeRecord =
       device.registration.time && device.registration.txId
         ? {
-            amount,
+            amount: originalAmount,
             txId: device.registration.txId,
             time: new Date(device.registration.time),
             asset_id: device.registration.asset_id
@@ -149,7 +194,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         'registration.txId': null,
         'registration.time': null,
         'registration.asset_id': null,
-        'registration.lastWithdrawal': withdrawalRecord
+        'registration.lastWithdrawal': withdrawalRecord,
+        // FIP-013: Clear USD amount on withdrawal (self-expiring grandfathering)
+        'registration.original_usd_amount': null
       },
       $push: {
         'registration.withdrawals': withdrawalRecord
@@ -167,26 +214,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     loggers.stakeOperation('registration_withdraw_completed', miner, {
       txId,
-      amount,
-      assetId
+      withdrawalAmount,
+      originalAmount,
+      assetId,
+      withdrawalPath,
+      originalUsdAmount: originalUsdAmount ?? null
     });
 
     void monitorTransaction(txId, {
       minerKey: miner,
       walletAddress: address,
       operation: 'withdraw:registration',
-      amount,
+      amount: withdrawalAmount,
       assetId,
       preconfirmed: true
     });
 
     return {
-      response: { message: 'ok', txId },
+      response: { message: 'ok', txId, withdrawalAmount, withdrawalPath },
       journal: {
         txId,
         metadata: {
-          amount,
-          assetId
+          withdrawalAmount,
+          originalAmount,
+          assetId,
+          withdrawalPath,
+          originalUsdAmount: originalUsdAmount ?? null
         }
       }
     };

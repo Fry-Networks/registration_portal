@@ -29,6 +29,8 @@ export interface Device extends mongoose.Document {
     asset_id: string | null;
     withdraw_boost: boolean;
     rewarded_time?: Date;
+    // FIP-012: USD amount at stake time for verification stakes
+    original_usd_amount?: number | null;
     history?: Array<{
       amount: number;
       txId: string;
@@ -56,6 +58,8 @@ export interface Device extends mongoose.Document {
     time: Date | null;
     txId: string | null;
     asset_id: string | null;
+    // FIP-013: USD amount at stake time for registration stakes (dynamic peg)
+    original_usd_amount?: number | null;
     history?: Array<{
       amount: number;
       txId: string;
@@ -151,6 +155,9 @@ export interface Product extends mongoose.Document {
       stake_two: number;
       register: number;
       node: number;
+      // FIP-012: USD amounts for verification stakes
+      stake_one_usd?: number;
+      stake_two_usd?: number;
     };
     tokens?: {
       stake: string;
