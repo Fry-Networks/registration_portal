@@ -105,18 +105,41 @@ export default async function handler(
       }
 
       const updated = await collection.findOne({ address });
+      
+      // Include post-snapshot data in response
+      const post_snapshot = {
+        eligible_fry1: updated?.post_snapshot_amount || 0,
+        eligible_tFRY: (updated?.post_snapshot_amount || 0) / 40,
+        burned: !!updated?.post_burn_txId,
+        claimed: updated?.post_claimed || false,
+        claim_txId: updated?.post_claim_txId || null,
+        claimed_at: updated?.post_claimed_at || null
+      };
+
       res.status(200).json({
         success: true,
         message: `Started claiming for conversion successfully.`,
-        user: updated 
+        user: updated,
+        post_snapshot
       });
       return;
     }
 
+    // Include post-snapshot data in response
+    const post_snapshot = {
+      eligible_fry1: user.post_snapshot_amount || 0,
+      eligible_tFRY: (user.post_snapshot_amount || 0) / 40,
+      burned: !!user.post_burn_txId,
+      claimed: user.post_claimed || false,
+      claim_txId: user.post_claim_txId || null,
+      claimed_at: user.post_claimed_at || null
+    };
+
     res.status(200).json({
       success: true,
       message: `Started claiming for conversion successfully.`,
-      user // user object includes 'history' array if present in DB
+      user, // user object includes 'history' array if present in DB
+      post_snapshot
     });
   } catch (error) {
     handleApiError(res, ENDPOINT, error, {
