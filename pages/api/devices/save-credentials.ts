@@ -1,9 +1,10 @@
-﻿import { NextApiRequest, NextApiResponse } from 'next';
+import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { collectionFor, portalKeyFromMiner, getMinerType } from '../../../lib/credentials-utils';
 import { ensureHardwareCredentialIndexes } from '../../../lib/hardwareCredentialIndexes';
+import { loggers } from '../../../lib/logger';
 import {
   CommonErrors,
   createApiError,
@@ -55,27 +56,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       await ensureHardwareCredentialIndexes(db, collectionName);
     }
 
-    let filter: Record<string, unknown> = { miner_key, address: walletAddress };
+    // Query existing docs for this miner_key
+    const existingDocs = await collection.find({ miner_key }).toArray();
+    const matchingDoc = existingDocs.find((doc) => doc.address === walletAddress);
+    const conflictingDoc = existingDocs.find(
+      (doc) => doc.address && doc.address !== walletAddress
+    );
+    // NEW: Find unclaimed doc (has miner_key but no address - presale device)
+    const unclaimedDoc = existingDocs.find((doc) => !doc.address);
 
-    if (collectionName === 'hardware') {
-      const existingDocs = await collection.find({ miner_key }).toArray();
-      const matchingDoc = existingDocs.find((doc) => doc.address === walletAddress);
-      const conflictingDoc = existingDocs.find(
-        (doc) => doc.address && doc.address !== walletAddress
+    if (!matchingDoc && conflictingDoc) {
+      return res.status(409).json(
+        createApiError(
+          ErrorCodes.DEVICE_OWNER_MISMATCH,
+          'Credentials are already linked to another wallet',
+          'Please unlink the credentials from the other wallet first.',
+          { conflictAddress: conflictingDoc.address }
+        )
       );
+    }
 
-      if (!matchingDoc && conflictingDoc) {
-        return res.status(409).json(
-          createApiError(
-            ErrorCodes.DEVICE_OWNER_MISMATCH,
-            'Hardware credentials are already linked to another wallet',
-            'Please unlink the credentials from the other wallet first.',
-            { conflictAddress: conflictingDoc.address }
-          )
-        );
-      }
-
-      filter = matchingDoc ? { _id: matchingDoc._id } : { miner_key };
+    // Determine filter - handle unclaimed docs to avoid duplicate key errors
+    let filter;
+    if (matchingDoc) {
+      // User already has a doc - update by _id
+      filter = { _id: matchingDoc._id };
+    } else if (unclaimedDoc) {
+      // Unclaimed doc exists (presale) - claim it by _id
+      filter = { _id: unclaimedDoc._id };
+      loggers.dbOperation('claim_presale_credential', collection.collectionName, {
+        miner_key,
+        claimedBy: walletAddress,
+      });
+    } else {
+      // No docs exist - insert new (use just miner_key for hardware to match existing index behavior)
+      filter = collectionName === 'hardware' ? { miner_key } : { miner_key, address: walletAddress };
     }
 
     // Use portal key for named collections, miner type for hardware devices

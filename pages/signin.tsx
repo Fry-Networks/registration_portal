@@ -25,15 +25,29 @@ export default function SignIn() {
       return;
     }
 
-    const res = await fetch('/api/check-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: walletAddress })
-    });
+    try {
+      const res = await fetch('/api/check-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: walletAddress })
+      });
 
-    const { isNew } = await res.json();
-    console.log('Check User: ' + isNew);
-    setIsNewUser(isNew);
+      if (!res.ok) {
+        const text = await res.text();
+        if (text.trimStart().startsWith('<')) {
+          console.error('[checkUser] Received HTML instead of JSON:', text.slice(0, 100));
+          return;
+        }
+        console.error('[checkUser] HTTP error:', res.status);
+        return;
+      }
+
+      const data = await res.json();
+      console.log('Check User: ' + data.isNew);
+      setIsNewUser(data.isNew);
+    } catch (error) {
+      console.error('[checkUser] Error:', error);
+    }
   }, [walletAddress]);
 
   useEffect(() => {

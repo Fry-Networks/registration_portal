@@ -101,17 +101,30 @@ export default async function handler(
     const conflictingDoc = existingDocs.find(
       (doc) => doc.address && doc.address !== session.user.address
     );
+    // NEW: Find unclaimed doc (has miner_key but no address - presale device)
+    const unclaimedDoc = existingDocs.find((doc) => !doc.address);
 
     if (!matchingDoc && conflictingDoc) {
       return res.status(401).json(CommonErrors.walletMismatch());
     }
 
-    // Upsert a credential doc keyed by miner_key + address so map info lives
-    // in the same collection as credentials. This mirrors save-credentials which
-    // upserts by miner_key + address.
-    const filter = matchingDoc
-      ? { _id: matchingDoc._id }
-      : { miner_key, address: session.user.address };
+    // FIX: Handle unclaimed docs to avoid duplicate key error
+    let filter;
+    if (matchingDoc) {
+      // User already has a doc - update by _id
+      filter = { _id: matchingDoc._id };
+    } else if (unclaimedDoc) {
+      // Unclaimed doc exists (presale) - claim it by _id
+      filter = { _id: unclaimedDoc._id };
+      loggers.dbOperation('claim_presale_credential', collection.collectionName, {
+        miner_key,
+        claimedBy: session.user.address,
+      });
+    } else {
+      // No docs exist - insert new
+      filter = { miner_key, address: session.user.address };
+    }
+
     const update = {
       $set: {
         miner_key,

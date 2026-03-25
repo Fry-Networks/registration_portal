@@ -343,16 +343,11 @@ async function ensureWithdrawalMetadata(
   }
   segment.withdrawals = withdrawalsArray;
 
-  if (!segment.amount || segment.amount <= 0) {
-    segment.amount = null;
-  }
-  segment.txId = null;
-
+  // FIXED: Only update lastWithdrawal metadata, don't null out amount/txId
+  // This was causing stake corruption by nulling amounts on every device fetch
   const update: UpdateFilter<Document> = {
     $set: {
-      [`${stakeKey}.lastWithdrawal`]: withdrawalRecord,
-      [`${stakeKey}.amount`]: null,
-      [`${stakeKey}.txId`]: null
+      [`${stakeKey}.lastWithdrawal`]: withdrawalRecord
     }
   };
 

@@ -306,19 +306,33 @@ export default function SignIn({ signed }: SignInProps) {
       return;
     }
 
-    const result = await fetch('api/check-user', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        address: connectedWalletAddress
-      })
-    });
+    try {
+      const result = await fetch('/api/check-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          address: connectedWalletAddress
+        })
+      });
 
-    const { isNew } = await result.json();
-    console.log('Is New: ' + isNew);
-    setIsNew(isNew);
+      if (!result.ok) {
+        const text = await result.text();
+        if (text.trimStart().startsWith('<')) {
+          console.error('[checkUser] Received HTML instead of JSON:', text.slice(0, 100));
+          return;
+        }
+        console.error('[checkUser] HTTP error:', result.status);
+        return;
+      }
+
+      const data = await result.json();
+      console.log('Is New: ' + data.isNew);
+      setIsNew(data.isNew);
+    } catch (error) {
+      console.error('[checkUser] Error:', error);
+    }
   }, [connectedWalletAddress]);
 
   // PoC wallet removed; no wallet generation needed

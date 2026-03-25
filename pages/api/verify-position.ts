@@ -79,16 +79,57 @@ export default async function handler(
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
+
+    // First, find the device by miner_key only
+    const device = await collection.findOne({ miner_key: miner });
+
+    if (!device) {
+      res.status(404).json(CommonErrors.deviceNotFound());
+      return;
+    }
+
+    // Security: If device already has an address, it must match the session address
+    if (device.address && device.address !== sessionAddress) {
+      loggers.apiError(ENDPOINT, new Error('Unauthorized address mismatch on claimed device'), {
+        deviceAddress: device.address,
+        sessionAddress,
+        miner_key: miner,
+        issueType: 'POSITION_UNAUTHORIZED_ACCESS',
+        part: 'verify-position.ownership',
+      });
+      res.status(403).json(
+        createApiError(
+          ErrorCodes.UNAUTHORIZED,
+          'Unauthorized: Address mismatch',
+          'This device is registered to a different wallet address.'
+        )
+      );
+      return;
+    }
+
+    // Build update fields - always update position
+    const updateFields: Record<string, unknown> = {
+      position: {
+        lat: latitude,
+        lng: longitude,
+      },
+    };
+
+    // If device has no address (presale device), claim it by setting address
+    if (!device.address) {
+      updateFields.address = sessionAddress;
+      updateFields.claimed_at = new Date();
+
+      loggers.dbOperation('claim_presale_device', collection.collectionName, {
+        miner_key: miner,
+        claimedBy: sessionAddress,
+        testMode,
+      });
+    }
+
     const result = await collection.updateOne(
-      { miner_key: miner, address: sessionAddress },
-      {
-        $set: {
-          position: {
-            lat: latitude,
-            lng: longitude
-          }
-        }
-      }
+      { miner_key: miner },
+      { $set: updateFields }
     );
 
     if (result.matchedCount === 0) {
@@ -101,6 +142,7 @@ export default async function handler(
       address,
       sessionAddress,
       testMode,
+      wasPresaleClaim: !device.address,
     });
 
     res.status(200).json({ message: 'ok' });
