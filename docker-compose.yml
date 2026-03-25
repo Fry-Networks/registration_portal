@@ -19,6 +19,7 @@ services:
       - "100.100.100.100"  # Tailscale MagicDNS
       - "8.8.8.8"          # Google DNS fallback
     environment:
+      MONGO_CA_CERT_PATH: "/etc/ssl/mongo/mongo-ca.crt"
       HOSTNAME: "0.0.0.0"  # Force Next.js to bind to all interfaces for healthcheck
       PORT: "3007"
       NODE_ENV: production
@@ -85,7 +86,7 @@ services:
     volumes:
       - /home/helpdesk/subdomains/dashb/logs:/app/logs # Persist logs outside container
       # Mount the MongoDB CA bundle so tlsCAFile is available inside the container.
-      - ${MONGO_CA_CERT_PATH}:/etc/ssl/mongo/mongo-ca.crt:ro
+      - /etc/ssl/mongo/mongo-ca.crt:/etc/ssl/mongo/mongo-ca.crt:ro
     secrets:
       - op_service_account_token
     security_opt:
