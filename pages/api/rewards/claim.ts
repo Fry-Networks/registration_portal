@@ -461,17 +461,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (updateDaily.modifiedCount) modifiedAny = true;
       }
 
-      const currentClaimable = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimable));
-      const currentClaimed = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimed));
-      const nextClaimable = Math.max(0, quantizeForStorage(currentClaimable - totalAmountNumeric));
-      const nextClaimed = quantizeForStorage(currentClaimed + totalAmountNumeric);
-
+      // FIXED: Use atomic $inc to prevent race conditions
+      // Previous code used read-modify-write which caused inconsistent totals
+      const claimedAmount = quantizeForStorage(totalAmountNumeric);
       await rewardsCollection.updateOne(
         { miner_key },
         {
-          $set: {
-            total_claimable: nextClaimable,
-            total_claimed: nextClaimed
+          $inc: {
+            total_claimable: -claimedAmount,
+            total_claimed: claimedAmount
           }
         }
       );

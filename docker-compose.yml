@@ -21,7 +21,6 @@ services:
     environment:
       HOSTNAME: "0.0.0.0"  # Force Next.js to bind to all interfaces for healthcheck
       PORT: "3007"
-      HOSTNAME: "0.0.0.0"
       NODE_ENV: production
       NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
       NEXTAUTH_URL: 'op://Dashboard/Dash Secrets/NEXTAUTH_URL'
