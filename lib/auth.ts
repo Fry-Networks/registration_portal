@@ -10,41 +10,19 @@ export async function verifySignature(
   try {
     const message = `Sign this message to prove you own the wallet: ${nonce}`;
 
-    // === DEBUG LOGGING START ===
-    console.log('[AUTH DEBUG] Received signedTxnBase64:', {
-      type: typeof signedTxnBase64,
-      length: signedTxnBase64?.length ?? 'undefined',
-      startsWithBase64Chars: /^[A-Za-z0-9+/]/.test(signedTxnBase64 || ''),
-      first20Chars: signedTxnBase64?.substring(0, 20) + '...',
-      last10Chars: '...' + signedTxnBase64?.substring((signedTxnBase64?.length ?? 0) - 10),
-    });
-
     let rawSignedTxn: Uint8Array;
     try {
       rawSignedTxn = new Uint8Array(Buffer.from(signedTxnBase64, 'base64'));
-      console.log('[AUTH DEBUG] Decoded Uint8Array:', {
-        byteLength: rawSignedTxn.byteLength,
-        firstBytes: Array.from(rawSignedTxn.slice(0, 10)).map(b => b.toString(16).padStart(2, '0')).join(' '),
-      });
     } catch (decodeErr) {
-      console.error('[AUTH DEBUG] Base64 decode failed:', decodeErr);
       throw decodeErr;
     }
 
     let stxn;
     try {
       stxn = algosdk.decodeSignedTransaction(rawSignedTxn);
-      console.log('[AUTH DEBUG] decodeSignedTransaction succeeded');
     } catch (stxnErr) {
-      console.error('[AUTH DEBUG] decodeSignedTransaction FAILED:', {
-        error: stxnErr,
-        rawByteLength: rawSignedTxn.byteLength,
-        looksLikeRawSignature: rawSignedTxn.byteLength === 64,
-        looksLikeSignedTxn: rawSignedTxn.byteLength > 100,
-      });
       throw stxnErr;
     }
-    // === DEBUG LOGGING END ===
 
     if (!stxn || !stxn.sig) return false;
 
