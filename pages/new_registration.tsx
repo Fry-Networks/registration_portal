@@ -1,10 +1,10 @@
 import {
-
   Title,
   TextInput,
   Button,
   Flex
 } from '@tremor/react';
+import { safeFetch } from '../lib/api/safeFetch';
 import { useEffect, useState } from 'react';
 import MessageUpdate from '../components/messageUpdate';
 import { useModal } from '../app/modalcontext';
@@ -112,25 +112,20 @@ const isNotAllowedMiner = (minerType: string) : boolean => {
 }
 
 const getMinerType = async (miner_key: string, address: string) => {
-  const response = await fetch('/api/miner_types', {
+  return safeFetch<{ message: string; type?: string }>('/api/miner_types', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ miner_key, address: address })
   });
-  const data = await response.json();
-  return data;
 }
-
 const getIsByod = async (miner_key: string, address: string) => {
-  const response = await fetch('/api/is_byod', {
+  return safeFetch<{ message: string; byod?: Array<unknown> }>('/api/is_byod', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ miner_key, address: address })
   });
-  const data = await response.json();
-  return data;
 }
