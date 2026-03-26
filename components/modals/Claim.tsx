@@ -446,7 +446,7 @@ export default function ClaimModal({
         body: JSON.stringify(baseBody)
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         const code = result?.code as string | undefined;
         // Provide targeted messaging for opt-in failures so users know how to unblock the claim.

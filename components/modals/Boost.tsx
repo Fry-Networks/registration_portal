@@ -181,7 +181,7 @@ export default function BoostModal({
         body: JSON.stringify(body)
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
       console.log("Boost without response.ok: ", result, response);
       if (!response.ok) {
         console.log("Boost within response.ok: ", response);
