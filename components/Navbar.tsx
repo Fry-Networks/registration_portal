@@ -19,7 +19,8 @@ import { BellIcon, HomeIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
-import BugReportModal, { BugReportPayload } from './BugReportModal';
+import BugReportModal from './BugReportModal';
+import DiscordLinkSection from './DiscordLinkSection';
 import { useToastContext } from '../hooks/ToastContext';
 import { runWithWalletRequest, WalletRequestInFlightError } from '../lib/wallet/requestCoordinator.client';
 import ThemeControls from './ThemeControls';
@@ -63,14 +64,10 @@ export default function Navbar() {
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationTrayRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLElement | null>(null);
-  const bugSuccessCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isBugModalOpen, setIsBugModalOpen] = useState(false);
-  const [isSubmittingBug, setIsSubmittingBug] = useState(false);
-  const [bugSubmitError, setBugSubmitError] = useState<string | null>(null);
-  const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
   const [dimoEnabled, setDimoEnabled] = useState<boolean | null>(null);
   const toast = useToastContext();
-  const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
+  const { error: showToastError, info: showToastInfo } = toast;
 
   const modalStyles = useMemo(() => {
     if (isDark) {
@@ -221,93 +218,11 @@ export default function Navbar() {
   }, []);
 
   const openBugModal = () => {
-    if (bugSuccessCloseTimeoutRef.current) {
-      clearTimeout(bugSuccessCloseTimeoutRef.current);
-      bugSuccessCloseTimeoutRef.current = null;
-    }
-    setBugSubmitError(null);
-    setBugSuccessMessage(null);
     setIsBugModalOpen(true);
   };
 
   const closeBugModal = () => {
-    if (isSubmittingBug) {
-      return;
-    }
-    if (bugSuccessCloseTimeoutRef.current) {
-      clearTimeout(bugSuccessCloseTimeoutRef.current);
-      bugSuccessCloseTimeoutRef.current = null;
-    }
     setIsBugModalOpen(false);
-    setBugSubmitError(null);
-    setBugSuccessMessage(null);
-  };
-
-  const handleBugSubmit = async (payload: BugReportPayload) => {
-    try {
-      setIsSubmittingBug(true);
-      setBugSubmitError(null);
-      setBugSuccessMessage(null);
-
-      const response = await fetch('/api/bug-report', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        let userMessage = 'We could not submit your bug report. Please try again.';
-        try {
-          const data = await response.json();
-          if (data?.message) {
-            userMessage = data.message;
-          }
-          if (data?.action) {
-            userMessage = `${userMessage} — ${data.action}`;
-          }
-          if (response.status === 429 && typeof data?.retryAfterSeconds === 'number') {
-            const minutes = Math.ceil(data.retryAfterSeconds / 60);
-            userMessage = `${data.message ?? 'Bug report rate limit reached'}. Please try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
-          }
-        } catch (parseError) {
-          console.error('Failed to parse bug report error response', parseError);
-        }
-
-        setBugSubmitError(userMessage);
-        showToastError({
-          heading: 'Bug report failed',
-          message: userMessage,
-          duration: 6000
-        });
-        return;
-      }
-
-      const successMessage = 'Your bug has been submitted. Our developer team will review it. Thank you for helping us improve!';
-      setBugSuccessMessage(successMessage);
-      showToastSuccess({
-        heading: 'Bug report received',
-        message: 'Thanks for helping us improve the dashboard!',
-        duration: 5000
-      });
-
-      bugSuccessCloseTimeoutRef.current = setTimeout(() => {
-        bugSuccessCloseTimeoutRef.current = null;
-        closeBugModal();
-      }, 2000);
-    } catch (error) {
-      console.error('Bug report submission failed', error);
-      const fallback = 'We could not submit your bug report. Please try again.';
-      setBugSubmitError(fallback);
-      showToastError({
-        heading: 'Bug report failed',
-        message: fallback,
-        duration: 6000
-      });
-    } finally {
-      setIsSubmittingBug(false);
-    }
   };
 
   const handleDisconnect = async () => {
@@ -451,6 +366,11 @@ export default function Navbar() {
 
     const rawAddress = activeAccount?.address || activeWallet?.accounts?.[0]?.address;
     console.log('[Wallet] computed raw address', rawAddress);
+    // Guard against truncated addresses from mobile wallets
+    if (rawAddress && rawAddress.length !== 58) {
+      console.error('[Wallet] Invalid address length:', rawAddress.length, 'expected 58. Skipping auth.');
+      return;
+    }
     if (rawAddress) {
       setAddress(`${rawAddress.slice(0, 4)}...${rawAddress.slice(-4)}`);
     } else {
@@ -566,6 +486,7 @@ export default function Navbar() {
             ) : (
               <Fragment>
                 <DownMenu address={address} disconnect={handleDisconnect} />
+                <DiscordLinkSection walletAddress={address} />
                 <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
                   {showDimoLink && (
                     <Link
@@ -661,11 +582,8 @@ export default function Navbar() {
 
       <BugReportModal
         isOpen={isBugModalOpen}
-        onRequestClose={closeBugModal}
-        onSubmit={handleBugSubmit}
-        isSubmitting={isSubmittingBug}
-        errorMessage={bugSubmitError}
-        successMessage={bugSuccessMessage}
+        onClose={closeBugModal}
+        walletAddress={address}
       />
 
       <Modal

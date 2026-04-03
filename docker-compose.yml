@@ -34,7 +34,12 @@ services:
       MONGO_URI: 'op://Dashboard/Dash Secrets/MONGO_URI'
       VER_MONGO_URI: 'op://Dashboard/Dash Secrets/VER_MONGO_URI'
       DISCORD_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_BUG_WEBHOOK_URL'
-      DISCORD_USER_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_USER_BUG_WEBHOOK_URL'      
+      DISCORD_USER_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_USER_BUG_WEBHOOK_URL'
+      # Discord OAuth - uncomment after adding secrets to 1Password
+      # DISCORD_CLIENT_ID: 'op://Dashboard/Dash Secrets/DISCORD_CLIENT_ID'
+      # DISCORD_CLIENT_SECRET: 'op://Dashboard/Dash Secrets/DISCORD_CLIENT_SECRET'
+      # DISCORD_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DISCORD_REDIRECT_URI'
+      # DISCORD_DASHBOARD_BUG_WEBHOOK_URL: 'op://Dashboard/Dash Secrets/DISCORD_DASHBOARD_BUG_WEBHOOK_URL'
       NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED: 'true'
       NEXT_PUBLIC_TEST_MODE: 'false'
       WEEKLY_CUTOFF_UTC: '2025-09-12T00:00:00.000Z'
@@ -87,6 +92,7 @@ services:
       - /home/helpdesk/subdomains/dashb/logs:/app/logs # Persist logs outside container
       # Mount the MongoDB CA bundle so tlsCAFile is available inside the container.
       - /etc/ssl/mongo/mongo-ca.crt:/etc/ssl/mongo/mongo-ca.crt:ro
+      - /home/helpdesk/subdomains/dashb/uploads:/app/uploads
     secrets:
       - op_service_account_token
     security_opt:
