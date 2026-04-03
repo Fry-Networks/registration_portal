@@ -179,11 +179,11 @@ export default async function handler(
       title: title.trim(),
       category,
       description: description.trim(),
-      screenshot: screenshotPreUploaded 
-        ? `/uploads/bug-reports/files/${screenshotPreUploaded}`
+      screenshot: screenshotPreUploaded
+        ? `/api/uploads/bug-reports/files/${screenshotPreUploaded}`
         : null,
-      consoleLog: `/uploads/bug-reports/files/${consoleLogPreUploaded}`,
-      harFile: `/uploads/bug-reports/files/${harFilePreUploaded}`,
+      consoleLog: `/api/uploads/bug-reports/files/${consoleLogPreUploaded}`,
+      harFile: `/api/uploads/bug-reports/files/${harFilePreUploaded}`,
       createdAt: new Date(),
       status: 'open'
     };
