@@ -1,56 +1,82 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]';
-import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
 import path from 'path';
 import fs from 'fs';
+import { createReadStream } from 'fs';
+import { stat } from 'fs/promises';
+import { verifySession, COOKIE_NAME } from './auth/callback';
 
-/**
- * Admin-only file download endpoint.
- *
- * Uses nginx X-Accel-Redirect for efficient file serving.
- * Only users with session.user.admin === true can download bug report files.
- */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+const UPLOAD_BASE = '/app/uploads';
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
-    return res.status(405).json(createApiError(ErrorCodes.INVALID_INPUT, 'Method not allowed'));
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Require authentication
-  const session = await getServerSession(req, res, authOptions);
-  if (!session?.user?.address) {
-    return res.status(401).json(CommonErrors.noSession());
+  // Check GitHub session cookie
+  const sessionToken = req.cookies?.[COOKIE_NAME];
+  const secret = process.env.GITHUB_COOKIE_SECRET;
+  const allowedId = process.env.GITHUB_ALLOWED_USER_ID;
+
+  if (!secret || !allowedId) {
+    return res.status(500).json({ error: 'GitHub auth not configured' });
   }
 
-  // Require admin
-  if (!(session.user as any).admin) {
-    return res.status(403).json(
-      createApiError(ErrorCodes.UNAUTHORIZED, 'Admin access required', 'Only admins can download bug report files')
+  const userId = sessionToken ? verifySession(sessionToken, secret) : null;
+
+  if (!userId || userId !== allowedId) {
+    // Redirect to GitHub login, passing current URL as returnTo
+    const returnTo = req.url || '/';
+    return res.redirect(
+      `/api/uploads/auth/login?returnTo=${encodeURIComponent(returnTo)}`
     );
   }
 
-  // Get and validate path
+  // Validate file path
   const pathParts = req.query.path;
   if (!pathParts || !Array.isArray(pathParts)) {
-    return res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Invalid path'));
+    return res.status(400).json({ error: 'Invalid path' });
   }
 
   const filePath = pathParts.join('/');
 
-  // Security: only allow bug-reports/files/ paths, no traversal
+  // Security: only allow bug-reports/files/ — no traversal
   if (!filePath.startsWith('bug-reports/files/') || filePath.includes('..')) {
-    return res.status(403).json(createApiError(ErrorCodes.UNAUTHORIZED, 'Invalid file path'));
+    return res.status(403).json({ error: 'Invalid file path' });
   }
 
   // Verify file exists
-  const fullPath = path.join('/app/uploads', filePath);
+  const fullPath = path.join(UPLOAD_BASE, filePath);
   if (!fs.existsSync(fullPath)) {
-    return res.status(404).json(createApiError(ErrorCodes.DEVICE_NOT_FOUND, 'File not found'));
+    return res.status(404).json({ error: 'File not found' });
   }
 
-  // Use X-Accel-Redirect for nginx to serve the file
-  res.setHeader('X-Accel-Redirect', `/internal-uploads/${filePath}`);
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.status(200).end();
+  // Stream file directly
+  const fileStat = await stat(fullPath);
+  const filename = path.basename(fullPath);
+
+  // Determine Content-Type based on extension
+  const ext = path.extname(filename).toLowerCase();
+  const contentType =
+    ext === '.har' ? 'application/json' :
+    ext === '.log' || ext === '.txt' ? 'text/plain' :
+    ext === '.png' ? 'image/png' :
+    ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' :
+    'application/octet-stream';
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Length', fileStat.size);
+  res.status(200);
+
+  const stream = createReadStream(fullPath);
+  stream.pipe(res);
+  stream.on('error', () => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to read file' });
+    }
+  });
+  return;
 }
