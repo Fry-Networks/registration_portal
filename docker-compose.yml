@@ -62,6 +62,10 @@ services:
       DIMO_ALLOW_POST_GRACE: 'false'
       DIMO_SNAPSHOT_TTL_MINUTES: 10
       DIMO_MINER_PREFIX: 'AEM'
+      GITHUB_CLIENT_ID: 'op://Dashboard/Bug Report GitHub Auth/GITHUB_CLIENT_ID'
+      GITHUB_CLIENT_SECRET: 'op://Dashboard/Bug Report GitHub Auth/GITHUB_CLIENT_SECRET'
+      GITHUB_ALLOWED_USER_ID: 'op://Dashboard/Bug Report GitHub Auth/GITHUB_ALLOWED_USER_ID'
+      GITHUB_COOKIE_SECRET: 'op://Dashboard/Bug Report GitHub Auth/GITHUB_COOKIE_SECRET'
       # Force Christmas theme on by default during the holiday window; users can still toggle it off client-side.
       NEXT_PUBLIC_FORCE_SEASONAL_THEME: ${NEXT_PUBLIC_FORCE_SEASONAL_THEME:-christmas} # christmas|valentines|easter|july4|thanksgiving|off|none
       NEXT_PUBLIC_DISABLE_SEASONAL_AUTO: ${NEXT_PUBLIC_DISABLE_SEASONAL_AUTO:-'false'}
