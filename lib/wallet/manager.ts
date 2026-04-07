@@ -59,11 +59,22 @@ export const createWalletManager = (
   return manager;
 };
 
+const RESUME_TIMEOUT_MS = 8000;
+
 export const resumeWalletSessions = async (manager: WalletManager): Promise<void> => {
   try {
-    await manager.resumeSessions();
+    const resumePromise = manager.resumeSessions();
+    const timeoutPromise = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('Session resume timed out')), RESUME_TIMEOUT_MS)
+    );
+    await Promise.race([resumePromise, timeoutPromise]);
   } catch (error) {
-    console.error('[wallet] Failed to resume sessions', error);
+    // Log but don't throw — dashboard should still load, user can reconnect manually
+    if (error instanceof Error && error.message === 'Session resume timed out') {
+      console.warn('[wallet] Session resume timed out after 8s — continuing without restored session');
+    } else {
+      console.error('[wallet] Failed to resume sessions', error);
+    }
   }
 };
 
