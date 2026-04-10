@@ -56,3 +56,7 @@ tempdashboardlogs.txt
 tests/
 docs/wallets_and_dependencies/
 WALLET_AND_DEPENDENCIES_AUDIT.md
+
+# Backup files from Claude Code sessions
+*.bak
+*.bak.*
