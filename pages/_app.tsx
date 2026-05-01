@@ -28,6 +28,7 @@ import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
 import BrowserLockerWarning from '../components/BrowserLockerWarning';
 import SeasonalThemeProvider from '../app/seasonal-theme/SeasonalThemeProvider';
 import HolidayChrome from '../components/HolidayChrome'; // Global holiday overlay (snow/tint)
+import WalletSignerBridge from '../components/WalletSignerBridge';
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -48,7 +49,8 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   const router = useRouter();
 
   // Allow announcements/notification tray on devices, history, and DIMO so the bell stays active where users expect it.
-  const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history' || router.pathname === '/dimo';
+  // PRE_BANNER_ALLROUTES_1777646716: const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history' || router.pathname === '/dimo';
+  const notificationsEnabled = true; // BANNER_ALLROUTES_1777646716
   const showAnnouncementBanner = notificationsEnabled;
 
   useEffect(() => {
@@ -103,6 +105,7 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
           {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
             <QueryClientProvider client={queryClient}> */}
               <WalletProvider manager={walletManager}>
+                <WalletSignerBridge />
                 <SessionProvider session={pageProps.session}>
                   <FingerprintProvider>
                     <DevWalletProvider>
