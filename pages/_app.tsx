@@ -24,7 +24,7 @@ import { useToastContext } from '../hooks/ToastContext';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from '../lib/wallet/manager';
 import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
-import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
+// PRE_PERAGATE_DISABLE_1777654596: import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
 import BrowserLockerWarning from '../components/BrowserLockerWarning';
 import SeasonalThemeProvider from '../app/seasonal-theme/SeasonalThemeProvider';
 import HolidayChrome from '../components/HolidayChrome'; // Global holiday overlay (snow/tint)
@@ -116,7 +116,7 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
                           <HolidayChrome />
                           <div className="relative flex flex-col">
                             {/* Block incompatible in-app browsers first, then surface extension warnings if history is blocked. */}
-                            <PeraInAppBrowserBlocker />
+                            {/* PRE_PERAGATE_DISABLE_1777654596: <PeraInAppBrowserBlocker /> */}
                             <BrowserLockerWarning />
                             {showAnnouncementBanner && <AnnouncementBanner />}
                             <Head>
