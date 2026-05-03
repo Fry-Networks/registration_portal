@@ -11,9 +11,8 @@ export async function connect() {
         throw new Error('MONGO_URI not set!');
     }
     logger.info('Connecting to MongoDB...', { database: 'MongoDB' });
-    await mongoose.connect(uri);
+    await mongoose.connect(uri, { dbName: 'main' });
     logDatabaseConnection('connected');
-    mongoose.connection.useDb('main');
 
     mongoose.connection.on('connected', () => {
         logDatabaseConnection('connected');
