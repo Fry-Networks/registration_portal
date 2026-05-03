@@ -16,16 +16,14 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  const { id } = req.query;
+  if (!id || typeof id !== 'string' || !isValidObjectId(id)) {
+    return res.status(400).json(
+      createApiError(ErrorCodes.INVALID_INPUT, 'Invalid event ID')
+    );
+  }
   try {
     await connect();
-
-    const { id } = req.query;
-    if (!id || typeof id !== 'string' || !isValidObjectId(id)) {
-      return res.status(400).json(
-        createApiError(ErrorCodes.INVALID_INPUT, 'Invalid event ID')
-      );
-    }
-
     if (req.method === 'GET') {
       const event = await EventModel.findById(id).select('-__v').lean();
       if (!event) {
