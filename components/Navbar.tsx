@@ -15,7 +15,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId, tFRY } from '../lib/utils';
-import { BellIcon, HomeIcon } from '@heroicons/react/outline';
+import { BellIcon, HomeIcon, CalendarIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
@@ -518,6 +518,14 @@ export default function Navbar() {
                     title="Devices home"
                   >
                     <HomeIcon className="h-5 w-5" />
+                  </Link>
+                  <Link
+                    href="/events"
+                    className={actionButtonClass}
+                    aria-label="Go to events"
+                    title="Events"
+                  >
+                    <CalendarIcon className="h-5 w-5" />
                   </Link>
                   <button
                     type="button"
