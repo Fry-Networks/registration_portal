@@ -91,7 +91,8 @@ const minerType = {
     'AITCM',
     'AIWSCM'
   ],
-  energy: ['EM']
+  energy: ['EM'],
+  virtual: ['VRDN', 'VSDN', 'VSVN']
 };
 
 type MinerCategory = keyof typeof minerType;
