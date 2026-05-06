@@ -58,6 +58,7 @@ import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
 import { useTheme } from 'next-themes';
+import VirtualActivationBanner, { PendingVirtualDevice } from '../components/VirtualActivationBanner';
 
 const logClientError = async (payload: Record<string, unknown>) => {
   try {
@@ -513,7 +514,8 @@ const DevicesPage = ({
   products = [],
   tokenMetadata = {},
   rewardFallback = {},
-  statusFallback = {}
+  statusFallback = {},
+  pendingVirtualDevices = []
 }: {
   initialDevices: Device[];
   products: Product[];
@@ -528,6 +530,7 @@ const DevicesPage = ({
   >;
   rewardFallback?: Record<string, Summary>;
   statusFallback?: Record<string, { [key: string]: string } | undefined>;
+  pendingVirtualDevices?: PendingVirtualDevice[];
 }) => {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -1510,6 +1513,13 @@ const DevicesPage = ({
           legacyFryClaimedSnapshot={totals.legacyFryClaimedSnapshot}
         />
       )}
+      {/* Phase 3: Virtual device activation banner */}
+      {pendingVirtualDevices.length > 0 && (
+        <VirtualActivationBanner
+          devices={pendingVirtualDevices}
+          sessionAddress={session?.user?.address || ''}
+        />
+      )}
       <StatsGrid
         devices={devices}
         minerDevices={minerDevices}
@@ -1795,6 +1805,20 @@ export async function getServerSideProps(context: any) {
       devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device))
     );
 
+
+    // Phase 3: Fetch pending virtual devices for this user (by email match)
+    const sessionEmail = session.user.email?.trim().toLowerCase();
+    let pendingVirtualDevices: Array<{ miner_key: string; name: string; order?: string; created_at?: string }> = [];
+    if (sessionEmail) {
+      const virtualRaw = await devicesCollection
+        .find(
+          { email: new RegExp('^' + sessionEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'), virtual: true, activated: false },
+          { projection: { miner_key: 1, name: 1, order: 1, created_at: 1 } }
+        )
+        .toArray();
+      pendingVirtualDevices = JSON.parse(JSON.stringify(virtualRaw));
+    }
+
     const products = await db.collection('products').find({}).toArray();
     const tokenDocuments = (await db
       .collection('tokens')
@@ -1917,7 +1941,8 @@ export async function getServerSideProps(context: any) {
         ),
         rewardFallback,
         statusFallback,
-        tokenMetadata: serializedTokenMetadata
+        tokenMetadata: serializedTokenMetadata,
+        pendingVirtualDevices
       }
     };
   } catch (e) {

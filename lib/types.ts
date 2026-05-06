@@ -21,6 +21,12 @@ export interface Device extends mongoose.Document {
   legacy_stake_unlocked?: boolean;
   // Allow UI diffs to compare last refresh timestamps without optional chaining explosions.
   updated_at?: Date | string;  
+  // Virtual mining fields (Phase 3)
+  virtual?: boolean;
+  activated?: boolean;
+  activated_at?: Date | string | null;
+  wix_order_id?: string;
+  order?: string;
   staked?: {
     type: string | null;
     amount: number | null;
