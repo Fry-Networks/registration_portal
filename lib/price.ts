@@ -8,32 +8,61 @@ const PRICE_REQUEST_TIMEOUT_MS = 4000; // fail fast so API callers do not hang
 let algoCache: { lastFetched: number; price: number } = { lastFetched: 0, price: 0 };
 let lastAlgoErrorAt = 0;
 
-// Fetch ALGO/USD price from CoinGecko with TTL caching
+// User-Agent header (CoinGecko requires it; Vestige accepts it)
+const USER_AGENT = 'FryNetworks-Dashboard/1.0 (https://dashboard.frynetworks.com)';
+
+// Fetch ALGO/USD price: Vestige v4 primary, CoinGecko fallback
 export const getAlgoUsdPrice = async (): Promise<number> => {
   const now = Date.now();
   if (now - algoCache.lastFetched < PRICE_TTL_MS && algoCache.price > 0) {
     return algoCache.price;
   }
+
+  // Primary: Vestige v4 (USDC/ALGO price inverted → ALGO/USD)
   try {
     const response = await axios.get(
-      'https://api.coingecko.com/api/v3/simple/price?ids=algorand&vs_currencies=usd',
-      { timeout: PRICE_REQUEST_TIMEOUT_MS }
+      'https://api.vestigelabs.org/assets/price?asset_ids=31566704',
+      { timeout: PRICE_REQUEST_TIMEOUT_MS, headers: { 'User-Agent': USER_AGENT } }
     );
-    const price = response.data?.algorand?.usd;
-    if (typeof price === 'number') {
+    const data = response.data;
+    if (
+      response.status === 200 &&
+      Array.isArray(data) &&
+      data.length > 0 &&
+      data[0].asset_id === 31566704 &&
+      typeof data[0].price === 'number' &&
+      isFinite(data[0].price) &&
+      data[0].price > 0 &&
+      (data[0].confidence ?? 1) >= 0.5
+    ) {
+      const price = 1 / data[0].price;
       algoCache = { lastFetched: now, price };
       return price;
     }
-    throw new Error('Invalid response from CoinGecko');
+  } catch {
+    // Vestige failed — fall through to CoinGecko
+  }
+
+  // Fallback: CoinGecko
+  try {
+    const response = await axios.get(
+      'https://api.coingecko.com/api/v3/simple/price?ids=algorand&vs_currencies=usd',
+      { timeout: PRICE_REQUEST_TIMEOUT_MS, headers: { 'User-Agent': USER_AGENT } }
+    );
+    const price = response.data?.algorand?.usd;
+    if (typeof price === 'number' && price > 0) {
+      algoCache = { lastFetched: now, price };
+      return price;
+    }
   } catch (error) {
-    // Throttle error logs to at most once per minute
     if (now - lastAlgoErrorAt > 60_000) {
-      console.error('Error fetching ALGO/USD price from CoinGecko:', error);
+      console.error('[PRICE] All oracles failed for ALGO/USD:', error);
       lastAlgoErrorAt = now;
     }
-    // If we have a recent cached price, return it; otherwise 0
-    return algoCache.price || 0;
   }
+
+  // Last resort: cached value if available
+  return algoCache.price || 0;
 };
 
 const FRYVerID = 924268058;
