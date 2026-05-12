@@ -5,7 +5,7 @@ import type { Transaction } from 'algosdk';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import type { Device } from '../../../lib/types';
-import { getAssetDecimals, fNODE, tFRY, getRewardsVaultAddress } from '../../../lib/utils';
+import { getAssetDecimals, fNODE, tFRY, getRewardsVaultAddress, isRegistrationNeeded, isNodeStakingNeeded } from '../../../lib/utils';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
@@ -198,6 +198,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           status: 401,
           response: createApiError(ErrorCodes.WALLET_MISMATCH, 'Wallet mismatch detected. Sign in with the owning wallet to claim rewards.')
         };
+      }
+
+
+      // Enforce product-driven staking requirements (registration + node)
+      const productsCol = db.collection('products');
+      const devicePrefix = miner_key.split('-')[0];
+      const deviceProduct = await productsCol.findOne({ key: devicePrefix });
+      if (deviceProduct) {
+        if (isRegistrationNeeded(deviceProduct as any) && (typeof device.registration?.amount !== 'number' || device.registration.amount <= 0)) {
+          throw { status: 403, response: createApiError('REGISTRATION_STAKE_REQUIRED', 'Registration stake is required before claiming rewards.', 'Complete the registration stake for this device on the dashboard, then try again.') };
+        }
+        if (isNodeStakingNeeded(deviceProduct as any) && (typeof device.node?.amount !== 'number' || device.node.amount <= 0)) {
+          throw { status: 403, response: createApiError('NODE_STAKE_REQUIRED', 'Node stake is required before claiming rewards.', 'Complete the node stake for this device on the dashboard, then try again.') };
+        }
       }
 
       const rewardsDoc = await rewardsCollection.findOne({ miner_key });

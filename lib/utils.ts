@@ -398,7 +398,7 @@ export const computeDeviceStatus = (
   const deviceStatus: { [key: string]: string } = {};
   let isError = false;
 
-  if (!device.position) {
+  if (!device.virtual && !device.position) {
     deviceStatus.position = 'Position not set';
     isError = true;
   }
@@ -416,11 +416,11 @@ export const computeDeviceStatus = (
 
   const firstName = device.names?.first_name?.trim();
   const lastName = device.names?.last_name?.trim();
-  if (!firstName) {
+  if (!device.virtual && !firstName) {
     deviceStatus.first_name = 'First name not set';
     isError = true;
   }
-  if (!lastName) {
+  if (!device.virtual && !lastName) {
     deviceStatus.last_name = 'Last name not set';
     isError = true;
   }
