@@ -125,7 +125,11 @@
     "xmlhttprequest": "^1.8.0",
     "zustand": "^4.5.1"
   },
-  "overrides": {},
+  "overrides": {
+    "@perawallet/connect": {
+      "qr-code-styling": "1.6.0"
+    }
+  },
   "prettier": {
     "arrowParens": "always",
     "singleQuote": true,

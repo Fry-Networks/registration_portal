@@ -25,6 +25,8 @@ export default function VirtualActivationBanner({
   const [devices, setDevices] = useState<PendingVirtualDevice[]>(initialDevices);
   const [activatingKeys, setActivatingKeys] = useState<Set<string>>(new Set());
   const [activatingAll, setActivatingAll] = useState(false);
+  const [cancelingKeys, setCancelingKeys] = useState<Set<string>>(new Set());
+  const [cancelingAll, setCancelingAll] = useState(false);
   const [manualKey, setManualKey] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [manualError, setManualError] = useState('');
@@ -61,6 +63,38 @@ export default function VirtualActivationBanner({
       toast.error({ heading: 'Activation failed', message: err.message || 'Please try again.' });
     } finally {
       setActivatingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(miner_key);
+        return next;
+      });
+    }
+  };
+
+  const cancelSingle = async (miner_key: string) => {
+    setCancelingKeys((prev) => new Set(prev).add(miner_key));
+    try {
+      const response = await fetchWithFingerprintRetry(
+        () =>
+          fetch('/api/devices/cancel-virtual', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ miner_key }),
+          }),
+        refreshFingerprint
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.message || data.userMessage || 'Cancellation failed');
+      }
+
+      setDevices((prev) => prev.filter((d) => d.miner_key !== miner_key));
+      toast.success({ heading: 'Device canceled', message: `${miner_key} has been canceled.` });
+      router.replace(router.asPath);
+    } catch (err: any) {
+      toast.error({ heading: 'Cancellation failed', message: err.message || 'Please try again.' });
+    } finally {
+      setCancelingKeys((prev) => {
         const next = new Set(prev);
         next.delete(miner_key);
         return next;
@@ -113,6 +147,52 @@ export default function VirtualActivationBanner({
       toast.error({ heading: 'Batch activation failed', message: err.message || 'Please try again.' });
     } finally {
       setActivatingAll(false);
+    }
+  };
+
+  const cancelAll = async () => {
+    setCancelingAll(true);
+    try {
+      let canceled = 0;
+      let failed = 0;
+      for (const device of devices) {
+        try {
+          const response = await fetchWithFingerprintRetry(
+            () =>
+              fetch('/api/devices/cancel-virtual', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ miner_key: device.miner_key }),
+              }),
+            refreshFingerprint
+          );
+          if (response.ok) {
+            canceled++;
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+      }
+      setDevices((prev) => prev.filter((d) => !prev.find((p) => p.miner_key === d.miner_key)));
+      if (canceled > 0) {
+        toast.success({
+          heading: 'Devices canceled',
+          message: `${canceled} virtual device${canceled > 1 ? 's' : ''} canceled successfully.`,
+        });
+        router.replace(router.asPath);
+      }
+      if (failed > 0) {
+        toast.error({
+          heading: 'Some cancellations failed',
+          message: `${failed} device${failed > 1 ? 's' : ''} could not be canceled.`,
+        });
+      }
+    } catch (err: any) {
+      toast.error({ heading: 'Batch cancellation failed', message: err.message || 'Please try again.' });
+    } finally {
+      setCancelingAll(false);
     }
   };
 
@@ -185,24 +265,39 @@ export default function VirtualActivationBanner({
           </p>
         </div>
         {devices.length > 1 && (
-          <Button
-            onClick={activateAll}
-            loading={activatingAll}
-            disabled={activatingAll}
-            className={
-              isDark
-                ? 'bg-purple-600 text-white border-purple-500 hover:bg-purple-500'
-                : 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
-            }
-          >
-            Activate All ({devices.length})
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={activateAll}
+              loading={activatingAll}
+              disabled={activatingAll || cancelingAll}
+              className={
+                isDark
+                  ? 'bg-purple-600 text-white border-purple-500 hover:bg-purple-500'
+                  : 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
+              }
+            >
+              Activate All ({devices.length})
+            </Button>
+            <Button
+              onClick={cancelAll}
+              loading={cancelingAll}
+              disabled={activatingAll || cancelingAll}
+              className={
+                isDark
+                  ? 'bg-red-600/80 text-white border-red-500/50 hover:bg-red-500'
+                  : 'bg-red-600 text-white border-red-600 hover:bg-red-700'
+              }
+            >
+              Cancel All ({devices.length})
+            </Button>
+          </div>
         )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {devices.map((device) => {
           const isActivating = activatingKeys.has(device.miner_key);
+          const isCanceling = cancelingKeys.has(device.miner_key);
           return (
             <div
               key={device.miner_key}
@@ -219,19 +314,34 @@ export default function VirtualActivationBanner({
                   <div className={`text-xs ${mutedText}`}>Order #{device.order}</div>
                 )}
               </div>
-              <Button
-                size="xs"
-                onClick={() => activateSingle(device.miner_key)}
-                loading={isActivating}
-                disabled={isActivating || activatingAll}
-                className={
-                  isDark
-                    ? 'bg-purple-600/80 text-white border-purple-500/50 hover:bg-purple-500'
-                    : 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
-                }
-              >
-                Activate
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="xs"
+                  onClick={() => activateSingle(device.miner_key)}
+                  loading={isActivating}
+                  disabled={isActivating || isCanceling || activatingAll || cancelingAll}
+                  className={
+                    isDark
+                      ? 'bg-purple-600/80 text-white border-purple-500/50 hover:bg-purple-500'
+                      : 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700'
+                  }
+                >
+                  Activate
+                </Button>
+                <Button
+                  size="xs"
+                  onClick={() => cancelSingle(device.miner_key)}
+                  loading={isCanceling}
+                  disabled={isActivating || isCanceling || activatingAll || cancelingAll}
+                  className={
+                    isDark
+                      ? 'bg-red-600/80 text-white border-red-500/50 hover:bg-red-500'
+                      : 'bg-red-600 text-white border-red-600 hover:bg-red-700'
+                  }
+                >
+                  Cancel
+                </Button>
+              </div>
             </div>
           );
         })}

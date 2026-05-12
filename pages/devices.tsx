@@ -1584,6 +1584,15 @@ const DevicesPage = ({
         {devices.length > 0 ? (
           devices.map((device, index) => {
             const product = findProductByMinerKey(device.miner_key, products);
+            if (!product) {
+              return (
+                <div key={device.miner_key} className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
+                  <div className="text-sm font-medium text-yellow-200">{device.name || device.miner_key}</div>
+                  <div className="text-xs font-mono text-yellow-300/70 mt-1">{device.miner_key}</div>
+                  <div className="text-xs text-yellow-400 mt-2">Product configuration missing for this device type. Contact admin to configure.</div>
+                </div>
+              );
+            }
             return (
               <DeviceListItem
                 key={device.miner_key}
@@ -1765,7 +1774,7 @@ export async function getServerSideProps(context: any) {
     const devicesCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
     const devicesRaw = await devicesCollection
       .find(
-        { address: session.user.address, is_registered: true },
+        { address: session.user.address, $or: [{ is_registered: true }, { virtual: true, activated: true }] },
         {
           projection: {
             address: 1,
@@ -1783,7 +1792,11 @@ export async function getServerSideProps(context: any) {
             created_at: 1,
             email: 1,
             registered_portal_model: 1,
-            legacy_stake_unlocked: 1
+            legacy_stake_unlocked: 1,
+            virtual: 1,
+            activated: 1,
+            registration: 1,
+            node: 1
           }
         }
       )
@@ -1894,6 +1907,10 @@ export async function getServerSideProps(context: any) {
             staked: d.staked,
             stake_type: d.stake_type,
             verified: d.verified,
+            virtual: d.virtual,
+            activated: d.activated,
+            registration: d.registration,
+            node: d.node,
             _id: d._id,
             __v: d.__v
           } as any,
