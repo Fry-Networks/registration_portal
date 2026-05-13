@@ -56,7 +56,7 @@ export default async function handler(
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
 
-    const device = await collection.findOne({ miner_key, virtual: true });
+    const device = await collection.findOne({ miner_key, virtual: true, is_registered: { $ne: true } });
 
     if (!device) {
       return res.status(404).json(

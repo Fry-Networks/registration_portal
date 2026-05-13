@@ -1825,7 +1825,7 @@ export async function getServerSideProps(context: any) {
     if (sessionEmail) {
       const virtualRaw = await devicesCollection
         .find(
-          { email: new RegExp('^' + sessionEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'), virtual: true, activated: false },
+          { email: new RegExp('^' + sessionEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'), virtual: true, activated: false, is_registered: { $ne: true }, canceled_at: null, transitioned_at: null },
           { projection: { miner_key: 1, name: 1, order: 1, created_at: 1 } }
         )
         .toArray();
