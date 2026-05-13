@@ -83,7 +83,7 @@ export default async function handler(
         continue;
       }
 
-      const device = await collection.findOne({ miner_key, virtual: true });
+      const device = await collection.findOne({ miner_key, virtual: true, is_registered: { $ne: true } });
 
       if (!device) {
         results.push({ miner_key, success: false, error: 'Device not found' });
