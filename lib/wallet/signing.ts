@@ -1,3 +1,4 @@
+import algosdk from 'algosdk';
 import { getAlgodClient } from './clients';
 import type { SupportedNetwork } from './config';
 import { waitForFinalConfirmation } from './transactionConfirmation';
@@ -59,6 +60,34 @@ export const submitSignedTransactions = async (
   const algod = getAlgodClient(network);
   const txIds: string[] = [];
 
+  // Detect atomic transaction groups: if any txn has a group ID, submit all at once.
+  const hasGroup = signedTransactions.some((signed) => {
+    const decoded = algosdk.decodeSignedTransaction(signed);
+    return decoded.txn.group && decoded.txn.group.length > 0;
+  });
+
+  if (hasGroup) {
+    // Submit the entire group in one call so the network treats it as atomic.
+    await algod.sendRawTransaction(signedTransactions).do();
+
+    // Derive txids locally; the single response txid only covers one txn.
+    for (const signed of signedTransactions) {
+      const decoded = algosdk.decodeSignedTransaction(signed);
+      txIds.push(decoded.txn.txID());
+    }
+
+    if (waitForConfirmation) {
+      // Atomic groups confirm together; waiting on the first is sufficient.
+      await waitForFinalConfirmation(txIds[0], {
+        network,
+        minConfirmations: confirmationRounds
+      });
+    }
+
+    return txIds;
+  }
+
+  // Non-grouped flows: submit individually (payments, asset transfers, burns).
   for (const signed of signedTransactions) {
     const { txid } = await algod.sendRawTransaction(signed).do();
     txIds.push(txid);
