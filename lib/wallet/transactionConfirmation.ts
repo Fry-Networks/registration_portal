@@ -20,7 +20,7 @@ export async function waitForFinalConfirmation(
 ): Promise<TransactionConfirmation> {
   const algod = getAlgodClient(network);
   const confirmedTxn = await algosdk.waitForConfirmation(algod, txId, maxRoundWait);
-  const confirmedRound = confirmedTxn['confirmed-round'];
+  const confirmedRound = Number(confirmedTxn['confirmed-round'] ?? confirmedTxn.confirmedRound ?? 0);
 
   if (!confirmedRound) {
     throw new Error(`Transaction ${txId} was not confirmed within ${maxRoundWait} rounds.`);
@@ -29,7 +29,7 @@ export async function waitForFinalConfirmation(
   let performedWaitRounds = 0;
 
   const status = await algod.status().do();
-  let currentRound = status['last-round'];
+  let currentRound = Number(status['last-round'] ?? status.lastRound ?? 0);
   let depth = currentRound - confirmedRound;
 
   while (depth < minConfirmations) {
@@ -37,7 +37,7 @@ export async function waitForFinalConfirmation(
     await algod.statusAfterBlock(currentRound).do();
     performedWaitRounds += 1;
     const updatedStatus = await algod.status().do();
-    depth = updatedStatus['last-round'] - confirmedRound;
+    depth = Number(updatedStatus['last-round'] ?? updatedStatus.lastRound ?? 0) - confirmedRound;
   }
 
   return {
