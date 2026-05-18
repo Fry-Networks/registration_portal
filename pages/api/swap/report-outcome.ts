@@ -86,6 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       swapTxnIds,
       confirmedRound: Number(confirmedRound) || 0,
       timestamp: Date.now(),
+      verificationStatus: "pending" as const,
       createdAt: new Date(),
     };
 
