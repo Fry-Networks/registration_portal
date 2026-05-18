@@ -10,6 +10,10 @@
  *
  * No payout logic. No treasury signing. No user-facing guarantee claims.
  * Foreground, retryable, idempotent.
+ *
+ * NOTE: algosdk 2.x returns camelCase fields (confirmedRound, innerTxns,
+ * assetTransferTransaction, txType). NOT kebab-case.
+ * group field is Uint8Array, not base64 string.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { isInstrumentationEnabled } from '../../../lib/swap/guaranteeInstrumentation';
@@ -22,26 +26,35 @@ import {
 import { getIndexerClient } from '../../../lib/wallet/clients';
 import { withAlgorandRetry } from '../../../lib/algorand/withRetry';
 
+// algosdk 2.x returns camelCase with BigInt values
 interface IndexerTxn {
-  'tx-type'?: string;
+  txType?: string;
   sender?: string;
-  'confirmed-round'?: number;
-  group?: string;
+  confirmedRound?: number | bigint;
+  group?: Uint8Array | string;
   id?: string;
-  'inner-txns'?: IndexerTxn[];
-  'asset-transfer-transaction'?: {
+  innerTxns?: IndexerTxn[];
+  assetTransferTransaction?: {
     receiver?: string;
-    amount?: number;
-    'asset-id'?: number;
+    amount?: number | bigint;
+    assetId?: number | bigint;
   };
-  'application-transaction'?: {
-    'application-id'?: number;
+  applicationTransaction?: {
+    applicationId?: number | bigint;
   };
+}
+
+/** Convert group field (Uint8Array or base64 string) to a stable base64 string for comparison */
+function groupToBase64(group: Uint8Array | string | undefined): string | null {
+  if (!group) return null;
+  if (typeof group === 'string') return group;
+  if (group instanceof Uint8Array) return Buffer.from(group).toString('base64');
+  return null;
 }
 
 /**
  * Recursively collect all inner axfer transfers matching the target receiver + asset.
- * Only inner axfers from the confirmed swap group are authoritative.
+ * Only inner axfers from the confirmed swap group are authoritative evidence.
  */
 function collectInnerAxfers(
   txns: IndexerTxn[],
@@ -53,23 +66,24 @@ function collectInnerAxfers(
 ): InnerTxnEvidence[] {
   const results: InnerTxnEvidence[] = [];
   for (const inner of txns) {
-    if (inner['tx-type'] === 'axfer') {
-      const at = inner['asset-transfer-transaction'];
+    if (inner.txType === 'axfer') {
+      const at = inner.assetTransferTransaction;
       if (
         at &&
         at.receiver === targetReceiver &&
-        Number(at['asset-id']) === targetAssetId &&
-        typeof at.amount === 'number'
+        Number(at.assetId) === targetAssetId &&
+        (typeof at.amount === 'number' || typeof at.amount === 'bigint')
       ) {
-        // Dedupe: use parentTxId + receiver + amount + assetId as key
-        const dedupeKey = `${parentTxId}:${at.receiver}:${at.amount}:${at['asset-id']}`;
+        const amount = Number(at.amount);
+        // Dedupe: parentTxId + receiver + amount + assetId
+        const dedupeKey = `${parentTxId}:${at.receiver}:${amount}:${Number(at.assetId)}`;
         if (!seen.has(dedupeKey)) {
           seen.add(dedupeKey);
           results.push({
             txId: parentTxId,
             type: 'axfer',
-            assetId: Number(at['asset-id']),
-            amount: at.amount,
+            assetId: Number(at.assetId),
+            amount,
             receiver: at.receiver,
             confirmedRound,
           });
@@ -77,9 +91,9 @@ function collectInnerAxfers(
       }
     }
     // Recurse into nested inner txns
-    if (inner['inner-txns'] && inner['inner-txns'].length > 0) {
+    if (inner.innerTxns && inner.innerTxns.length > 0) {
       results.push(
-        ...collectInnerAxfers(inner['inner-txns'], targetReceiver, targetAssetId, parentTxId, confirmedRound, seen)
+        ...collectInnerAxfers(inner.innerTxns, targetReceiver, targetAssetId, parentTxId, confirmedRound, seen)
       );
     }
   }
@@ -115,7 +129,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Idempotency: already verified => no-op
-    if (outcome.verificationStatus === 'verified') {
+    if (outcome.verificationStatus === 'verified' || outcome.verificationStatus === 'discrepancy') {
       return res.status(200).json({ success: true, verified: true, reason: 'already_verified' });
     }
 
@@ -144,13 +158,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         const result = await withAlgorandRetry(indexer.lookupTransactionByID(txId));
         const txn = (result as any).transaction as IndexerTxn;
-        if (!txn || !txn['confirmed-round']) {
+        if (!txn || !txn.confirmedRound) {
           continue; // Skip unconfirmed
         }
-        if (txn.group) {
-          groups.add(txn.group);
+        const groupB64 = groupToBase64(txn.group);
+        if (groupB64) {
+          groups.add(groupB64);
         }
-        if (txn['tx-type'] === 'appl' && txn['inner-txns'] && txn['inner-txns'].length > 0) {
+        if (txn.txType === 'appl' && txn.innerTxns && txn.innerTxns.length > 0) {
           hasApplWithInnerTxns = true;
         }
         loadedTxns.push({ txId, txn });
@@ -180,7 +195,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ success: true, verified: false, reason: 'multiple_groups' });
     }
 
-    // Swap-context validation: group must contain at least one appl tx with inner txns
+    // Swap-context validation: group must contain at least one appl tx with inner txns.
     // Only inner axfers from the confirmed swap group are authoritative evidence.
     if (!hasApplWithInnerTxns) {
       await updateOutcomeVerification(quoteId, {
@@ -196,13 +211,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const seen = new Set<string>();
     const allEvidence: InnerTxnEvidence[] = [];
     for (const { txId, txn } of loadedTxns) {
-      if (txn['tx-type'] === 'appl' && txn['inner-txns']) {
+      if (txn.txType === 'appl' && txn.innerTxns) {
         const found = collectInnerAxfers(
-          txn['inner-txns'],
+          txn.innerTxns,
           userAddress,
           outputAsset,
           txId,
-          txn['confirmed-round']!,
+          Number(txn.confirmedRound),
           seen
         );
         allEvidence.push(...found);
@@ -251,7 +266,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (err: any) {
     console.error('[swap/verify-outcome]', err);
-    // Increment attempts on error
     try {
       const outcome = await getOutcomeByQuoteId(quoteId);
       if (outcome) {
