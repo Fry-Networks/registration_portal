@@ -72,7 +72,9 @@ export interface SwapOutcome {
   discrepancyAmount?: number;
   discrepancyFlag?: boolean;
   innerTxnEvidence?: InnerTxnEvidence[];
-  settlementStatus?: 'pending' | 'settled' | 'skipped' | 'failed' | 'ineligible';
+  settlementStatus?: 'pending' | 'settled' | 'skipped' | 'failed' | 'ineligible' | 'claimable' | 'claimed';
+  settlementMethod?: 'direct' | 'certificate';
+  certificateOrderHash?: string;
   settlementTxId?: string;
   settlementAmount?: number;
   settlementTimestamp?: number;
@@ -128,7 +130,8 @@ export async function updateOutcomeVerification(
 export async function updateOutcomeSettlement(
   quoteId: string,
   fields: Partial<Pick<SwapOutcome,
-    'settlementStatus' | 'settlementTxId' | 'settlementAmount' |
+    'settlementStatus' | 'settlementMethod' | 'certificateOrderHash' |
+    'settlementTxId' | 'settlementAmount' |
     'settlementTimestamp' | 'settlementError'
   >>
 ): Promise<void> {
@@ -212,6 +215,26 @@ export function computeOrderHash(params: {
   h.update(params.guaranteedAmount.toString());
   h.update(params.settlementDeadline.toString());
   return h.digest('hex');
+}
+
+export async function getClaimableByWallet(walletAddress: string): Promise<SwapOutcome[]> {
+  const col = await getCollection();
+  return col.find({
+    type: 'swap_outcome',
+    userAddress: walletAddress,
+    settlementStatus: 'claimable',
+  })
+    .sort({ timestamp: -1 })
+    .limit(20)
+    .toArray() as Promise<SwapOutcome[]>;
+}
+
+export async function markClaimed(quoteId: string, claimTxId: string): Promise<void> {
+  const col = await getCollection();
+  await col.updateOne(
+    { type: 'swap_outcome', quoteId },
+    { $set: { settlementStatus: 'claimed', settlementTxId: claimTxId, settlementTimestamp: Date.now() } }
+  );
 }
 
 /** Get UTC day boundaries for cap checks. */
