@@ -10,7 +10,7 @@ if [ -z "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
   exit 1
 fi
 
-vault="TestersDashboard"
+vault="Dashboard"
 item="Dash Secrets"
 
 read_secret() {
