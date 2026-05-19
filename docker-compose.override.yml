@@ -1,0 +1,4 @@
+services:
+  fry-dashboard-users:
+    environment:
+      GUARANTEE_REKEY: 'op://Dashboard/Guarantee Settlement Signer/GUARANTEE_MNEMONIC'
