@@ -38,6 +38,10 @@ export function getSettlementDeadlineSec(): number {
   return Number(process.env.GUARANTEE_SETTLEMENT_DEADLINE_SECONDS) || 600;
 }
 
+export function getClaimWindowSec(): number {
+  return Number(process.env.GUARANTEE_CLAIM_WINDOW_SECONDS) || 604800; // 7 days
+}
+
 export function getMaxTopupPerSwap(): bigint {
   return BigInt(process.env.GUARANTEE_MAX_TOPUP_PER_SWAP || '50000000000');
 }

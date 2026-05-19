@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import algosdk from 'algosdk';
 import { useRouter } from 'next/router';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { useTheme } from 'next-themes';
@@ -63,6 +64,8 @@ export default function BuyTokenPage() {
   const [isStale, setIsStale] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionStep, setExecutionStep] = useState<'quoting' | 'preparing' | 'signing' | 'confirming' | 'settling' | null>(null);
+  const [claimable, setClaimable] = useState<Array<{ quoteId: string; orderHash: string; amount: number; assetId: number; vaultAppId: number }>>([]);
+  const [isClaiming, setIsClaiming] = useState(false);
 
   const sourceToken = useMemo(
     () => SOURCE_TOKENS.find((t) => t.id === sourceId) || SOURCE_TOKENS[0],
@@ -116,6 +119,79 @@ export default function BuyTokenPage() {
     }, 5_000);
     return () => clearInterval(t);
   }, [lastQuoteAt]);
+
+  // Poll for claimable certificates
+  useEffect(() => {
+    if (!activeAccount) { setClaimable([]); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/swap/claim-status?wallet=${activeAccount.address}`);
+        const data = await res.json();
+        if (!cancelled && data.success) setClaimable(data.claimable || []);
+      } catch { /* silent */ }
+    };
+    poll();
+    const id = setInterval(poll, 15_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeAccount]);
+
+  const handleClaim = useCallback(async (item: typeof claimable[0]) => {
+    if (!activeAccount || !targetToken || isClaiming) return;
+    setIsClaiming(true);
+    try {
+      const orderHashBytes = new Uint8Array(item.orderHash.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+
+      // ABI: claim(byte[])void selector 0x4d6e08da
+      const selector = new Uint8Array([0x4d, 0x6e, 0x08, 0xda]);
+      // Encode dynamic bytes: 2-byte length prefix + data
+      const lenBuf = new Uint8Array(2);
+      lenBuf[0] = (orderHashBytes.length >> 8) & 0xff;
+      lenBuf[1] = orderHashBytes.length & 0xff;
+      const orderHashArg = new Uint8Array(2 + orderHashBytes.length);
+      orderHashArg.set(lenBuf, 0);
+      orderHashArg.set(orderHashBytes, 2);
+
+      const boxPrefix = new Uint8Array([0x63, 0x65, 0x72, 0x74, 0x5f]); // "cert_"
+      const boxName = new Uint8Array(boxPrefix.length + orderHashBytes.length);
+      boxName.set(boxPrefix, 0);
+      boxName.set(orderHashBytes, boxPrefix.length);
+
+      const algod = new algosdk.Algodv2('', 'https://mainnet-api.algonode.cloud', 443);
+      const sp = await algod.getTransactionParams().do();
+      sp.flatFee = true;
+      sp.fee = BigInt(2000); // covers inner AssetTransfer
+
+      const txn = algosdk.makeApplicationCallTxnFromObject({
+        sender: activeAccount.address,
+        appIndex: item.vaultAppId,
+        onComplete: algosdk.OnApplicationComplete.NoOpOC,
+        appArgs: [selector, orderHashArg],
+        foreignAssets: [item.assetId],
+        boxes: [{ appIndex: item.vaultAppId, name: boxName }],
+        suggestedParams: sp,
+      });
+
+      const encoded = algosdk.encodeUnsignedTransaction(txn);
+      const txIds = await walletActions.signAndSubmit([encoded], { message: 'Claim FrySwap Guarantee' });
+      await waitForFinalConfirmation(txIds[0], { network: getDefaultNetwork(), minConfirmations: 4 });
+
+      // Confirm claim in DB
+      await fetch('/api/swap/confirm-claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId: item.quoteId, claimTxId: txIds[0] }),
+      });
+
+      toastInfo({ heading: 'Claimed!', message: `${formatAmount(item.amount)} ${targetToken.symbol} sent to your wallet.` });
+      setClaimable(prev => prev.filter(c => c.quoteId !== item.quoteId));
+    } catch (err: any) {
+      console.error('[handleClaim]', err);
+      toastError({ heading: 'Claim failed', message: err.message || 'Failed to claim guarantee.' });
+    } finally {
+      setIsClaiming(false);
+    }
+  }, [activeAccount, targetToken, isClaiming, walletActions, toastInfo, toastError]);
 
   const priceImpact = quote?.price_impact ?? 0;
   const priceImpactHigh = priceImpact > MAX_PRICE_IMPACT;
@@ -271,7 +347,7 @@ export default function BuyTokenPage() {
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
         <div className="flex items-center justify-between">
           <Title className={isDark ? 'text-white' : 'text-slate-900'}>
-            Buy {targetToken.name}
+            FrySwap: {targetToken.name}
           </Title>
           {activeAccount && (
             <p className="text-xs opacity-60">
@@ -279,6 +355,39 @@ export default function BuyTokenPage() {
             </p>
           )}
         </div>
+
+        {claimable.length > 0 && (
+          <section
+            className={`rounded-2xl p-4 ${
+              isDark
+                ? 'border border-green-500/30 bg-green-900/20'
+                : 'border border-green-600/40 bg-green-50'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldCheckIcon className="h-5 w-5 text-green-500" />
+              <span className="font-semibold text-sm">FrySwap Guarantee Available</span>
+            </div>
+            {claimable.map((item) => (
+              <div key={item.quoteId} className="flex items-center justify-between mt-2">
+                <span className="text-sm">
+                  {formatAmount(item.amount)} {targetToken?.symbol || 'FRY'} ready to claim
+                </span>
+                <button
+                  onClick={() => handleClaim(item)}
+                  disabled={isClaiming}
+                  className={`rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+                    isClaiming
+                      ? 'opacity-50 cursor-not-allowed bg-gray-400 text-white'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  }`}
+                >
+                  {isClaiming ? 'Claiming...' : 'Claim'}
+                </button>
+              </div>
+            ))}
+          </section>
+        )}
 
         <section
           className={`relative rounded-3xl p-6 shadow-[0_25px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:p-8 ${
@@ -364,7 +473,7 @@ export default function BuyTokenPage() {
 
                   {guarantee?.eligible && (
                     <div className={`rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-green-900/30 text-green-300' : 'bg-green-100 text-green-800'}`}>
-                      Treasury-backed guarantee active
+                      FrySwap Guarantee Active
                     </div>
                   )}
 
@@ -430,7 +539,7 @@ export default function BuyTokenPage() {
               ) : (
                 <>
                   <SwitchHorizontalIcon className="h-4 w-4" />
-                  Swap {sourceToken.symbol} for {targetToken.symbol}
+                  FrySwap {sourceToken.symbol} for {targetToken.symbol}
                 </>
               )}
             </button>

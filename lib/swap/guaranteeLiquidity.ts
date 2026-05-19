@@ -3,6 +3,7 @@
  * Uses quote price impact as proxy for pool depth.
  */
 import type { VestigeQuote } from './fryfarmAdapter';
+import { getMinLpUsd } from './guaranteeConfig';
 
 export interface LiquidityCheck {
   eligible: boolean;
@@ -34,6 +35,19 @@ export async function checkRouteLiquidity(
   }
 
   const estimatedLiquidity = amountInUsd / priceImpact;
+  
+  // Check minimum estimated liquidity threshold
+  const minLpUsd = getMinLpUsd();
+  if (estimatedLiquidity < minLpUsd) {
+    return {
+      eligible: false,
+      routeLiquidityUsd: estimatedLiquidity,
+      liquiditySource: 'vestige_price_impact',
+      liquidityTimestamp: now,
+      reason: `Estimated route liquidity (${estimatedLiquidity.toFixed(2)} USD) below minimum threshold (${minLpUsd} USD)`,
+    };
+  }
+
   return {
     eligible: true,
     routeLiquidityUsd: estimatedLiquidity,

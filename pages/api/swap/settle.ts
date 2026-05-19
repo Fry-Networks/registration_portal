@@ -13,7 +13,7 @@ import {
   getDailyGlobalTopup,
   getUtcDayBounds,
 } from '../../../lib/swap/guaranteeStore';
-import { executeSettlement } from '../../../lib/swap/guaranteeSettlement';
+import { writeCertificate } from '../../../lib/swap/guaranteeSettlement';
 import {
   isGuaranteeEnabled,
   isGuaranteePaused,
@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (outcome.verificationStatus !== 'verified' && outcome.verificationStatus !== 'discrepancy') {
       return res.status(200).json({ success: true, settled: false, reason: 'not_verified' });
     }
-    if (outcome.settlementStatus === 'settled') {
+    if (outcome.settlementStatus === 'settled' || outcome.settlementStatus === 'claimable' || outcome.settlementStatus === 'claimed') {
       return res.status(200).json({ success: true, settled: false, reason: 'already_settled' });
     }
 
@@ -98,10 +98,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ success: true, settled: false, reason: 'global_daily_cap' });
     }
 
-    // Execute on-chain settlement
+    // Write settlement certificate to vault — user claims later
     await updateOutcomeSettlement(quoteId, { settlementStatus: 'pending' });
 
-    const result = await executeSettlement({
+    const result = await writeCertificate({
       quoteId,
       walletAddress: commitment.userAddress,
       targetAssetId: commitment.outputAsset,
@@ -111,7 +111,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     await updateOutcomeSettlement(quoteId, {
-      settlementStatus: 'settled',
+      settlementStatus: 'claimable',
+      settlementMethod: 'certificate',
+      certificateOrderHash: result.orderHash,
       settlementTxId: result.txId,
       settlementAmount: shortfall,
       settlementTimestamp: Date.now(),
@@ -120,7 +122,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       success: true,
       settled: true,
-      settlementTxId: result.txId,
+      method: 'certificate',
+      claimable: true,
+      certificateTxId: result.txId,
       shortfallAmount: shortfall,
       confirmedRound: result.confirmedRound,
     });
