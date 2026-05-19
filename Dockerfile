@@ -7,7 +7,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
-RUN npm ci
+COPY .npmrc* ./
+RUN npm install
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
@@ -15,6 +16,7 @@ RUN npm install -g npm@11.8.0
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
+COPY .npmrc* ./
 
 # Build-time placeholders (no secrets)
 ARG MONGO_URI_PLACEHOLDER="mongodb://placeholder.invalid:27017/dummy"
@@ -46,6 +48,7 @@ RUN apt-get update \
 COPY --from=op /usr/local/bin/op /usr/local/bin/op
 COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
+COPY .npmrc* ./
 COPY . .
 COPY op-entrypoint.sh /usr/local/bin/op-entrypoint.sh
 RUN chmod 755 /usr/local/bin/op-entrypoint.sh \
