@@ -221,7 +221,8 @@ export default async function handler(
         accruing: totals.accruing,
         nextUnlockAt,
         firstRewardAt,
-        legacyFryClaimedSnapshot
+        legacyFryClaimedSnapshot,
+        serverTime: Date.now()
       }
     });
   } catch (error) {

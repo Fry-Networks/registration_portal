@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import crypto from 'crypto';
-import axios from 'axios';
 import algosdk from 'algosdk';
 import { recordGuaranteeEvent, computeOrderHash, type QuoteCommitment } from '../../../lib/swap/guaranteeStore';
 import {
@@ -14,7 +13,17 @@ import {
 } from '../../../lib/swap/guaranteeConfig';
 import { isInstrumentationEnabled } from '../../../lib/swap/guaranteeInstrumentation';
 
-const VESTIGE_PROXY_URL = 'http://192.168.12.84/api/swap/vestige/transactions';
+import { getRankedQuotes, prepareAggregatorSwap } from '../../../lib/swap/aggregator';
+import type { AggregatorQuote } from '../../../lib/swap/aggregator';
+
+const SwapErrorType = {
+  QUOTE_FAILED: 'QUOTE_FAILED',
+  TX_PREP_FAILED: 'TX_PREP_FAILED',
+  SIGNING_FAILED: 'SIGNING_FAILED',
+  SUBMISSION_FAILED: 'SUBMISSION_FAILED',
+  VALIDATION_FAILED: 'VALIDATION_FAILED',
+} as const;
+
 const REQUEST_TIMEOUT = 15000;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,42 +32,91 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { quote, sender, slippage } = req.body;
+  const { quote: clientQuote, sender, slippage } = req.body;
 
   if (!sender || typeof sender !== 'string') {
-    return res.status(400).json({ success: false, error: 'sender address required' });
+    return res.status(400).json({
+      success: false,
+      errorType: SwapErrorType.VALIDATION_FAILED,
+      message: 'sender address required',
+    });
   }
 
   if (!algosdk.isValidAddress(sender)) {
-    return res.status(400).json({ success: false, error: 'Invalid Algorand address' });
+    return res.status(400).json({
+      success: false,
+      errorType: SwapErrorType.VALIDATION_FAILED,
+      message: 'Invalid Algorand address',
+    });
   }
 
-  if (!quote || typeof quote !== 'object') {
-    return res.status(400).json({ success: false, error: 'quote object required' });
+  if (!clientQuote || typeof clientQuote !== 'object') {
+    return res.status(400).json({
+      success: false,
+      errorType: SwapErrorType.VALIDATION_FAILED,
+      message: 'quote object required',
+    });
   }
 
-  const hasRoute = quote.combo || quote.single;
-  if (!hasRoute) {
-    return res.status(400).json({ success: false, error: 'quote missing route (combo or single)' });
+  if (clientQuote.aggregator === 'vestige') {
+    const hasRoute = clientQuote.rawQuote?.combo || clientQuote.rawQuote?.single;
+    if (!hasRoute) {
+      return res.status(400).json({
+        success: false,
+        errorType: SwapErrorType.VALIDATION_FAILED,
+        message: 'quote missing route (combo or single)',
+      });
+    }
   }
 
   try {
-    const { data } = await axios.post(VESTIGE_PROXY_URL, quote, {
-      params: { sender, slippage },
-      timeout: REQUEST_TIMEOUT,
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!Array.isArray(data) || data.length === 0) {
-      return res.status(502).json({ success: false, error: 'Vestige returned empty transaction group' });
+    let rankedQuotes: AggregatorQuote[];
+    try {
+      rankedQuotes = await getRankedQuotes(
+        Number(clientQuote.asset_in) || 0,
+        Number(clientQuote.asset_out) || 0,
+        Number(clientQuote.amount) || 0
+      );
+    } catch (quoteErr: any) {
+      return res.status(502).json({
+        success: false,
+        errorType: SwapErrorType.QUOTE_FAILED,
+        message: quoteErr.message || 'No aggregator returned a valid quote',
+      });
     }
 
-    const transactions = data.map((entry: any) =>
-      typeof entry === 'string' ? entry : entry?.txn
-    ).filter((t: any): t is string => typeof t === 'string');
+    if (rankedQuotes.length === 0) {
+      return res.status(502).json({
+        success: false,
+        errorType: SwapErrorType.QUOTE_FAILED,
+        message: 'No aggregator returned a valid quote',
+      });
+    }
+
+    const bestQuote = rankedQuotes[0];
+
+    let transactions: string[];
+    let usedAggregator: string;
+    try {
+      const prep = await prepareAggregatorSwap(rankedQuotes, sender, slippage);
+      transactions = prep.transactions;
+      usedAggregator = prep.usedAggregator;
+    } catch (prepErr: any) {
+      const isTxPrep = prepErr.message?.includes('TX_PREP_FAILED');
+      return res.status(502).json({
+        success: false,
+        errorType: isTxPrep ? SwapErrorType.TX_PREP_FAILED : SwapErrorType.QUOTE_FAILED,
+        message: prepErr.message || 'Swap preparation failed',
+        ...(isTxPrep && { aggregatorErrors: prepErr.aggregatorErrors }),
+      });
+    }
 
     if (transactions.length === 0) {
-      return res.status(502).json({ success: false, error: 'No valid transactions returned from Vestige' });
+      return res.status(502).json({
+        success: false,
+        errorType: SwapErrorType.TX_PREP_FAILED,
+        message: 'No valid transactions returned from aggregator',
+      });
     }
 
     const shouldRecord = isInstrumentationEnabled() || (isGuaranteeEnabled() && !isGuaranteePaused());
@@ -68,10 +126,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (shouldRecord) {
       quoteId = crypto.randomUUID();
       const now = Date.now();
-      const rawAmountOut = Number(quote.amount_out) || 0;
+      const rawAmountOut = Number(bestQuote.amount_out) || 0;
 
-      const fromId = Number(quote.asset_in) || 0;
-      const toId = Number(quote.asset_out) || 0;
+      const fromId = Number(bestQuote.asset_in) || 0;
+      const toId = Number(bestQuote.asset_out) || 0;
       const guaranteeEligible = isGuaranteeEnabled() && !isGuaranteePaused()
         && getApprovedSources().includes(fromId)
         && getAllowedTargetAssets().includes(toId);
@@ -92,18 +150,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         swapSubmissionDeadline: now + getSwapDeadlineSec() * 1000,
         settlementDeadline,
         inputAsset: fromId,
-        inputAmount: Number(quote.amount) || 0,
+        inputAmount: Number(bestQuote.amount) || 0,
         outputAsset: toId,
         rawAmountOut,
         guaranteedAmount: rawAmountOut,
         estimatedAmount: rawAmountOut,
         slippagePct,
-        vestigeMode: String(quote.mode || 'sef'),
+        vestigeMode: String(bestQuote.mode || 'sef'),
         userAddress: sender,
-        priceImpact: Number(quote.price_impact) || 0,
-        networkFee: Number(quote.network_fee) || 0,
-        assetInPrice: Number(quote.asset_in_price) || 0,
-        assetOutPrice: Number(quote.asset_out_price) || 0,
+        priceImpact: Number(bestQuote.price_impact) || 0,
+        networkFee: Number(bestQuote.network_fee) || 0,
+        assetInPrice: Number(bestQuote.asset_in_price) || 0,
+        assetOutPrice: Number(bestQuote.asset_out_price) || 0,
         guaranteeEligible,
         routeLiquidityUsd: 0,
         liquiditySource: 'deferred_to_quote',
@@ -135,13 +193,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       success: true,
       transactions,
+      usedAggregator,
       ...(quoteId !== undefined && { quoteId }),
       ...(guaranteeInfo !== undefined && { guarantee: guaranteeInfo }),
     });
   } catch (err: any) {
-    const status = err.response?.status || 502;
-    const message = err.response?.data?.message || err.response?.data?.error || err.message || 'Swap preparation failed';
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.message || err.response?.data?.error || err.message || 'Swap failed';
     console.error('[swap/execute]', { status, message, body: req.body });
-    return res.status(status).json({ success: false, error: message });
+    return res.status(status).json({
+      success: false,
+      errorType: SwapErrorType.SUBMISSION_FAILED,
+      message,
+    });
   }
 }

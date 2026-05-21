@@ -248,7 +248,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       nextUnlockAt: nextUnlockAt.toISOString(),
       nextClaimableAt: nextClaimableAt ? nextClaimableAt.toISOString() : null,
       pendingWindowLabel: nextClaimableRange,
-      legacyFryClaimedSnapshot: round2(legacyFryClaimedSnapshot)
+      legacyFryClaimedSnapshot: round2(legacyFryClaimedSnapshot),
+      serverTime: Date.now()
     });
   } catch (error) {
     handleApiError(res, '/api/rewards/get-asset-totals', error, {

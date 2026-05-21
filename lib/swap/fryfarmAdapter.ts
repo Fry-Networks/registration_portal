@@ -1,4 +1,4 @@
-import { VESTIGE_QUOTE_URL, DENOMINATING_ASSET_ID } from './constants';
+import { VESTIGE_QUOTE_URL, FOLKS_QUOTE_URL, DENOMINATING_ASSET_ID } from './constants';
 
 export interface VestigeSwapTransaction {
   provider: string;
@@ -69,4 +69,25 @@ export async function getVestigeQuote(
     throw new Error('Invalid Vestige quote response');
   }
   return data as VestigeQuote;
+}
+
+
+export async function getFolksQuote(fromASA: number, toASA: number, amount: number): Promise<any> {
+  const url = new URL(FOLKS_QUOTE_URL);
+  url.searchParams.set('from_asa', String(fromASA));
+  url.searchParams.set('to_asa', String(toASA));
+  url.searchParams.set('amount', String(amount));
+  url.searchParams.set('mode', 'sef');
+  url.searchParams.set('denominating_asset_id', String(DENOMINATING_ASSET_ID));
+
+  const res = await fetch(url.toString(), { cache: 'no-store' });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Folks quote failed: ${res.status} ${res.statusText} — ${text}`);
+  }
+  const data = await res.json();
+  if (!data.success || !data.result) {
+    throw new Error(data.message || 'Invalid Folks quote response');
+  }
+  return data;
 }

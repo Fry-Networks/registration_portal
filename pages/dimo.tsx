@@ -7,6 +7,7 @@ import { useTheme } from 'next-themes';
 import { getClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import dynamic from 'next/dynamic';
+import { getServerTimestamp } from "../lib/serverTime";
 import { GetServerSideProps } from 'next';
 import { getConfigFlag } from '../lib/config';
 import HeroBanner from '../components/HeroBanner';
@@ -34,7 +35,7 @@ type SubscriptionView = {
 const fetchWithSignature = async (endpoint: string, method: 'GET' | 'POST', payload: any = {}) => {
   // Frontend helper to reuse the existing HMAC signature + client token security stack.
   const token = await getClientToken();
-  const timestamp = Math.floor(Date.now() / 1000);
+  const timestamp = getServerTimestamp();
   const signature = await generateRequestSignatureAsync(method, endpoint, payload, timestamp);
 
   const headers: HeadersInit = {
