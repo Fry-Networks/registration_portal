@@ -3,6 +3,7 @@ import { useWallet } from '@txnlab/use-wallet-react';
 import type { WalletSigner } from './signing';
 import { signTransactionsWithWallet, submitSignedTransactions } from './signing';
 import { runWithWalletRequest } from './requestCoordinator.client';
+import type { SupportedNetwork } from './config';
 
 type SignOpts = Record<string, unknown>;
 
@@ -37,7 +38,7 @@ export const useWalletActions = (): WalletActionContext => {
 
   const signAndSubmit = async (encodedTransactions: Uint8Array[], opts?: SignOpts) => {
     const signed = await signOnly(encodedTransactions, opts);
-    return submitSignedTransactions(signed);
+    return submitSignedTransactions(signed, { network: opts?.network as SupportedNetwork });
   };
 
   return {

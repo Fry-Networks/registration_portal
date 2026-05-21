@@ -88,6 +88,7 @@ export const FIELD_REGEX: Record<string, RegExp> = {
   station: STATION_ID_REGEX,
   rtsp_url: RTSP_URL_REGEX,
   mac_address: MAC_ADDRESS_REGEX,
+  device_mac: MAC_ADDRESS_REGEX,
   gmcmap_id: GMCMAP_ID_REGEX,
 
   // Device Info / Wallet / Map
@@ -113,6 +114,7 @@ export const FIELD_HINT: Record<string, string> = {
   api_key: 'At least 16 URL-safe characters',
   rtsp_url: 'Example: rtsp://user:pass@203.0.113.10:554/stream — use the device\'s public IP (not a private LAN IP) and ensure the port is forwarded to that device. Include protocol (rtsp:// or rtsps://), host, port and path.',
   mac_address: 'Example: AA:BB:CC:DD:EE:FF',
+  device_mac: 'Example: AA:BB:CC:DD:EE:FF',
   gmcmap_id: '3–9 digits',
   email: 'example@domain.tld',
   firstName: 'Only letters, accents, hyphen, apostrophe, dot',
@@ -248,6 +250,8 @@ export const FIELD_LABELS: Record<string, string> = {
   sensorId: 'Sensor ID',
   readKey: 'Read Key',
   IP: 'Public IP Address',
+  email: 'Email',
+  device_mac: 'Device MAC',
 };
 
 export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_types?: string[] }[]> = {
@@ -271,18 +275,29 @@ export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_typ
     { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key']}
   ],
   weather: [
-    { id: 'ambient', name: 'Ambient', sub_types: ['api_key'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] },
+    { id: 'ambient', name: 'Ambient', sub_types: ['api_key', 'device_mac'] },
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key', 'device_mac'] },
+    { id: 'misol', name: 'Misol', sub_types: ['app_key', 'api_key', 'device_mac'] },
+    { id: 'froggit', name: 'Froggit', sub_types: ['app_key', 'api_key', 'device_mac'] },
     { id: 'weather-xm', name: 'Weather-XM', sub_types: ['username', 'password'] },
     { id: 'tempest', name: 'Tempest', sub_types: ['station', 'token'] },
-    { id: 'lacrosse', name: 'LaCrosse', sub_types: ['api_key'] },
+    { id: 'lacrosse', name: 'LaCrosse', sub_types: ['email', 'password'] },
     { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
   ],
   water: [
     { id: 'iopool', name: 'Iopool', sub_types: ['api_key'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] }
+    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key', 'device_mac'] },
+    { id: 'ambient', name: 'Ambient', sub_types: ['api_key', 'device_mac'] },
+    { id: 'misol', name: 'Misol', sub_types: ['app_key', 'api_key', 'device_mac'] },
+    { id: 'froggit', name: 'Froggit', sub_types: ['app_key', 'api_key', 'device_mac'] }
   ],
-  camera: [{ id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] }],
+  camera: [
+    { id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] },
+    { id: 'tapo-cam', name: 'TP-Link Tapo', sub_types: ['rtsp_url'] },
+    { id: 'ring', name: 'Ring', sub_types: ['email', 'password'] },
+    { id: 'nest', name: 'Google Nest', sub_types: ['email', 'password'] },
+    { id: 'arlo', name: 'Arlo', sub_types: ['email', 'password'] }
+  ],
   hardware: [{ id: 'hardware', name: 'MAC Address', sub_types: ['mac_address'] }],
   node: [{ id: 'node', name: 'MAC Address', sub_types: ['mac_address'] }],
   aem: [{ id: 'aem', name: 'MAC Address', sub_types: ['mac_address'] }],

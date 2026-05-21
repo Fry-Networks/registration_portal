@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions, MySession } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { MongoServerError } from 'mongodb';
+import { upsertPocHardware } from '../../../lib/poc-hardware';
 import { describeMacIssue, validateMacAddress } from '../../../lib/validators/macAddressValidator';
 import { loggers } from '../../../lib/logger';
 import {
@@ -233,6 +234,10 @@ export default async function handler(
           { upsert: true }
         );
 
+
+        // Phase D: Register MAC in PoC.hardware
+        await upsertPocHardware(miner_key, { mac: normalizedMac });
+
         res.status(200).json({ message: 'Hardware credentials updated.' });
         return;
       }
@@ -243,6 +248,10 @@ export default async function handler(
         miner_mac: normalizedMac,
         address: session.user.address
       });
+
+
+      // Phase D: Register MAC in PoC.hardware
+      await upsertPocHardware(miner_key, { mac: normalizedMac });
 
       res.status(200).json({ message: 'Hardware credentials saved.' });
       return;

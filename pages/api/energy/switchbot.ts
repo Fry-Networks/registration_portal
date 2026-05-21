@@ -12,6 +12,7 @@ import {
   handleApiError,
 } from '../../../lib/api-errors';
 import type { ApiErrorResponse } from '../../../lib/api-errors';
+import { upsertPocHardware } from '../../../lib/poc-hardware';
 import {
   MIN_SECRET_LENGTH,
   MIN_TOKEN_LENGTH,
@@ -263,6 +264,9 @@ export default async function handler(
         $currentDate: { updated_at: true }
       }
     );
+
+    // Phase D: Register tool in PoC.hardware
+    await upsertPocHardware(minerKey, { tool: 'switchbot' });
 
     res.status(200).json({
       message: 'SwitchBot credentials validated and saved.',

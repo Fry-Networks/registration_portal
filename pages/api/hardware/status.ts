@@ -106,8 +106,9 @@ export default async function handler(
       const credentials = (doc as Record<string, any>)?.credentials ?? {};
       const rawMac: unknown = credentials?.mac_address ?? credentials?.macAddress ?? credentials?.mac;
       const macValue = typeof rawMac === 'string' ? rawMac : undefined;
-
-      if (!macValue) {
+      const fallbackMac: unknown = (doc as Record<string, any>)?.miner_mac;
+      const effectiveMac = macValue || (typeof fallbackMac === 'string' ? fallbackMac.trim() : undefined);
+      if (!effectiveMac) {
         response[key] = {
           linked: true,
           valid: false,
@@ -116,12 +117,12 @@ export default async function handler(
         continue;
       }
 
-      const validation = validateMacAddress(macValue);
+      const validation = validateMacAddress(effectiveMac);
       if (!validation.valid) {
         response[key] = {
           linked: true,
           valid: false,
-          miner_mac: macValue,
+          miner_mac: effectiveMac,
           reason: 'invalid_mac',
           detail: validation.reason,
         };
@@ -131,7 +132,7 @@ export default async function handler(
       response[key] = {
         linked: true,
         valid: true,
-        miner_mac: validation.normalized ?? macValue,
+        miner_mac: validation.normalized ?? effectiveMac,
       };
     }
 

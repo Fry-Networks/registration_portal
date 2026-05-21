@@ -286,12 +286,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             : BigInt(0);
 
           if (availableMicro < entry.totalMicro) {
+            const availableDisplay = Number(availableMicro) / Math.pow(10, entry.decimals);
+            const requiredDisplay = Number(entry.totalMicro) / Math.pow(10, entry.decimals);
+            const decimalsFixed = Math.min(6, entry.decimals);
             throw {
               status: 503,
               response: createApiError(
                 ErrorCodes.REWARD_VAULT_DEPLETED,
-                'Rewards vault needs to be refilled for this asset.',
-                'Admins have already been alerted. Please try again shortly.',
+                `Rewards vault for asset ${entry.asset_id} is depleted.`,
+                `Shortage: ${availableDisplay.toFixed(decimalsFixed)} available, ${requiredDisplay.toFixed(decimalsFixed)} required. Claims will resume once the vault is refilled.`,
                 {
                   assetId: entry.asset_id,
                   availableMicro: availableMicro.toString(),

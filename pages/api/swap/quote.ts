@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import algosdk from 'algosdk';
-import { getVestigeQuote } from '../../../lib/swap/fryfarmAdapter';
+import { getBestQuote } from '../../../lib/swap/aggregator';
+import type { AggregatorQuote } from '../../../lib/swap/aggregator';
 import { isSourceAssetAllowed, isTargetTokenSupported } from '../../../lib/swap/allowlist';
 import { checkRouteLiquidity } from '../../../lib/swap/guaranteeLiquidity';
 import {
@@ -47,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const quote = await getVestigeQuote(fromId, toId, amt);
+    const quote = await getBestQuote(fromId, toId, amt);
 
     // Guarantee eligibility assessment
     let guarantee: Record<string, unknown> | null = null;
@@ -136,7 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         quoteExpiresAt: now + getQuoteTtlSec() * 1000,
         swapSubmissionDeadline: now + getSwapDeadlineSec() * 1000,
         settlementDeadline: now + getSettlementDeadlineSec() * 1000,
-        assetOutPrice: quote.asset_out_price,
+        assetOutPrice: Number(quote.asset_out_price) || 0,
         reason: eligible ? null : reasons.join('; '),
       };
     }

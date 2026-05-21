@@ -14,12 +14,13 @@ import {
 import { useToastContext } from '../../hooks/ToastContext';
 import { ASA_IDS, SOURCE_TOKENS, TARGET_TOKENS, QUOTE_TTL_MS, MAX_PRICE_IMPACT, DEFAULT_SLIPPAGE_BPS } from '../../lib/swap/constants';
 import { getTokenBySymbol } from '../../lib/swap/allowlist';
-import type { VestigeQuote } from '../../lib/swap/fryfarmAdapter';
+import type { AggregatorQuote } from '../../lib/swap/aggregator';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { waitForFinalConfirmation } from '../../lib/wallet/transactionConfirmation';
 import { getDefaultNetwork } from '../../lib/wallet/config';
 import { prepareSwapTransactions, executeSwap, checkAssetOptIn, buildAssetOptInTransaction } from '../../lib/swap/execute';
 import { getAssetBalance, reportSwapOutcome } from '../../lib/swap/reportOutcome';
+import Link from 'next/link';
 
 interface GuaranteeInfo {
   eligible: boolean;
@@ -56,7 +57,7 @@ export default function BuyTokenPage() {
 
   const [sourceId, setSourceId] = useState<number>(ASA_IDS.ALGO);
   const [amountStr, setAmountStr] = useState('1');
-  const [quote, setQuote] = useState<VestigeQuote | null>(null);
+  const [quote, setQuote] = useState<AggregatorQuote | null>(null);
   const [guarantee, setGuarantee] = useState<GuaranteeInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -78,7 +79,7 @@ export default function BuyTokenPage() {
     return Math.floor(val * Math.pow(10, sourceToken.decimals));
   }, [amountStr, sourceToken]);
 
-  const fetchQuote = useCallback(async (): Promise<VestigeQuote | null> => {
+  const fetchQuote = useCallback(async (): Promise<AggregatorQuote | null> => {
     if (!targetToken || amountBase <= 0) return null;
     setLoading(true);
     setQuoteError(null);
@@ -95,7 +96,7 @@ export default function BuyTokenPage() {
       setGuarantee(data.guarantee || null);
       setLastQuoteAt(Date.now());
       setIsStale(false);
-      return data.quote as VestigeQuote;
+      return data.quote as AggregatorQuote;
     } catch (err: any) {
       setQuoteError(err.message || 'Quote failed');
       toastError({ heading: 'Quote Error', message: err.message || 'Unable to fetch quote' });
@@ -195,7 +196,7 @@ export default function BuyTokenPage() {
 
   const priceImpact = quote?.price_impact ?? 0;
   const priceImpactHigh = priceImpact > MAX_PRICE_IMPACT;
-  const quoteValid = !!quote && !isStale && !priceImpactHigh && !quoteError;
+  const quoteValid = !!quote && !isStale && !quoteError;
 
   const handleExecuteSwap = useCallback(async () => {
     if (!quoteValid || !activeAccount) {
@@ -318,7 +319,34 @@ export default function BuyTokenPage() {
       }
     } catch (err: any) {
       console.error('[handleExecuteSwap]', err);
-      toastError({ heading: 'Swap failed', message: err.message || 'Unexpected error during swap.' });
+      let message = err.message || 'Unexpected error during swap.';
+      if (err.errorType === 'QUOTE_FAILED') {
+        message = 'No liquidity available for this pair right now. Try again in a few minutes.';
+      } else if (err.errorType === 'TX_PREP_FAILED') {
+        message = 'Swap preparation failed across all venues. Try again shortly.';
+      } else if (err.errorType === 'SIGNING_FAILED') {
+        message = 'Transaction signing was cancelled or failed. Please try again.';
+      } else if (err.errorType === 'SUBMISSION_FAILED') {
+        message = 'Transaction submitted but may have failed on-chain. Check your wallet.';
+      } else if (err.errorType === 'VALIDATION_FAILED') {
+        message = err.message || 'Validation failed.';
+      }
+      toastError({ heading: 'Swap failed', message });
+
+      fetch('/api/swap/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          errorType: err.errorType || 'UNKNOWN',
+          message: err.message,
+          aggregatorErrors: err.aggregatorErrors,
+          fromASA: sourceId,
+          toASA: targetToken.id,
+          amount: amountBase,
+          wallet: activeAccount?.address,
+          timestamp: new Date().toISOString(),
+        }),
+      }).catch(() => {});
     } finally {
       setIsExecuting(false);
       setExecutionStep(null);
@@ -354,6 +382,27 @@ export default function BuyTokenPage() {
               {activeAccount.address.slice(0, 8)}...{activeAccount.address.slice(-8)}
             </p>
           )}
+        </div>
+
+        {/* Token selector tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { slug: 'fry', label: 'FRY' },
+            { slug: 'fnode', label: 'fNODE' },
+            { slug: 'fvpn', label: 'fVPN' },
+          ].map((t) => (
+            <Link
+              key={t.slug}
+              href={`/buy/${t.slug}`}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                targetSymbol === t.label.toUpperCase()
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
         </div>
 
         {claimable.length > 0 && (
@@ -495,7 +544,7 @@ export default function BuyTokenPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs opacity-70">Venue</span>
-                    <span className="text-sm opacity-90">Vestige (SEF)</span>
+                    <span className="text-sm opacity-90">{quote.aggregator === 'folks' ? 'Folks Router' : 'Vestige (SEF)'}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs opacity-70">Slippage tolerance</span>
