@@ -252,6 +252,10 @@ export const FIELD_LABELS: Record<string, string> = {
   IP: 'Public IP Address',
   email: 'Email',
   device_mac: 'Device MAC',
+  client_id: 'Client ID',
+  client_secret: 'Client Secret',
+  sku: 'Model / SKU',
+  pool_id: 'Pool ID',
 };
 
 export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_types?: string[] }[]> = {
@@ -259,12 +263,12 @@ export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_typ
     { id: 'ambient', name: 'Ambient', sub_types: ['api_key'] },
     { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] },
     { id: 'pebble', name: 'Pebble', sub_types: ['imei'] },
-    { id: 'airthings', name: 'Airthings', sub_types: ['token', 'deviceId'] },
+    { id: 'airthings', name: 'Airthings', sub_types: ['client_id', 'client_secret'] },
     { id: 'purpleair', name: 'PurpleAir', sub_types: ['sensorId', 'readKey'] },
     { id: 'awair', name: 'Awair', sub_types: ['token', 'deviceId'] },
-    { id: 'kaiterra', name: 'Kaiterra', sub_types: ['token', 'deviceId'] },
+    { id: 'kaiterra', name: 'Kaiterra', sub_types: ['api_key', 'deviceId'] },
     { id: 'atmotube', name: 'Atmotube', sub_types: ['token', 'deviceId'] },
-    { id: 'govee', name: 'Govee', sub_types: ['api_key', 'deviceId'] },
+    { id: 'govee', name: 'Govee', sub_types: ['api_key', 'deviceId', 'sku'] },
     { id: 'nrf', name: 'NRF', sub_types: ['token', 'deviceId'] },
     { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
   ],
@@ -285,7 +289,7 @@ export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_typ
     { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
   ],
   water: [
-    { id: 'iopool', name: 'Iopool', sub_types: ['api_key'] },
+    { id: 'iopool', name: 'Iopool', sub_types: ['api_key', 'pool_id'] },
     { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key', 'device_mac'] },
     { id: 'ambient', name: 'Ambient', sub_types: ['api_key', 'device_mac'] },
     { id: 'misol', name: 'Misol', sub_types: ['app_key', 'api_key', 'device_mac'] },
