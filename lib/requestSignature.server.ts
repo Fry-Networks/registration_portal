@@ -18,7 +18,7 @@ import { isAdminWallet } from './adminCheck';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
 const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
-const MAX_AGE_SECONDS = 300; // 5 minutes
+const MAX_AGE_SECONDS = 900; // 15 minutes — increased from 5 min to tolerate clock skew while clients adopt serverTime
 
 type RequestWithSessionWallet = NextApiRequest & {
   _sessionWalletAddress?: string;

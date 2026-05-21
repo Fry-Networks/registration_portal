@@ -407,7 +407,7 @@ export default function ClaimModal({
               `Your reward wallet must opt into ${previewResult?.assetId ?? 'this asset'} before claiming.`
             : code === 'REWARD_VAULT_DEPLETED'
             ? previewResult?.action ||
-              'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
+              'Rewards vault is depleted. Claims will resume once the vault is refilled.'
             : previewResult?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -462,7 +462,7 @@ export default function ClaimModal({
               `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before claiming.`
             : code === 'REWARD_VAULT_DEPLETED'
             ? result?.action ||
-              'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
+              'Rewards vault is depleted. Claims will resume once the vault is refilled.'
             : result?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
@@ -539,7 +539,7 @@ export default function ClaimModal({
             : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
             : code === 'REWARD_VAULT_DEPLETED'
-            ? result?.action || 'Rewards vault needs to be refilled for this asset, Admins have already been alerted. Please try again shortly.'
+            ? result?.action || 'Rewards vault is depleted. Claims will resume once the vault is refilled.'
             : result?.message || 'Unknown error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');

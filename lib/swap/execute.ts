@@ -13,6 +13,7 @@ export interface WalletActionContext {
 export interface PrepareSwapResult {
   transactions: Uint8Array[];
   quoteId?: string;
+  usedAggregator?: string;
 }
 
 function base64ToUint8Array(b64: string): Uint8Array {
@@ -59,10 +60,16 @@ export const prepareSwapTransactions = async (
     body: JSON.stringify({ quote, sender, slippage }),
   });
   const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Swap preparation failed');
+  if (!data.success) {
+    const err = new Error(data.error || 'Swap preparation failed');
+    (err as any).errorType = data.errorType;
+    (err as any).aggregatorErrors = data.aggregatorErrors;
+    throw err;
+  }
   return {
     transactions: data.transactions.map((b64: string) => base64ToUint8Array(b64)),
     quoteId: data.quoteId,
+    usedAggregator: data.usedAggregator,
   };
 };
 

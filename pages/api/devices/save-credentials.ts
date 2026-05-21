@@ -10,6 +10,7 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import { validateMacAddress, describeMacIssue } from '../../../lib/validators/macAddressValidator';
 
 const CREDS_DB_NAME = process.env.MONGO_CREDS_DB ?? 'creds';
 
@@ -45,6 +46,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Use standardized collection determination from utils.ts
   const collectionName = collectionFor({ miner_key, portalType: portal });
+  // Explicit hardware-flow MAC validation
+  const hardwareApiTypes = ['hardware', 'node', 'aem'];
+  if (hardwareApiTypes.includes(String(api_type).toLowerCase())) {
+    const macResult = validateMacAddress(credentials.mac_address);
+    if (!macResult.valid) {
+      return res.status(400).json(
+        createApiError(
+          ErrorCodes.INVALID_INPUT,
+          'Invalid or missing MAC address',
+          describeMacIssue(macResult.reason)
+        )
+      );
+    }
+    credentials.mac_address = macResult.normalized;
+  }
+
 
   try {
     const client = await clientPromise;
@@ -95,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updateSet.api_type = String(api_type).toLowerCase();
     }
 
+    if (credentials.mac_address) { updateSet.miner_mac = credentials.mac_address; }
     const update = { $set: updateSet };
 
     await collection.updateOne(filter, update, { upsert: true });

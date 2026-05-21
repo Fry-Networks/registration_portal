@@ -33,6 +33,7 @@ import { REWARD_STATUS_DESCRIPTIONS, getAssetDisplay } from '../lib/utils';
 import { isLegacyVerificationStake } from '../lib/legacyStake';
 import { useToastContext } from '../hooks/ToastContext';
 import { secureFetch } from '../lib/api/secureFetch';
+import { getServerTime, getServerTimestamp, setServerTime } from "../lib/serverTime";
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
 // removed asset filter; keep utils unused import out
 
@@ -206,7 +207,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
     return true;
   }, [minerKey]);
   const { data: summary, mutate: mutateSummary } = useRewardSummary(minerKey);
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => getServerTime());
   const { ready: fingerprintReady, refresh: refreshFingerprint } = useFingerprintReady();
   const isLoadingAllRef = useRef(false);
   const [isLoadingAll, setIsLoadingAll] = useState(false);
@@ -240,7 +241,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
   }, [totalPages]);
   
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    const interval = setInterval(() => setNow(getServerTime()), 60_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -325,7 +326,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         const response = await fetchWithFingerprintRetry(
           async () => {
             const body = { miner_key: minerKey, page: targetPage };
-            const timestamp = Math.floor(Date.now() / 1000);
+            const timestamp = getServerTimestamp();
             const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', body, timestamp);
             const clientToken = await getClientToken();
 
@@ -361,6 +362,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
         }
 
         const result = await response.json();
+        if (result.serverTime) setServerTime(result.serverTime);
         const items: RewardView[] = Array.isArray(result.items) ? result.items : [];
         return {
           items,
@@ -675,7 +677,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
           devModeClient ||
           legacyStakeUnlocked ||
           assetMismatch ||
-          Date.now() >= unlockAt.getTime();
+          getServerTime() >= unlockAt.getTime();
         setEntry('verification', {
           amount,
           assetId,
@@ -824,7 +826,7 @@ const [hasLegacyVerificationStake, setHasLegacyVerificationStake] = useState(fal
 
   // Matures soon count (<=3 days left) only for weekly pending
   const maturesSoon = useMemo(() => {
-    const now = Date.now();
+    const now = getServerTime();
     const threeDaysMs = 3 * 24 * 60 * 60 * 1000;
     return itemsWeekly.filter((w) => w.status === 'pending' && (new Date(w.etaDate).getTime() - now) <= threeDaysMs).length;
   }, [itemsWeekly]);
@@ -1293,7 +1295,7 @@ function StakeHistorySection({
   const formatTx = (txId: string) => (txId.length <= 12 ? txId : `${txId.slice(0, 6)}…${txId.slice(-4)}`);
 
   const formatCountdown = (target: Date) => {
-    const diffMs = target.getTime() - Date.now();
+    const diffMs = target.getTime() - getServerTime();
     if (diffMs <= 0) return 'unlocking now';
     const days = Math.floor(diffMs / dayMs);
     const hours = Math.floor((diffMs % dayMs) / (60 * 60 * 1000));

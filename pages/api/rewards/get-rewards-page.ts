@@ -221,7 +221,9 @@ export default async function handler(
       fiatValue: priceCache[it.asset_id]?.usd ? Number(it.amount || 0) * priceCache[it.asset_id].usd : undefined
     }));
 
-    res.status(200).json({ success: true, items: itemsWithFiat, totalPages, weeklyCount, dailyCount, totalCount: total });
+    res.status(200).json({ success: true, items: itemsWithFiat, totalPages, weeklyCount, dailyCount, totalCount: total,
+      serverTime: Date.now()
+    });
   } catch (error) {
     handleApiError(res, '/api/rewards/get-rewards-page', error, {
       response: createApiError(

@@ -15,7 +15,7 @@ import { useDevWallet } from '../hooks/UseDevWallet';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId, tFRY } from '../lib/utils';
-import { BellIcon, HomeIcon } from '@heroicons/react/outline';
+import { BellIcon, HomeIcon ,SwitchHorizontalIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
 import { RiBugLine } from '@remixicon/react';
@@ -69,6 +69,7 @@ export default function Navbar() {
   const [bugSubmitError, setBugSubmitError] = useState<string | null>(null);
   const [bugSuccessMessage, setBugSuccessMessage] = useState<string | null>(null);
   const [dimoEnabled, setDimoEnabled] = useState<boolean | null>(null);
+  const [showSwapMenu, setShowSwapMenu] = useState(false);
   const toast = useToastContext();
   const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
 
@@ -590,6 +591,47 @@ export default function Navbar() {
                       </div>
                     </Link>
                   )}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowSwapMenu(prev => !prev)}
+                      className={actionButtonClass}
+                      aria-label="Buy tokens"
+                      title="Buy tokens"
+                      aria-expanded={showSwapMenu}
+                    >
+                      <SwitchHorizontalIcon className="h-5 w-5" />
+                    </button>
+                    {showSwapMenu && (
+                      <>
+                        <div className="fixed inset-0 z-[230]" onClick={() => setShowSwapMenu(false)} />
+                        <div className={`absolute right-0 mt-2 w-40 rounded-xl border shadow-xl z-[240] py-1 ${
+                          isDark
+                            ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
+                            : 'border-red-200 bg-white shadow-red-200/60'
+                        }`}>
+                          {[
+                            { slug: 'fry', label: 'FRY' },
+                            { slug: 'fnode', label: 'fNODE' },
+                            { slug: 'fvpn', label: 'fVPN' },
+                          ].map((t) => (
+                            <Link
+                              key={t.slug}
+                              href={`/buy/${t.slug}`}
+                              className={`block px-4 py-2 text-sm transition-colors ${
+                                isDark
+                                  ? 'text-gray-200 hover:bg-red-900/40'
+                                  : 'text-gray-700 hover:bg-red-50'
+                              }`}
+                              onClick={() => setShowSwapMenu(false)}
+                            >
+                              Buy {t.label}
+                            </Link>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <Link
                     href="/devices"
                     className={actionButtonClass}
