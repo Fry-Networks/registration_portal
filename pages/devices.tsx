@@ -19,6 +19,7 @@ import clientPromise from '../lib/mongoclient';
 import { Device, FryConversion, FryToken, Product } from '../lib/types';
 import { getClientToken, refreshClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
+import { getServerTime, getServerTimestamp, setServerTime } from "../lib/serverTime";
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
 import Link from 'next/link';
@@ -37,6 +38,7 @@ import DeleteModal from '../components/modals/Delete';
 import { useToastContext } from '../hooks/ToastContext';
 import WithdrawAllModal from '../components/modals/WithdrawAll';
 import FryConversionModal from '../components/modals/FryConversion';
+import PostSnapshotConversionModal from '../components/modals/PostSnapshotConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import FloatingTotalsWidget from '../components/FloatingTotalsWidget';
 import { shouldForceLegacyUnverified, isLegacyVerificationStake } from '../lib/legacyStake';
@@ -57,6 +59,7 @@ import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
 import { useTheme } from 'next-themes';
+import VirtualActivationBanner, { PendingVirtualDevice } from '../components/VirtualActivationBanner';
 
 const logClientError = async (payload: Record<string, unknown>) => {
   try {
@@ -90,7 +93,8 @@ const minerType = {
     'AITCM',
     'AIWSCM'
   ],
-  energy: ['EM']
+  energy: ['EM'],
+  virtual: ['VRDN', 'VSDN', 'VSVN']
 };
 
 type MinerCategory = keyof typeof minerType;
@@ -511,7 +515,8 @@ const DevicesPage = ({
   products = [],
   tokenMetadata = {},
   rewardFallback = {},
-  statusFallback = {}
+  statusFallback = {},
+  pendingVirtualDevices = []
 }: {
   initialDevices: Device[];
   products: Product[];
@@ -526,6 +531,7 @@ const DevicesPage = ({
   >;
   rewardFallback?: Record<string, Summary>;
   statusFallback?: Record<string, { [key: string]: string } | undefined>;
+  pendingVirtualDevices?: PendingVirtualDevice[];
 }) => {
   const router = useRouter();
   const { resolvedTheme } = useTheme();
@@ -584,6 +590,7 @@ const DevicesPage = ({
   const [addr, setAddr] = useState(session?.user.address);
   const [showFry1Check, setShowFry1Check] = useState(false);
   const [showFryConversion, setShowFryConversion] = useState(false);
+  const [showPostSnapshotConversion, setShowPostSnapshotConversion] = useState(false);
   const [securityBlocked, setSecurityBlocked] = useState(false);
   const [securityMessage, setSecurityMessage] = useState<string | null>(null);
   const securityToastShown = useRef(false);
@@ -622,6 +629,11 @@ const DevicesPage = ({
 
   const handleConversion = async () => {
     setShowFry1Check(true);
+  };
+
+  const handlePostSnapshotConversion = () => {
+    setShowPostSnapshotConversion(true);
+    openModal('postSnapshotConversion');
   };
 
   const handleSecurityBlock = useCallback(
@@ -958,7 +970,7 @@ const DevicesPage = ({
     }
 
     const tick = () => {
-      const diff = Math.max(0, targetMs - Date.now());
+      const diff = Math.max(0, targetMs - getServerTime());
       const days = Math.floor(diff / (24 * 60 * 60 * 1000));
       const hours = Math.floor((diff % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
       const mins = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
@@ -1016,7 +1028,7 @@ const DevicesPage = ({
     const fetchTotals = async () => {
       try {
         const requestFactory = async () => {
-          const timestamp = Math.floor(Date.now() / 1000);
+          const timestamp = getServerTimestamp();
           const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-asset-totals', {}, timestamp);
           const clientToken = await getClientToken();
 
@@ -1093,6 +1105,7 @@ const DevicesPage = ({
           return;
         }
         const json = await res.json();
+        if (json.serverTime) setServerTime(json.serverTime);
         consecutiveFailures = 0;
         loggedFailure = false;
         // Diagnostic: capture raw totals for mobile mismatch investigation.
@@ -1502,6 +1515,13 @@ const DevicesPage = ({
           legacyFryClaimedSnapshot={totals.legacyFryClaimedSnapshot}
         />
       )}
+      {/* Phase 3: Virtual device activation banner */}
+      {pendingVirtualDevices.length > 0 && (
+        <VirtualActivationBanner
+          devices={pendingVirtualDevices}
+          sessionAddress={session?.user?.address || ''}
+        />
+      )}
       <StatsGrid
         devices={devices}
         minerDevices={minerDevices}
@@ -1532,6 +1552,13 @@ const DevicesPage = ({
             onClick={handleConversion}
             loading={isProcessing}
           />
+          <QuickActionCard
+            title="August 2025 FRY 1.0 Conversion"
+            description="Convert FRY 1.0 acquired after Dec 2024 snapshot into tFRY at 40:1 ratio with no vesting."
+            cta="Start conversion"
+            icon={SwitchHorizontalIcon}
+            onClick={handlePostSnapshotConversion}
+          />
         </div>
       </div>
     {/* Totals banner removed; now provided in top Navbar ribbon */}
@@ -1559,6 +1586,15 @@ const DevicesPage = ({
         {devices.length > 0 ? (
           devices.map((device, index) => {
             const product = findProductByMinerKey(device.miner_key, products);
+            if (!product) {
+              return (
+                <div key={device.miner_key} className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
+                  <div className="text-sm font-medium text-yellow-200">{device.name || device.miner_key}</div>
+                  <div className="text-xs font-mono text-yellow-300/70 mt-1">{device.miner_key}</div>
+                  <div className="text-xs text-yellow-400 mt-2">Product configuration missing for this device type. Contact admin to configure.</div>
+                </div>
+              );
+            }
             return (
               <DeviceListItem
                 key={device.miner_key}
@@ -1605,6 +1641,13 @@ const DevicesPage = ({
           modalName="fryConversion"
           address={addr}
           onClose={() => setShowFryConversion(false)}
+        />
+      )}
+      {showPostSnapshotConversion && (
+        <PostSnapshotConversionModal
+          modalName="postSnapshotConversion"
+          address={addr}
+          onClose={() => setShowPostSnapshotConversion(false)}
         />
       )}
       {selectedDevice && (
@@ -1733,7 +1776,7 @@ export async function getServerSideProps(context: any) {
     const devicesCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
     const devicesRaw = await devicesCollection
       .find(
-        { address: session.user.address, is_registered: true },
+        { address: session.user.address, $or: [{ is_registered: true }, { virtual: true, activated: true }] },
         {
           projection: {
             address: 1,
@@ -1751,7 +1794,11 @@ export async function getServerSideProps(context: any) {
             created_at: 1,
             email: 1,
             registered_portal_model: 1,
-            legacy_stake_unlocked: 1
+            legacy_stake_unlocked: 1,
+            virtual: 1,
+            activated: 1,
+            registration: 1,
+            node: 1
           }
         }
       )
@@ -1772,6 +1819,19 @@ export async function getServerSideProps(context: any) {
     const devices = await Promise.all(
       devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device))
     );
+
+    // Phase 3: Fetch pending virtual devices for this user (by email match)
+    const sessionEmail = session.user.email?.trim().toLowerCase();
+    let pendingVirtualDevices: Array<{ miner_key: string; name: string; order?: string; created_at?: string }> = [];
+    if (sessionEmail) {
+      const virtualRaw = await devicesCollection
+        .find(
+          { email: new RegExp('^' + sessionEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i'), virtual: true, activated: false },
+          { projection: { miner_key: 1, name: 1, order: 1, created_at: 1 } }
+        )
+        .toArray();
+      pendingVirtualDevices = JSON.parse(JSON.stringify(virtualRaw));
+    }
 
     const products = await db.collection('products').find({}).toArray();
     const tokenDocuments = (await db
@@ -1848,6 +1908,10 @@ export async function getServerSideProps(context: any) {
             staked: d.staked,
             stake_type: d.stake_type,
             verified: d.verified,
+            virtual: d.virtual,
+            activated: d.activated,
+            registration: d.registration,
+            node: d.node,
             _id: d._id,
             __v: d.__v
           } as any,
@@ -1895,7 +1959,8 @@ export async function getServerSideProps(context: any) {
         ),
         rewardFallback,
         statusFallback,
-        tokenMetadata: serializedTokenMetadata
+        tokenMetadata: serializedTokenMetadata,
+        pendingVirtualDevices
       }
     };
   } catch (e) {

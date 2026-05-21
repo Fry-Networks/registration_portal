@@ -254,29 +254,20 @@ export default async function handler(
         );
       }
 
+      const { updateOne } = buildRewardUpdateDoc(
+        claimableMonths,
+        claimedMonths,
+        claimableAmount,
+        pendingAmount,
+        ratio,
+        tokenLabel,
+        now,
+        txId
+      );
+
       const finalUpdate = await collection.updateOne(
         { address },
-        {
-          $set: {
-            claimableAmount: 0,
-            claimedMonths: claimedMonths + claimableMonths,
-            claimableMonths: 0,
-            pendingAmount: pendingAfter,
-            isProcessing: false,
-            lastConversionAt: now,
-            lastConversionTxId: txId,
-          },
-          $unset: {
-            processingStartedAt: '',
-          },
-          $push: {
-            history: {
-              amount: claimableAmount,
-              tokenType: tokenLabel,
-              date: new Date(),
-            },
-          } as Document,
-        }
+        updateOne as Document
       );
 
       if (finalUpdate.matchedCount <= 0) {
@@ -294,7 +285,7 @@ export default async function handler(
 
       return res.status(200).json({
         success: true,
-        message: `You have received "${claimableMonths}/12" month’s ${tokenLabel} from your vesting schedule.${completionSuffix}`,
+        message: `You have received "${claimableMonths}/12" month's ${tokenLabel} from your vesting schedule.${completionSuffix}`,
         txId,
       });
     } finally {
@@ -364,4 +355,47 @@ export default async function handler(
       },
     });
   }
+}
+
+export function buildRewardUpdateDoc(
+  claimableMonths: number,
+  claimedMonths: number,
+  claimableAmount: number,
+  pendingAmount: number,
+  ratio: number[],
+  tokenLabel: string,
+  now: Date,
+  txId: string
+) {
+  const ratioIndex = tokenLabel === 'FRY 2.0' ? 0 : 1;
+  const fryPortion = claimableAmount * ratio[ratioIndex];
+  const pendingAfter = Math.max(0, Number((pendingAmount - fryPortion).toFixed(8)));
+
+  const N = claimableMonths;
+  const perMonth = claimableAmount / N;
+  const entries: Array<{ amount: number; tokenType: string; date: Date }> = [];
+  let sum = 0;
+  for (let i = 0; i < N; i++) {
+    const isLast = i === N - 1;
+    const drift = isLast ? Number((claimableAmount - (perMonth * N)).toFixed(8)) : 0;
+    const amt = Number((perMonth + drift).toFixed(8));
+    entries.push({ amount: amt, tokenType: tokenLabel, date: now });
+    sum += amt;
+  }
+
+  const updateOne = {
+    $set: {
+      claimableAmount: 0,
+      claimedMonths: claimedMonths + N,
+      claimableMonths: 0,
+      pendingAmount: pendingAfter,
+      isProcessing: false,
+      lastConversionAt: now,
+      lastConversionTxId: txId,
+    },
+    $unset: { processingStartedAt: '' },
+    $push: { history: { $each: entries } },
+  };
+
+  return { updateOne, entries, sum };
 }

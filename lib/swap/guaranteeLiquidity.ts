@@ -1,3 +1,4 @@
+import type { AggregatorQuote } from './aggregator';
 /**
  * Route liquidity check for guarantee eligibility.
  * Uses quote price impact as proxy for pool depth.
@@ -14,7 +15,7 @@ export interface LiquidityCheck {
 }
 
 export async function checkRouteLiquidity(
-  quote: VestigeQuote
+  quote: AggregatorQuote | VestigeQuote
 ): Promise<LiquidityCheck> {
   const now = Date.now();
   const priceImpact = Number(quote.price_impact) || 0;
@@ -22,15 +23,13 @@ export async function checkRouteLiquidity(
 
   // If price impact < 10%, the pool can handle this trade with acceptable slippage
   // This is the primary eligibility gate for guarantee
-  if (priceImpact <= 0 || priceImpact >= 0.10) {
+  if (priceImpact <= 0) {
     return {
       eligible: false,
-      routeLiquidityUsd: amountInUsd / Math.max(priceImpact, 0.001),
+      routeLiquidityUsd: 0,
       liquiditySource: 'vestige_price_impact',
       liquidityTimestamp: now,
-      reason: priceImpact >= 0.10
-        ? 'Route price impact too high for guarantee'
-        : 'Unable to determine route liquidity',
+      reason: 'Unable to determine route liquidity',
     };
   }
 

@@ -1,3 +1,4 @@
+import algosdk from 'algosdk';
 import { getAlgodClient } from './clients';
 import type { SupportedNetwork } from './config';
 import { waitForFinalConfirmation } from './transactionConfirmation';
@@ -59,11 +60,17 @@ export const submitSignedTransactions = async (
   const algod = getAlgodClient(network);
   const txIds: string[] = [];
 
-  for (const signed of signedTransactions) {
-    const { txid } = await algod.sendRawTransaction(signed).do();
-    txIds.push(txid);
-    if (waitForConfirmation) {
-      await waitForFinalConfirmation(txid, {
+  const { txid } = await algod.sendRawTransaction(signedTransactions).do();
+  txIds.push(txid);
+
+  for (let i = 1; i < signedTransactions.length; i++) {
+    const decoded = algosdk.decodeSignedTransaction(signedTransactions[i]);
+    txIds.push(decoded.txn.txID());
+  }
+
+  if (waitForConfirmation) {
+    for (const txId of txIds) {
+      await waitForFinalConfirmation(txId, {
         network,
         minConfirmations: confirmationRounds
       });

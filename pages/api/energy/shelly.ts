@@ -21,6 +21,7 @@ type ShellyRequestBody = {
 };
 
 import type { ApiErrorResponse } from '../../../lib/api-errors';
+import { upsertPocHardware } from '../../../lib/poc-hardware';
 
 type ShellyApiResponse =
   | { status: 'SUCCESS'; message: string }
@@ -258,6 +259,9 @@ export default async function handler(
         $currentDate: { updated_at: true }
       }
     );
+
+    // Phase D: Register tool in PoC.hardware
+    await upsertPocHardware(minerKey, { tool: 'shelly' });
 
     res.status(200).json({
       status: 'SUCCESS',

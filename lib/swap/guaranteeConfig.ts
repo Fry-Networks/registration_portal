@@ -19,7 +19,7 @@ export function getApprovedSources(): number[] {
 }
 
 export function getAllowedTargetAssets(): number[] {
-  return (process.env.GUARANTEE_ALLOWED_TARGET_ASSETS || '2485314946').split(',').map(Number);
+  return (process.env.GUARANTEE_ALLOWED_TARGET_ASSETS || '2485314946,2485202024,2485198745').split(',').map(Number);
 }
 
 export function getMinLpUsd(): number {
