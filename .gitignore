@@ -68,3 +68,5 @@ fix_navbar.py
 patch-headlessui.js
 patch-headlessui.py
 scripts/check_mongo.js
+*.bak
+*.bak[0-9]*
