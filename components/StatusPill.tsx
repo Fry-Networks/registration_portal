@@ -16,7 +16,7 @@ const toneClasses: Record<NonNullable<StatusPillProps['tone']>, string> = {
   neutral: 'border-slate-500/50 bg-slate-500/10 text-slate-900 dark:text-slate-100',
   info: 'border-sky-500/60 bg-sky-500/10 text-sky-900 dark:text-sky-100',
   success: 'border-emerald-500/60 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100',
-  warning: 'border-amber-500/60 bg-amber-500/10 text-amber-900 dark:text-amber-100',
+  warning: 'border-warning-500/60 bg-warning-500/10 text-warning-900 dark:text-warning-100',
   muted: 'border-slate-600/50 bg-slate-600/10 text-slate-700 dark:text-slate-200'
 };
 

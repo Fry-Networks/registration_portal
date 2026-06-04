@@ -115,7 +115,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (credentials.mac_address) { updateSet.miner_mac = credentials.mac_address; }
     const update = { $set: updateSet };
 
+    // Capture old MAC for audit logging before the update
+    let oldMac: string | null = null;
+    try {
+      const existingDoc = await collection.findOne(filter, { projection: { miner_mac: 1 } });
+      if (existingDoc?.miner_mac) {
+        oldMac = String(existingDoc.miner_mac);
+      }
+    } catch (auditReadErr) {
+      // Non-blocking: audit read failure should not stop the save
+      console.error('[save-credentials] Failed to read old MAC for audit:', auditReadErr);
+    }
+
     await collection.updateOne(filter, update, { upsert: true });
+
+    // Audit log MAC changes
+    if (credentials.mac_address && oldMac !== credentials.mac_address) {
+      try {
+        const auditEntry = {
+          miner_key,
+          address: walletAddress,
+          old_mac: oldMac,
+          new_mac: credentials.mac_address,
+          changed_at: new Date(),
+          source: 'user_dashboard',
+          collection: collectionName,
+        };
+        try {
+          const mainDb = client.db('main');
+          const auditColl = mainDb.collection('mac_audit_logs');
+          await auditColl.insertOne(auditEntry);
+        } catch (mainErr) {
+          // Fallback: write to creds DB if main DB is unreachable or unwritable
+          console.error('[save-credentials] main.mac_audit_logs insert failed, falling back to creds:', mainErr);
+          const fallbackDb = client.db(CREDS_DB_NAME);
+          const fallbackColl = fallbackDb.collection('mac_audit_logs');
+          await fallbackColl.insertOne(auditEntry);
+        }
+      } catch (auditWriteErr) {
+        // Never fail the request because of audit logging
+        console.error('[save-credentials] Audit log write failed:', auditWriteErr);
+      }
+    }
 
     return res.status(200).json({ message: 'Credentials persisted to creds DB', collection: collectionName });
   } catch (error: any) {

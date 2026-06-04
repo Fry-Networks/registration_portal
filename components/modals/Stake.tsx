@@ -656,7 +656,7 @@ const StakeModal = ({
       >
         {/* Mirror withdraw modal palette so staking dialogs stay legible in both themes. */}
         <DialogPanel
-          className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+          className={`max-w-full sm:max-w-xl min-h-[100dvh] sm:min-h-0 rounded-none sm:rounded-2xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
         >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
@@ -712,7 +712,7 @@ const StakeModal = ({
             ) : (
               // Match callout styling from withdraw modal for clarity on staking requirements.
               requirementDescription && (
-                <div className="rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-amber-500/40 dark:bg-gray-800 dark:text-gray-100">
+                <div className="rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-warning-500/40 dark:bg-gray-800 dark:text-gray-100">
                   {requirementDescription}
                 </div>
               )

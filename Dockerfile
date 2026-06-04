@@ -15,6 +15,8 @@ WORKDIR /app
 RUN npm install -g npm@11.8.0
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
+COPY patch-headlessui.js /tmp/patch-headlessui.js
+RUN node /tmp/patch-headlessui.js
 COPY package*.json ./
 COPY .npmrc* ./
 
@@ -47,6 +49,8 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=op /usr/local/bin/op /usr/local/bin/op
 COPY --from=deps /app/node_modules ./node_modules
+COPY patch-headlessui.js /tmp/patch-headlessui.js
+RUN node /tmp/patch-headlessui.js
 COPY package*.json ./
 COPY .npmrc* ./
 COPY . .

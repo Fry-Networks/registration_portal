@@ -182,16 +182,16 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 					>
 						<p>Do you want to withdraw registration and node staking?</p>
 					</Flex> */}
-					<div className={`rounded border px-4 py-3 text-sm mb-4 ${isDark ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-amber-300 bg-amber-50 text-slate-900'}`}>
-						<p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>
+					<div className={`rounded border px-4 py-3 text-sm mb-4 ${isDark ? 'border-warning-400/40 bg-warning-500/10 text-warning-100' : 'border-warning-300 bg-warning-50 text-slate-900'}`}>
+						<p className={`font-semibold ${isDark ? 'text-warning-50' : 'text-warning-800'}`}>
 							Withdrawing registration or node stakes stops rewards.
 						</p>
-						<p className={`text-xs mt-1 ${isDark ? 'text-amber-100/90' : 'text-slate-800'}`}>
+						<p className={`text-xs mt-1 ${isDark ? 'text-warning-100/90' : 'text-slate-800'}`}>
 							Remove the stake only if you understand the device (or node) will stop earning until you re-stake and rejoin reward cycles.
 						</p>
 					</div>					
 					{/* Re-use the dark-mode friendly card palette so option selectors remain legible. */}
-					<Card className="max-w-md mx-auto p-4 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 border border-amber-500/30">
+					<Card className="max-w-md mx-auto p-4 bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100 border border-warning-500/30">
 						<Title className='text-[16px] text-gray-900 dark:text-gray-100'>Registration or Node Staking?</Title>
 						<Text className="mb-4 text-gray-700 dark:text-gray-200">Choose one of the following:</Text>
 
@@ -203,7 +203,7 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 									<label
 										key={option}
 										className={`flex items-center p-3 border rounded-lg transition-all text-gray-900 dark:text-gray-100 ${ 
-											selectedOption === option && !isDisabled ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20' : 'border-gray-300 dark:border-gray-600'
+											selectedOption === option && !isDisabled ? 'border-warning-500 bg-warning-50 dark:bg-warning-500/20' : 'border-gray-300 dark:border-gray-600'
 										} ${isDisabled ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed' : 'cursor-pointer'}`}
 									>
 										<input
@@ -225,13 +225,13 @@ const warningCopy: Record<string, { title: string; body: string; ack: string }> 
 						</div>
 					</Card>
 					{selectedOption && warningCopy[selectedOption] && (
-						<div className={`mt-4 rounded border px-4 py-3 text-sm ${isDark ? 'border-amber-400/40 bg-amber-500/10 text-amber-100' : 'border-amber-300 bg-amber-50 text-slate-900'}`}>
-							<p className={`font-semibold ${isDark ? 'text-amber-50' : 'text-amber-800'}`}>{warningCopy[selectedOption].title}</p>
-							<p className={`text-xs mt-1 ${isDark ? 'text-amber-100/90' : 'text-slate-800'}`}>{warningCopy[selectedOption].body}</p>
-							<label className={`mt-3 flex items-center gap-2 text-xs ${isDark ? 'text-amber-50' : 'text-slate-900'}`}>
+						<div className={`mt-4 rounded border px-4 py-3 text-sm ${isDark ? 'border-warning-400/40 bg-warning-500/10 text-warning-100' : 'border-warning-300 bg-warning-50 text-slate-900'}`}>
+							<p className={`font-semibold ${isDark ? 'text-warning-50' : 'text-warning-800'}`}>{warningCopy[selectedOption].title}</p>
+							<p className={`text-xs mt-1 ${isDark ? 'text-warning-100/90' : 'text-slate-800'}`}>{warningCopy[selectedOption].body}</p>
+							<label className={`mt-3 flex items-center gap-2 text-xs ${isDark ? 'text-warning-50' : 'text-slate-900'}`}>
 								<input
 									type="checkbox"
-									className={`h-4 w-4 rounded focus:ring-amber-400 ${isDark ? 'border-amber-200 text-amber-200' : 'border-amber-400 text-amber-600'}`}
+									className={`h-4 w-4 rounded focus:ring-warning-400 ${isDark ? 'border-warning-200 text-warning-200' : 'border-warning-400 text-warning-600'}`}
 									checked={acknowledged}
 									onChange={(event) => setAcknowledged(event.target.checked)}
 								/>

@@ -69,7 +69,11 @@ export const CORE_RELEASE_DATE = new Date('2025-07-21T00:00:00Z');
 export const MODS_RELEASE_DATE = new Date('2025-07-25T00:00:00Z');
 export const ALL_RELEASE_DATE = new Date('2025-08-01T00:00:00Z');
 
-export const isRegistrationNeeded = (product: Product): boolean => {
+export const isRegistrationNeeded = (product: Product, waivedMinerTypes?: string[]): boolean => {
+  // Competition waiver: if this product's miner type is waived by an active event,
+  // registration staking is not required during the competition period.
+  if (waivedMinerTypes && waivedMinerTypes.includes(product.key)) return false;
+
   const isTokenTypeValid = !!(
     product.reward.tokens?.register &&
     product.reward.tokens.register !== 'none'
@@ -334,7 +338,7 @@ export const isBoostAssetSupported = (assetId: string): boolean => {
 
 export const getAlgoBalance = async (address: string) => {
   try {
-    const response = await fetch('api/algorand/get-algo-balance', {
+    const response = await fetch('/api/algorand/get-algo-balance', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -367,7 +371,7 @@ export const getDeviceStatus = async (
     // Prefer provided product to avoid extra network calls
     let product: Product | undefined = productParam;
     if (!product) {
-      const productResponse = await fetch('api/products/get-product', {
+      const productResponse = await fetch('/api/products/get-product', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -436,7 +440,7 @@ export const computeDeviceStatus = (
       
       if (isCurrentlyStaked) {
         // Check for correct token only if currently staked
-        if (device.registration.asset_id !== product.reward.tokens?.register) {
+        if (String(device.registration.asset_id) !== String(product.reward.tokens?.register)) {
           deviceStatus.registration =
             'Registration staking information is changed. Please check and stake again';
           isError = true;
@@ -444,7 +448,7 @@ export const computeDeviceStatus = (
       } else {
         // Not currently staked - check if this is due to config change
         if (device.registration.asset_id && 
-            device.registration.asset_id !== product.reward.tokens?.register) {
+            String(device.registration.asset_id) !== String(product.reward.tokens?.register)) {
           deviceStatus.registration =
             'Registration staking information is changed. Please check and stake again';
           isError = true;
@@ -465,7 +469,7 @@ export const computeDeviceStatus = (
       
       if (isCurrentlyStaked) {
         // Check for correct token only if currently staked
-        if (device.node.asset_id !== product.reward.tokens?.node) {
+        if (String(device.node.asset_id) !== String(product.reward.tokens?.node)) {
           deviceStatus.node =
             'Node staking information is changed. Please check and stake again';
           isError = true;
@@ -473,7 +477,7 @@ export const computeDeviceStatus = (
       } else {
         // Not currently staked - check if this is due to config change
         if (device.node.asset_id && 
-            device.node.asset_id !== product.reward.tokens?.node) {
+            String(device.node.asset_id) !== String(product.reward.tokens?.node)) {
           deviceStatus.node =
             'Node staking information is changed. Please check and stake again';
           isError = true;

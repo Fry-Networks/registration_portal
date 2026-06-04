@@ -15,6 +15,9 @@ type HardwareStatus = {
   linked: boolean;
   valid: boolean;
   miner_mac?: string;
+  device_mac?: string;
+  mac_match?: boolean;
+  mac_last_changed?: string;
   reason?: 'missing_mac' | 'invalid_mac';
   detail?: string;
 };
@@ -77,6 +80,34 @@ export default async function handler(
       .find({ miner_key: { $in: uniqueKeys } })
       .toArray();
 
+    // Fetch device-reported MACs from main.PoC.hardware
+    let pocDocs: Record<string, any> = {};
+    try {
+      const mainDb = client.db('main');
+      const pocCollection = mainDb.collection('PoC');
+      const pocCursor = await pocCollection
+        .find(
+          { miner_key: { $in: uniqueKeys } },
+          {
+            projection: {
+              miner_key: 1,
+              'mac.status': 1,
+              'mac.last_changed_at': 1,
+              'mac.evidence.miner_mac': 1,
+              'mac.evidence.registered_mac': 1,
+            },
+          }
+        )
+        .toArray();
+      pocDocs = Object.fromEntries(pocCursor.map((d) => [d.miner_key, d]));
+    } catch (pocError) {
+      loggers.dbOperation('hardware_status_poc_lookup_failed', 'PoC', {
+        address: session.user.address,
+        error: (pocError as Error)?.message,
+      });
+      // Continue without PoC data — new fields will be omitted
+    }
+
     const response: HardwareStatusResponse = {};
 
     for (const key of uniqueKeys) {
@@ -129,11 +160,31 @@ export default async function handler(
         continue;
       }
 
-      response[key] = {
+      const baseResponse: HardwareStatus = {
         linked: true,
         valid: true,
         miner_mac: validation.normalized ?? effectiveMac,
       };
+
+      // Enrich with PoC.hardware data if available
+      const pocDoc = pocDocs[key];
+      if (pocDoc) {
+        const evidence = pocDoc?.mac?.evidence ?? {};
+        const deviceMac = typeof evidence.miner_mac === 'string' ? evidence.miner_mac.trim() : undefined;
+        const lastChanged = pocDoc?.mac?.last_changed_at;
+
+        if (deviceMac) {
+          baseResponse.device_mac = deviceMac;
+        }
+        if (lastChanged) {
+          baseResponse.mac_last_changed = lastChanged;
+        }
+        if (deviceMac && baseResponse.miner_mac) {
+          baseResponse.mac_match = deviceMac.toUpperCase() === baseResponse.miner_mac.toUpperCase();
+        }
+      }
+
+      response[key] = baseResponse;
     }
 
     loggers.dbOperation('hardware_status_lookup', collection.collectionName, {

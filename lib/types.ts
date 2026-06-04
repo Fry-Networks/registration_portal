@@ -17,6 +17,7 @@ export interface Device extends mongoose.Document {
   reward_wallet?: string;
   note?: string;
   is_registered: boolean;
+  is_active?: boolean;
   registered_portal_model?: string;
   legacy_stake_unlocked?: boolean;
   // Allow UI diffs to compare last refresh timestamps without optional chaining explosions.

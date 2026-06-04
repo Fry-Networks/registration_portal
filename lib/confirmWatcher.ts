@@ -37,7 +37,7 @@ export function startConfirmationWatcher(
         timestamp
       );
 
-      const res = await fetch('api/rewards/confirm', {
+      const res = await fetch('/api/rewards/confirm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

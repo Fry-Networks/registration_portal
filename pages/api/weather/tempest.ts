@@ -268,9 +268,10 @@ export default async function handler(
       owner_address?: string;
       miner_key?: string;
     }>({
-      api_type: 'tempest',
-
-      stationID: stationIdentifier
+      $or: [
+        { api_type: 'tempest', stationID: stationIdentifier },
+        { api_type: 'tempest', 'credentials.station_id': stationIdentifier },
+      ],
     });
 
     if (
@@ -310,6 +311,11 @@ export default async function handler(
 
       api_type: 'tempest',
 
+      credentials: {
+        station_id: stationIdentifier,
+        api_token: token,
+      },
+
       stationID: stationIdentifier,
 
       token,
@@ -323,8 +329,17 @@ export default async function handler(
       owner_address: session.user.address
     };
 
+    // Find user's existing doc (position-only or credential doc) to avoid duplicates
+    const existingDoc = await collection.findOne({
+      miner_key: minerKey,
+      address: session.user.address,
+    });
+    const upsertFilter = existingDoc
+      ? { _id: existingDoc._id }
+      : { miner_key: minerKey, api_type: 'tempest' };
+
     await collection.updateOne(
-      { miner_key: minerKey, api_type: 'tempest' },
+      upsertFilter,
 
       { $set: document },
 

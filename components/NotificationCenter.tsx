@@ -46,9 +46,9 @@ const variantStylesDark: Record<Variant, StyleConfig> = {
     shadow: 'shadow-xl shadow-black/40'
   },
   warning: {
-    container: 'bg-[#1b1305]/90 text-yellow-50',
+    container: 'bg-[#1b1305]/90 text-warning-50',
     icon: ExclamationIcon,
-    border: 'border-yellow-400/80',
+    border: 'border-warning-400/80',
     iconBg: 'border-white/20 bg-white/10 text-white',
     title: 'text-white',
     meta: 'text-white/50',
@@ -101,17 +101,17 @@ const variantStylesLight: Record<Variant, StyleConfig> = {
     shadow: 'shadow-lg shadow-slate-200/70'
   },
   warning: {
-    container: 'bg-amber-50 text-amber-900',
+    container: 'bg-warning-50 text-warning-900',
     icon: ExclamationIcon,
-    border: 'border-amber-200',
-    iconBg: 'border-amber-200 bg-amber-100 text-amber-800',
-    title: 'text-amber-900',
-    meta: 'text-amber-700',
-    body: 'text-amber-900',
-    cta: 'text-amber-900 underline decoration-dotted hover:text-amber-800',
-    badge: 'border-amber-200 bg-amber-100 text-amber-800',
-    dismiss: 'text-amber-800 hover:bg-amber-100 hover:text-amber-900 focus-visible:outline-amber-500',
-    shadow: 'shadow-lg shadow-amber-200/70'
+    border: 'border-warning-200',
+    iconBg: 'border-warning-200 bg-warning-100 text-warning-800',
+    title: 'text-warning-900',
+    meta: 'text-warning-700',
+    body: 'text-warning-900',
+    cta: 'text-warning-900 underline decoration-dotted hover:text-warning-800',
+    badge: 'border-warning-200 bg-warning-100 text-warning-800',
+    dismiss: 'text-warning-800 hover:bg-warning-100 hover:text-warning-900 focus-visible:outline-warning-500',
+    shadow: 'shadow-lg shadow-warning-200/70'
   },
   error: {
     container: 'bg-red-50 text-red-900',

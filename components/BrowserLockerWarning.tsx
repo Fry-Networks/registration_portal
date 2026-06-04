@@ -26,12 +26,12 @@ export default function BrowserLockerWarning() {
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-[1500] mx-auto max-w-3xl rounded-t-2xl border border-amber-400/50 bg-[#2b1b00] p-4 text-amber-50 shadow-2xl"
+      className="fixed inset-x-0 bottom-0 z-[1500] mx-auto max-w-3xl rounded-t-2xl border border-warning-400/50 bg-[#2b1b00] p-4 text-warning-50 shadow-2xl"
       role="alert"
       aria-live="assertive"
     >
       <div className="text-base font-semibold">Browser extension blocked navigation</div>
-      <p className="mt-2 text-sm text-amber-100">
+      <p className="mt-2 text-sm text-warning-100">
         A security extension (usually Trend Micro/Browser Guard) disabled browser history for this tab, which prevents
         Fry from signing you in. Temporarily disable the extension&rsquo;s &ldquo;Browser Locker&rdquo; feature or
         whitelist <strong>dashboard.frynetworks.com</strong>, then reload this page.

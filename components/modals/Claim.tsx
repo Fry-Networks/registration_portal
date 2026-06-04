@@ -380,7 +380,7 @@ export default function ClaimModal({
       const previewTimestamp = Math.floor(Date.now() / 1000);
       const previewSignature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', { ...baseBody, preview: true }, previewTimestamp);
 
-      const previewResponse = await fetch('api/rewards/claim', {
+      const previewResponse = await fetch('/api/rewards/claim', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -435,7 +435,7 @@ export default function ClaimModal({
       const timestamp = Math.floor(Date.now() / 1000);
       const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', baseBody, timestamp);
       
-      const response = await fetch('api/rewards/claim', {
+      const response = await fetch('/api/rewards/claim', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -570,7 +570,7 @@ export default function ClaimModal({
         className="z-[180]"
       >
         <DialogPanel
-          className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+          className={`max-w-full sm:max-w-xl min-h-[100dvh] sm:min-h-0 rounded-none sm:rounded-2xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
           style={{ marginTop: 'calc(var(--navbar-height, 64px) + 12px)' }}
         >
           <div className="absolute right-0 top-0 pr-3 pt-3">
@@ -594,14 +594,14 @@ export default function ClaimModal({
           >
             <p>Do you want to claim the rewards?</p>
             {optInStatus === 'missing' && (
-              <div className="mt-3 p-3 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg">
-                <p className="text-amber-800 dark:text-amber-200 text-sm mb-2">
+              <div className="mt-3 p-3 bg-warning-100 dark:bg-warning-900/30 border border-warning-300 dark:border-warning-700 rounded-lg">
+                <p className="text-warning-800 dark:text-warning-200 text-sm mb-2">
                   <strong>Action Required:</strong> You need to opt into tFRY before claiming rewards.
                 </p>
                 <Button
                   onClick={handleOptIn}
                   disabled={optInStage === 'signing' || optInStage === 'submitting'}
-                  className="w-full bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                  className="w-full bg-warning-600 hover:bg-warning-700 text-white border-warning-600"
                 >
                   {optInStage === 'signing' ? 'Approve in wallet...' :
                    optInStage === 'submitting' ? 'Submitting...' :

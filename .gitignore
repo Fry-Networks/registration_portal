@@ -56,3 +56,15 @@ tempdashboardlogs.txt
 tests/
 docs/wallets_and_dependencies/
 WALLET_AND_DEPENDENCIES_AUDIT.md
+# Backup files
+*.bak.*
+.bak/
+
+# User-submitted bug reports
+uploads/
+
+# One-off scratch scripts
+fix_navbar.py
+patch-headlessui.js
+patch-headlessui.py
+scripts/check_mongo.js

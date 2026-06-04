@@ -50,6 +50,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
+
+  // Skip registration stake if active event waives it for this miner type
+  const minerType = miner.split('-')[0];
+  const client = await clientPromise;
+  const db = client.db('main');
+  const now = new Date();
+  const activeWaiver = await db.collection('events').findOne({
+    status: 'active',
+    startDate: { $lte: now },
+    endDate: { $gte: now },
+    'waivedRequirements.registrationStake': true,
+    'waivedRequirements.minerTypes': minerType,
+  });
+
+  if (activeWaiver && (typeof txId !== 'string' || txId.length === 0)) {
+    loggers.stakeOperation('registration_waived', miner, {
+      eventId: activeWaiver._id?.toString(),
+      eventName: activeWaiver.name,
+      address,
+    });
+    res.status(200).json({ success: true, message: 'Registration stake waived by active event', waived: true });
+    return;
+  }
+
   if (typeof txId !== 'string' || txId.length === 0 || typeof asset_id !== 'string' || typeof amount !== 'number') {
     res.status(400).json(createApiError(ErrorCodes.INVALID_INPUT, 'Incomplete registration stake payload.'));
     return;
