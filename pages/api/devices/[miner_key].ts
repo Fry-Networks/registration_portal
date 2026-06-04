@@ -76,6 +76,15 @@ export default async function handler(
 
     await enrichLegacyStakeData(collection, miner_key, hydratedDevice);
 
+    // Compute is_active for tracked device prefixes (14-day poc_reward_dailies lookback)
+    const TRACKED_PREFIXES = ['AEM', 'BM', 'RDN', 'SDN', 'SVN', 'CN'];
+    const prefix = miner_key.split('-')[0];
+    if (TRACKED_PREFIXES.includes(prefix)) {
+      const cutoff = new Date(Date.now() - 14 * 86400000);
+      const found = await db.collection('poc_reward_dailies').findOne({ miner_key, date: { $gte: cutoff } });
+      (hydratedDevice as any).is_active = !!found;
+    }
+
     if (address) {
       if (walletAddress !== address) {
         loggers.apiError('/api/devices/[miner_key]', new Error('Wallet mismatch loading device detail'), {
@@ -380,7 +389,7 @@ async function ensureWithdrawalMetadata(
   }
 }
 
-async function enrichLegacyStakeData(
+export async function enrichLegacyStakeData(
   collection: Collection<Document>,
   minerKey: string,
   device: any

@@ -12,18 +12,17 @@ import Link from 'next/link';
 import fryLogo from '../assets/Logo.png';
 import Modal from 'react-modal';
 import { useDevWallet } from '../hooks/UseDevWallet';
+import useActiveEvents from '../hooks/useActiveEvents';
 import { useRouter } from 'next/router';
 import DownMenu from './MenuBox';
 import { normalizeAssetId, tFRY } from '../lib/utils';
-import { BellIcon, HomeIcon ,SwitchHorizontalIcon } from '@heroicons/react/outline';
+import { BellIcon, MenuIcon, XIcon } from '@heroicons/react/outline';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../app/notificationcontext';
-import { RiBugLine } from '@remixicon/react';
 import BugReportModal, { BugReportPayload } from './BugReportModal';
 import { useToastContext } from '../hooks/ToastContext';
 import { runWithWalletRequest, WalletRequestInFlightError } from '../lib/wallet/requestCoordinator.client';
 import ThemeControls from './ThemeControls';
-import dimoIcon from '../lib/dimo/Dimo.png';
 import { useTheme } from 'next-themes';
 import fryLogoLight from '../assets/Logo_lightmode.png';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Seasonal chrome
@@ -52,6 +51,7 @@ export default function Navbar() {
   const activeWallet = wallets.find(w => w.isActive);
   const { devConnect, devAccount, algodClient: devAlgodClient, setDevConnect } = useDevWallet();
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [address, setAddress] = useState('');
   // Xmas: Respect reduced motion for navbar Lottie overlays.
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
@@ -72,6 +72,7 @@ export default function Navbar() {
   const [showSwapMenu, setShowSwapMenu] = useState(false);
   const toast = useToastContext();
   const { success: showToastSuccess, error: showToastError, info: showToastInfo } = toast;
+  const { hasActiveEvent, activeCount } = useActiveEvents();
 
   const modalStyles = useMemo(() => {
     if (isDark) {
@@ -119,16 +120,9 @@ export default function Navbar() {
       }
     };
   }, [isDark]);
-  const actionButtonClass = isDark
-    ? 'flex h-11 w-11 items-center justify-center rounded-full border border-red-500/60 bg-red-500/15 text-red-200 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
-    : 'flex h-11 w-11 items-center justify-center rounded-full border border-red-400 bg-red-50 text-red-700 shadow-md transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
-  const pillLinkClass = isDark
-    ? 'flex h-11 items-center rounded-full border border-red-500/60 bg-red-500/15 px-4 text-sm font-semibold text-red-100 shadow-md backdrop-blur transition hover:bg-red-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
-    : 'flex h-11 items-center rounded-full border border-red-400 bg-red-50 px-4 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300';
   const holidayBannerClass = isDark
-    ? 'inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-red-500/50 via-amber-400/40 to-emerald-400/40 px-5 py-3 text-base font-semibold text-white shadow-xl shadow-red-900/40 backdrop-blur'
-    : 'inline-flex items-center gap-3 rounded-2xl border border-red-200 bg-gradient-to-r from-rose-50 via-amber-50 to-emerald-50 px-5 py-3 text-base font-semibold text-red-700 shadow-md';
-  const showDimoLink = dimoEnabled === true; // Only surface DIMO when the Mongo toggle is enabled.
+    ? 'inline-flex items-center gap-3 rounded-token-xl border border-divider bg-gradient-to-r from-red-500/50 via-primary-400/40 to-emerald-400/40 px-5 py-3 text-base font-semibold text-ink shadow-xl shadow-red-900/40 backdrop-blur'
+    : 'inline-flex items-center gap-3 rounded-token-xl border border-red-200 bg-gradient-to-r from-rose-50 via-primary-50 to-emerald-50 px-5 py-3 text-base font-semibold text-red-700 shadow-token-md';
 
   useEffect(() => {
     console.log('[Wallet] hook activeAccount', activeAccount);
@@ -220,6 +214,18 @@ export default function Navbar() {
       root.style.removeProperty('--navbar-height');
     };
   }, []);
+
+  // Prevent body scroll when mobile drawer is open
+  useEffect(() => {
+    if (isDrawerOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isDrawerOpen]);
 
   const openBugModal = () => {
     if (bugSuccessCloseTimeoutRef.current) {
@@ -401,17 +407,7 @@ export default function Navbar() {
     }
   }, [activeAccount, walletStateSignature, wallets]);
 
-  useEffect(() => {
-    if (router.pathname === '/') {
-      return;
-    }
-    if (status === 'loading') {
-      return;
-    }
-    if (!session || !session.user) {
-      router.push('/');
-    }
-  }, [router.pathname, session, status, router]);
+
 
   useEffect(() => {
     if (!showNotifications) {
@@ -443,7 +439,7 @@ export default function Navbar() {
     if (devMode) {
       if (devConnect && devAccount) {
         const addr = devAccount.addr.toString();
-        setAddress(`${addr.slice(0, 4)}...${addr.slice(-4)}`);
+        setAddress(`${addr.slice(0, 6)}...${addr.slice(-4)}`);
       } else {
         setAddress('');
       }
@@ -453,7 +449,7 @@ export default function Navbar() {
     const rawAddress = activeAccount?.address || activeWallet?.accounts?.[0]?.address;
     console.log('[Wallet] computed raw address', rawAddress);
     if (rawAddress) {
-      setAddress(`${rawAddress.slice(0, 4)}...${rawAddress.slice(-4)}`);
+      setAddress(`${rawAddress.slice(0, 6)}...${rawAddress.slice(-4)}`);
     } else {
       setAddress('');
     }
@@ -495,19 +491,60 @@ export default function Navbar() {
 
   // (Ribbon moved to devices page)
 
+  const navGroups = [
+    {
+      label: 'Devices',
+      links: [
+        { href: '/devices', label: 'My Devices' },
+        { href: '/register', label: 'Register Device' },
+        { href: '/my-keys', label: 'My Keys' },
+        { href: '/my_registrations', label: 'My Registrations' },
+        { href: '/new_registration', label: 'New Registration' },
+        { href: '/device-credentials', label: 'Device Credentials' },
+      ]
+    },
+    {
+      label: 'Rewards',
+      links: [
+        { href: '/history', label: 'Reward History' },
+        { href: '/dimo', label: 'DIMO' },
+        { href: '/buy/fry', label: 'Buy Tokens' },
+        { href: '/convert', label: 'Token Conversion' },
+      ]
+    },
+    {
+      label: 'Events',
+      links: [
+        { href: '/events', label: 'Events & Competitions' },
+      ]
+    },
+    {
+      label: 'Help',
+      links: [
+        { href: '/help/credentials', label: 'Credentials Guide' },
+      ]
+    },
+  ];
+
+  const isLinkActive = (href: string) => {
+    if (!pathname) return false;
+    if (href === '/') {
+      return pathname === href;
+    }
+    return pathname === href || pathname.startsWith(href);
+  };
+
   return (
     <Fragment>
       <header
         ref={headerRef}
-        className={`sticky top-0 left-0 right-0 z-[150] border-b backdrop-blur relative overflow-visible ${
+        className={`sticky top-0 left-0 right-0 z-[150] border-b backdrop-blur-md ${
           isDark
-            ? 'border-white/10 bg-black/95'
-            : isChristmas
-              ? 'border-transparent bg-[#e5e9ed] text-slate-900'
-              : 'border-transparent bg-[#e5e9ed] text-slate-900'
+            ? 'border-divider bg-surface/95'
+            : 'border-divider bg-surface/95'
         }`}
       >
-        {/* Xmas: Centered “Merry Christmas” Lottie overlay, paused when reduced-motion is requested. */}
+        {/* Xmas: Centered "Merry Christmas" Lottie overlay, paused when reduced-motion is requested. */}
         {isChristmas && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-[151]" aria-hidden>
             <div className="w-full max-w-[170px] sm:max-w-[210px] max-h-[120px] opacity-80 mix-blend-screen drop-shadow-[0_12px_30px_rgba(0,0,0,0.25)]">
@@ -521,12 +558,22 @@ export default function Navbar() {
           </div>
         )}
 
-        <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:flex-nowrap sm:gap-4 sm:px-6 lg:px-10">
-          <div className="flex items-center relative">
+        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10 py-3">
+          {/* Left: Logo + wordmark */}
+          <div className="flex items-center gap-3 relative z-[200]">
+            <button
+              type="button"
+              onClick={() => setIsDrawerOpen(true)}
+              className="md:hidden w-10 h-10 rounded-token-md border border-divider bg-surface-strong flex items-center justify-center text-ink-primary"
+              aria-label="Open navigation menu"
+            >
+              <MenuIcon className="h-5 w-5" />
+            </button>
             <Link
               href="https://frynetworks.com"
               target="_blank"
               rel="noopener noreferrer"
+              className="flex items-center gap-3"
             >
               <Image
                 src={
@@ -538,21 +585,136 @@ export default function Navbar() {
                       ? fryLogo
                       : fryLogoLight
                 }
-                className="logo m-0"
+                className="logo m-0 h-8 w-auto"
                 alt="Fry logo"
                 priority
               />
             </Link>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3 relative z-[200]">
+          {/* Center: Nav groups with dropdowns (desktop only) */}
+          <nav className="hidden md:flex items-center gap-1 relative z-[200]">
+            <Link
+              href="/"
+              className={`px-3 py-2 text-sm font-medium rounded-token-md transition ${
+                isLinkActive('/') ? 'text-primary-500 font-semibold' : 'text-ink-secondary hover:text-ink'
+              }`}
+            >
+              Dashboard
+            </Link>
+            {navGroups.map((group) => {
+              const hasActiveLink = group.links.some(l => isLinkActive(l.href));
+              return (
+                <div key={group.label} className="relative group">
+                  <button
+                    type="button"
+                    className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-token-md transition ${
+                      hasActiveLink
+                        ? 'text-primary-500 font-semibold'
+                        : 'text-ink-secondary hover:text-ink'
+                    }`}
+                  >
+                    {group.label}
+                    {group.label === 'Events' && hasActiveEvent && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error-500 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-error-500" />
+                      </span>
+                    )}
+                    <svg className="h-3 w-3 transition-transform group-hover:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <div className="absolute top-full left-0 mt-1 w-52 rounded-token-lg border border-divider bg-surface-elevated shadow-token-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-[210] py-1">
+                    {group.links.map((link) => {
+                      const active = isLinkActive(link.href);
+                      return (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          className={`block px-4 py-2 text-sm transition-colors ${
+                            active
+                              ? 'text-primary-500 font-semibold bg-primary-500/10'
+                              : 'text-ink-secondary hover:text-ink hover:bg-primary-500/5'
+                          }`}
+                        >
+                          {link.label}
+                        </Link>
+                      );
+                    })}
+                    {/* Bug report lives in Help dropdown */}
+                    {group.label === 'Help' && (
+                      <button
+                        type="button"
+                        onClick={openBugModal}
+                        className="w-full text-left px-4 py-2 text-sm text-ink-secondary hover:text-ink hover:bg-primary-500/5 transition-colors"
+                      >
+                        Report a Bug
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* Right: Theme + Bell + Wallet (desktop only) */}
+          <div className="hidden md:flex items-center gap-3 relative z-[200]">
             <ThemeControls />
+
+            {/* Notification bell */}
+            <div className="relative" ref={notificationTrayRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (notifications.length === 0) {
+                    return;
+                  }
+                  setShowNotifications(prev => !prev);
+                }}
+                aria-expanded={showNotifications}
+                aria-label="View device notifications"
+                title={
+                  notifications.length > 0
+                    ? `${notifications.length} notification${notifications.length === 1 ? '' : 's'}`
+                    : 'No new notifications'
+                }
+                className={`flex h-10 w-10 items-center justify-center rounded-token-md border border-divider bg-surface-strong text-ink-secondary transition hover:text-ink hover:border-primary-500/40 relative disabled:cursor-not-allowed disabled:opacity-60`}
+                disabled={notifications.length === 0}
+              >
+                <BellIcon className="h-5 w-5" aria-hidden="true" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-primary-500 px-1.5 py-0.5 text-[10px] font-semibold text-ink">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              {showNotifications && notifications.length > 0 && (
+                <div
+                  className={`overflow-hidden rounded-token-xl border shadow-2xl z-[240] ${
+                    isDark
+                      ? 'border-primary-500/40 bg-[#0A0A0F]/95 shadow-primary-900/40'
+                      : 'border-divider bg-surface shadow-token-lg'
+                  } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
+                >
+                  <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-primary-500/40 scrollbar-track-transparent">
+                    <NotificationCenter
+                      notifications={notifications}
+                      onDismiss={dismiss}
+                      isDark={isDark}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Wallet */}
             {!address || address.length === 0 ? (
               <Button
                 className={
                   isDark
-                    ? 'bg-transparent border-red-600 hover:bg-red-600 hover:border-red-600 text-white'
-                    : 'bg-red-600 text-white border-red-600 hover:bg-red-700 hover:border-red-700'
+                    ? 'bg-transparent border-primary-500 hover:bg-primary-500 hover:border-primary-500 text-ink text-sm'
+                    : 'bg-primary-500 text-ink border-primary-500 hover:bg-primary-600 hover:border-primary-600 text-sm'
                 }
                 onClick={() => {
                   if (devMode) {
@@ -565,141 +727,124 @@ export default function Navbar() {
                 Connect Wallet
               </Button>
             ) : (
-              <Fragment>
-                <DownMenu address={address} disconnect={handleDisconnect} />
-                <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-2.5">
-                  {showDimoLink && (
-                    <Link
-                      href="/dimo"
-                      className={
-                        isDark
-                          ? 'flex h-11 w-11 items-center justify-center text-red-100 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/80'
-                          : 'flex h-11 w-11 items-center justify-center text-red-700 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300'
-                      }
-                      aria-label="Login with DIMO"
-                      title="DIMO login & eligibility"
-                    >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e60000] overflow-hidden">
-                        <Image
-                          src={dimoIcon}
-                          alt="DIMO"
-                          width={36}
-                          height={36}
-                          className="h-9 w-9"
-                          priority={false}
-                        />
-                      </div>
-                    </Link>
-                  )}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setShowSwapMenu(prev => !prev)}
-                      className={actionButtonClass}
-                      aria-label="Buy tokens"
-                      title="Buy tokens"
-                      aria-expanded={showSwapMenu}
-                    >
-                      <SwitchHorizontalIcon className="h-5 w-5" />
-                    </button>
-                    {showSwapMenu && (
-                      <>
-                        <div className="fixed inset-0 z-[230]" onClick={() => setShowSwapMenu(false)} />
-                        <div className={`absolute right-0 mt-2 w-40 rounded-xl border shadow-xl z-[240] py-1 ${
-                          isDark
-                            ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
-                            : 'border-red-200 bg-white shadow-red-200/60'
-                        }`}>
-                          {[
-                            { slug: 'fry', label: 'FRY' },
-                            { slug: 'fnode', label: 'fNODE' },
-                            { slug: 'fvpn', label: 'fVPN' },
-                          ].map((t) => (
-                            <Link
-                              key={t.slug}
-                              href={`/buy/${t.slug}`}
-                              className={`block px-4 py-2 text-sm transition-colors ${
-                                isDark
-                                  ? 'text-gray-200 hover:bg-red-900/40'
-                                  : 'text-gray-700 hover:bg-red-50'
-                              }`}
-                              onClick={() => setShowSwapMenu(false)}
-                            >
-                              Buy {t.label}
-                            </Link>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <Link
-                    href="/devices"
-                    className={actionButtonClass}
-                    aria-label="Go to devices"
-                    title="Devices home"
-                  >
-                    <HomeIcon className="h-5 w-5" />
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={openBugModal}
-                    aria-label="Report a bug"
-                    className={actionButtonClass}
-                    title="Report a bug"
-                  >
-                    <RiBugLine className="h-5 w-5" />
-                  </button>
-                  <div className="relative" ref={notificationTrayRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (notifications.length === 0) {
-                          return;
-                        }
-                        setShowNotifications(prev => !prev);
-                      }}
-                      aria-expanded={showNotifications}
-                      aria-label="View device notifications"
-                      title={
-                        notifications.length > 0
-                          ? `${notifications.length} notification${notifications.length === 1 ? '' : 's'}`
-                          : 'No new notifications'
-                      }
-                      className={`${actionButtonClass} relative disabled:cursor-not-allowed disabled:opacity-60`}
-                      disabled={notifications.length === 0}
-                    >
-                      <BellIcon className="h-5 w-5" aria-hidden="true" />
-                      {notifications.length > 0 && (
-                        <span className="absolute -top-1.5 -right-1.5 min-w-[1.3rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          {notifications.length}
-                        </span>
-                      )}
-                    </button>
-                    {showNotifications && notifications.length > 0 && (
-                      <div
-                        // Mobile: use a fixed overlay anchored below the navbar so it never clips or forces layout; desktop keeps the anchored tray.
-                        className={`overflow-hidden rounded-2xl border shadow-2xl z-[240] ${
-                          isDark
-                            ? 'border-red-500/40 bg-[#0b0b0f]/95 shadow-red-900/40'
-                            : 'border-red-200 bg-white shadow-red-200/60'
-                        } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
-                      >
-                        <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-red-500/40 scrollbar-track-transparent">
-                          <NotificationCenter
-                            notifications={notifications}
-                            onDismiss={dismiss}
-                            isDark={isDark}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </Fragment>
+              <DownMenu address={address} disconnect={handleDisconnect} />
             )}
           </div>
         </div>
       </header>
+
+      {/* Mobile Navigation Drawer */}
+      {isDrawerOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-[290] bg-black/60"
+            onClick={() => setIsDrawerOpen(false)}
+            aria-hidden="true"
+          />
+          {/* Drawer panel */}
+          <div className="fixed top-0 left-0 h-full w-[280px] z-[300] bg-surface-strong/98 border-r border-divider flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-divider">
+              <span className="text-sm font-semibold text-ink-primary">Menu</span>
+              <button
+                type="button"
+                onClick={() => setIsDrawerOpen(false)}
+                className="w-10 h-10 rounded-token-md border border-divider bg-surface-elevated flex items-center justify-center text-ink-primary"
+                aria-label="Close navigation menu"
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto">
+              <Link
+                href="/"
+                onClick={() => setIsDrawerOpen(false)}
+                className={classNames(
+                  'flex items-center min-h-[44px] px-4 py-2 text-sm font-medium text-ink-primary hover:bg-primary-500/10 transition',
+                  isLinkActive('/') ? 'border-l-2 border-primary-500 bg-primary-500/5' : ''
+                )}
+              >
+                Dashboard
+              </Link>
+              {navGroups.map((group) => (
+                <div key={group.label}>
+                  <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-ink-muted font-semibold px-4 pt-4 pb-1">
+                    {group.label}
+                    {group.label === 'Events' && hasActiveEvent && (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-error-500 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-error-500" />
+                      </span>
+                    )}
+                  </div>
+                  {group.links.map((link) => {
+                    const active = isLinkActive(link.href);
+                    return (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={() => setIsDrawerOpen(false)}
+                        className={classNames(
+                          'flex items-center min-h-[44px] px-4 py-2 text-sm font-medium text-ink-primary hover:bg-primary-500/10 transition',
+                          active ? 'border-l-2 border-primary-500 bg-primary-500/5' : ''
+                        )}
+                      >
+                        {link.label}
+                      </Link>
+                    );
+                  })}
+                  {group.label === 'Help' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDrawerOpen(false);
+                        openBugModal();
+                      }}
+                      className="w-full text-left flex items-center min-h-[44px] px-4 py-2 text-sm font-medium text-ink-primary hover:bg-primary-500/10 transition"
+                    >
+                      Report a Bug
+                    </button>
+                  )}
+                </div>
+              ))}
+            </nav>
+            {/* Wallet section */}
+            <div className="border-t border-divider px-4 py-3">
+              {address ? (
+                <div className="flex flex-col gap-2">
+                  <span className="font-mono text-xs text-ink-secondary truncate">
+                    {address}
+                  </span>
+                  <Button
+                    className={
+                      isDark
+                        ? 'bg-transparent border-primary-500 hover:bg-primary-500 hover:border-primary-500 text-ink text-sm'
+                        : 'bg-primary-500 text-ink border-primary-500 hover:bg-primary-600 hover:border-primary-600 text-sm'
+                    }
+                    onClick={handleDisconnect}
+                  >
+                    Disconnect
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  className={
+                    isDark
+                      ? 'bg-transparent border-primary-500 hover:bg-primary-500 hover:border-primary-500 text-ink text-sm w-full'
+                      : 'bg-primary-500 text-ink border-primary-500 hover:bg-primary-600 hover:border-primary-600 text-sm w-full'
+                  }
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    setIsWalletModalOpen(true);
+                  }}
+                >
+                  Connect Wallet
+                </Button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <BugReportModal
         isOpen={isBugModalOpen}
@@ -720,8 +865,8 @@ export default function Navbar() {
             <Button
               className={
                 isDark
-                  ? 'text-white bg-transparent p-2 right-2 rounded border-transparent hover:bg-red-600 hover:border-transparent hover:rounded hover:bg-opacity-10'
-                  : 'text-slate-900 bg-transparent p-2 right-2 rounded border-transparent hover:bg-red-100 hover:border-transparent hover:rounded'
+                  ? 'text-ink bg-transparent p-2 right-2 rounded border-transparent hover:bg-primary-500 hover:border-transparent hover:rounded hover:bg-opacity-10'
+                  : 'text-ink-primary bg-transparent p-2 right-2 rounded border-transparent hover:bg-primary-500/10 hover:border-transparent hover:rounded'
               }
               onClick={() => setIsWalletModalOpen(false)}
             >
@@ -735,20 +880,20 @@ export default function Navbar() {
                 fill="currentColor"
                 aria-hidden="true"
               >
-                <path d="M799.86 166.31c.02 0 .04.02.08.06l57.69 57.7c.04.03.05.05.06.08a.12.12 0 010 .06c0 .03-.02.05-.06.09L569.93 512l287.7 287.7c.04.04.05.06.06.09a.12.12 0 010 .07c0 .02-.02.04-.06.08l-57.7 57.69c-.03.04-.05.05-.07.06a.12.12 0 01-.07 0c-.03 0-.05-.02-.09-.06L512 569.93l-287.7 287.7c-.04.04-.06.05-.09.06a.12.12 0 01-.07 0c-.02 0-.04-.02-.08-.06l-57.69-57.7c-.04-.03-.05-.05-.06-.07a.12.12 0 010-.07c0-.03.02-.05.06-.09L454.07 512l-287.7-287.7c-.04-.04-.05-.06-.06-.09a.12.12 0 010-.07c0-.02.02-.04.06-.08l57.7-57.69c.03-.04.05-.05.07-.06a.12.12 0 01.07 0c.03 0 .05.02.09.06L512 454.07l287.7-287.7c.04-.04.06-.05.09-.06a.12.12 0 01.07 0z"></path>
+                <path d="M799.86 166.31c.02 0 .04.02.08.06l57.69 57.7c.04.03.05.05.06.08a.12.12 0 010 .06c0 .03-.02.05-.06.09L569.93 512l287.7 287.7c.04.04.05.06.06.09a.12.12 0 010 .07c0 .02-.02.04-.06.08l-57.7 57.69c-.03.04-.05.05-.07.06a.12.12 0 01-.07 0c-.03 0-.05-.02-.09-.06L512 569.93l-287.7 287.7c-.04.04-.06.05-.09.06a.12.12 0 01-.07 0c-.02 0-.04-.02-.08-.06l-57.69-57.7c-.04-.03-.05.05-.06-.07a.12.12 0 010-.07c0-.03.02-.05.06-.09L454.07 512l-287.7-287.7c-.04-.04-.05-.06-.06-.09a.12.12 0 010-.07c0-.02.02-.04.06-.08l57.7-57.69c.03-.04.05-.05.07-.06a.12.12 0 01.07 0c.03 0 .05.02.09.06L512 454.07l287.7-287.7c.04-.04.06-.05.09-.06a.12.12 0 01.07 0z"></path>
               </svg>
             </Button>
           </div>
 
           <Flex flexDirection="col">
-            <Title className={`${isDark ? 'text-red-600' : 'text-red-700'} text-2xl`}>CONNECT TO WALLET</Title>
+            <Title className="text-primary-500 text-2xl">CONNECT TO WALLET</Title>
             <Image
               src={isDark ? fryLogo : fryLogoLight}
               className="logo_wallet mt-4 m-auto"
               alt="Fry logo"
               priority
             />
-            <div className={`h-0.5 w-full bg-gradient-to-r from-transparent via-red-500 to-transparent ${isDark ? '' : 'opacity-70'}`}></div>
+            <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-primary-500 to-transparent opacity-70"></div>
           </Flex>
 
           <Flex flexDirection="col" className="w-full gap-5 mt-10">
@@ -757,10 +902,10 @@ export default function Navbar() {
               return (
                 <div
                   key={`wallet ${index}`}
-                  className={`flex flex-row h-12 rounded-lg gap-8 w-full items-center px-3 py-8 border-2 ${
+                  className={`flex flex-row h-12 rounded-token-md gap-8 w-full items-center px-3 py-8 border-2 ${
                     isDark
-                      ? 'border-red-600 text-white hover:bg-red-600 hover:bg-opacity-10'
-                      : 'border-red-400 text-slate-900 hover:bg-red-50'
+                      ? 'border-primary-500 text-ink-primary hover:bg-primary-500/10'
+                      : 'border-primary-400 text-ink-primary hover:bg-primary-500/10'
                   }`}
                   onClick={async () => {
                     try {
@@ -898,7 +1043,7 @@ export default function Navbar() {
                 />
                 <div className="cursor-default">
                   {wallet.metadata.name} Wallet
-                  {alreadyConnected && <span className="ml-2 text-xs text-red-200">Connected</span>}
+                  {alreadyConnected && <span className="ml-2 text-xs text-primary-300">Connected</span>}
                 </div>
               </div>
             );

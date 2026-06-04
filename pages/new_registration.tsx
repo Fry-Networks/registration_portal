@@ -13,6 +13,7 @@ import ByodConvertModal from '../components/modals/ByodConvert';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
 import RegistrationModal from '../components/modals/registrations/RegistrationModal';
+import PageShell from '../components/PageShell';
 export default function NewRegistrationPage() {
   const router = useRouter();
   const [minerKey, setMinerKey] = useState('');
@@ -21,11 +22,7 @@ export default function NewRegistrationPage() {
   const { activeAccount } = useWallet();
   const isValid = /\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(minerKey);
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
-  useEffect(() => {
-    if (activeAccount && !session) {
-      router.push(`/signin?callbackUrl=${encodeURIComponent('/devices')}`);
-    }
-  }, [activeAccount, session, router]);
+
   
   const startRegistration = async () => {
     if (!activeAccount) {
@@ -69,19 +66,69 @@ export default function NewRegistrationPage() {
   }
 
   return (
-    <main className="p-4 md:p-10 mx-auto max-w-7xl">
-      <Flex className="mb-20" flexDirection='row' justifyContent='between' alignItems='center'>
-        <Title className='' >Create a new registration</Title>
-        <Button color="orange" onClick={convertByod}>Convert a BYOD license</Button>
-      </Flex>
-      <MessageUpdate updateSuccess={updateSuccess} />
-      <Flex flexDirection='col' justifyContent='center' alignItems='center'>
-        <TextInput className="mx-auto max-w-sm mb-4" placeholder='Miner-key' value={minerKey} onChange={(e) => setMinerKey(e.target.value)} />
-        <Button
-          disabled={!isValid}
-          onClick={startRegistration}
-        >Start registration</Button>
-      </Flex>
+    <PageShell title="New Registration" breadcrumb={true}>
+      <div className="max-w-xl mx-auto px-4 py-space-8">
+        {/* Step indicator */}
+        <div className="flex items-center justify-center mb-space-8">
+          <div className="flex items-center gap-space-2">
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 rounded-full bg-primary-500 text-ink flex items-center justify-center font-display font-bold text-sm shadow-token-glow">
+                1
+              </div>
+              <span className="text-xs text-primary-500 mt-1 font-medium">Enter Key</span>
+            </div>
+            <div className="w-12 h-0.5 bg-divider" />
+            <div className="flex flex-col items-center">
+              <div className="w-10 h-10 rounded-full bg-surface-strong border border-divider text-ink-muted flex items-center justify-center font-display font-bold text-sm">
+                2
+              </div>
+              <span className="text-xs text-ink-muted mt-1 font-medium">Register</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-surface-elevated border border-divider rounded-token-xl p-space-6 md:p-space-8 shadow-token-lg">
+          <div className="flex items-center justify-between mb-space-6">
+            <h1 className="text-2xl font-display font-bold text-ink">New Registration</h1>
+            <button
+              onClick={convertByod}
+              className="text-sm font-medium text-primary-500 hover:text-primary-400 transition"
+            >
+              Convert BYOD &rarr;
+            </button>
+          </div>
+
+          <MessageUpdate updateSuccess={updateSuccess} />
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-ink-secondary mb-1 block">
+                Miner Key
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. AEM-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                value={minerKey}
+                onChange={(e) => setMinerKey(e.target.value)}
+                className={`w-full bg-surface-strong border rounded-token-md px-4 py-3 text-ink font-mono text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition ${isValid ? 'border-divider' : minerKey ? 'border-error-500' : 'border-divider'}`}
+              />
+              {minerKey && !isValid && (
+                <p className="text-error-500 text-sm mt-1">
+                  Invalid miner key format.
+                </p>
+              )}
+            </div>
+
+            <button
+              disabled={!isValid}
+              onClick={startRegistration}
+              className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed text-ink px-6 py-3 rounded-token-md font-semibold transition shadow-token-glow"
+            >
+              Start Registration
+            </button>
+          </div>
+        </div>
+      </div>
 
       <RegistrationModal
         modalName='registration'
@@ -97,9 +144,7 @@ export default function NewRegistrationPage() {
           openModal('registration');
         }}
       />
-
-
-    </main>
+    </PageShell>
   );
 }
 

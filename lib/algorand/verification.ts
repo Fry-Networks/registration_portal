@@ -14,7 +14,7 @@ export async function verifyTransactionRequest({
   txId
 }: VerifyTransactionRequest): Promise<VERIFY_RESULT> {
   try {
-    const response = await fetch('api/algorand/verify-txn', {
+    const response = await fetch('/api/algorand/verify-txn', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

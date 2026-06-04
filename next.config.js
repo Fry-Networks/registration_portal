@@ -28,7 +28,26 @@ const nextConfig = {
   },
   // Next.js 15 configurations
   transpilePackages: ['@tremor/react'],
-  turbopack: {}
+  turbopack: {},
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+          { key: 'Expires', value: '0' },
+        ],
+      },
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Pragma', value: 'no-cache' },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { XIcon } from '@heroicons/react/outline';
 import { Button } from '@tremor/react';
 import { useRouter } from 'next/router';
 import { useTheme } from 'next-themes';
@@ -16,11 +17,13 @@ export interface PendingVirtualDevice {
 interface VirtualActivationBannerProps {
   devices: PendingVirtualDevice[];
   sessionAddress: string;
+  dismissKey?: string;
 }
 
 export default function VirtualActivationBanner({
   devices: initialDevices,
   sessionAddress,
+  dismissKey = 'virtualBannerDismissed',
 }: VirtualActivationBannerProps) {
   const [devices, setDevices] = useState<PendingVirtualDevice[]>(initialDevices);
   const [activatingKeys, setActivatingKeys] = useState<Set<string>>(new Set());
@@ -30,13 +33,27 @@ export default function VirtualActivationBanner({
   const [manualKey, setManualKey] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [manualError, setManualError] = useState('');
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setDismissed(sessionStorage.getItem(dismissKey) === 'true');
+    }
+  }, [dismissKey]);
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(dismissKey, 'true');
+    }
+  };
   const router = useRouter();
   const toast = useToastContext();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
   const { refresh: refreshFingerprint } = useFingerprintReady();
 
-  if (devices.length === 0 && !showManual) return null;
+  if (dismissed || (devices.length === 0 && !showManual)) return null;
 
   const activateSingle = async (miner_key: string) => {
     setActivatingKeys((prev) => new Set(prev).add(miner_key));
@@ -253,6 +270,14 @@ export default function VirtualActivationBanner({
   const mutedText = isDark ? 'text-purple-300/70' : 'text-purple-700/70';
 
   return (
+    <div className="relative">
+      <button
+        onClick={handleDismiss}
+        className={`absolute top-3 right-3 z-10 p-1.5 rounded-lg transition hover:bg-white/10 ${isDark ? 'text-white/60' : 'text-slate-500'}`}
+        aria-label="Dismiss"
+      >
+        <XIcon className="h-5 w-5" />
+      </button>
     <div className={`mx-2 sm:mx-20 mt-6 rounded-2xl border-2 p-5 ${cardBg}`}>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
@@ -399,6 +424,7 @@ export default function VirtualActivationBanner({
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

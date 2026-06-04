@@ -32,11 +32,11 @@ const VARIANT_THEMES: Record<
     glow: 'rgba(226,64,255,0.45)'
   },
   warning: {
-    gradient: 'from-amber-500/20 via-orange-500/10 to-amber-500/15',
-    accent: 'from-amber-400 via-orange-500 to-amber-300',
+    gradient: 'from-warning-500/20 via-primary-500/10 to-warning-500/15',
+    accent: 'from-warning-400 via-primary-500 to-warning-300',
     icon: ExclamationIcon,
-    chipBg: 'bg-amber-500/20 border-amber-300/40',
-    chipText: 'text-amber-100',
+    chipBg: 'bg-warning-500/20 border-warning-300/40',
+    chipText: 'text-warning-100',
     glow: 'rgba(251,191,36,0.45)'
   },
   error: {

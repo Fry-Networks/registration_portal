@@ -19,6 +19,10 @@ interface FloatingTotalsWidgetProps {
   estimatedFnode: number;
   estimatedTfry: number;
   legacyFryClaimedSnapshot?: number;
+  isError?: boolean;
+
+
+
 }
 
 const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
@@ -27,7 +31,8 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   claimCountdown,
   estimatedFnode,
   estimatedTfry,
-  legacyFryClaimedSnapshot
+  legacyFryClaimedSnapshot,
+  isError = false
 }) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
@@ -260,6 +265,14 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
     ];
   }, [totals?.totals]);
 
+  if (isError) {
+    return (
+      <div className="fixed bottom-4 right-4 rounded-lg p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+        <div className="text-red-800 dark:text-red-200 font-semibold">Unable to load rewards</div>
+        <div className="text-red-700 dark:text-red-300 text-sm">Please refresh the page if the problem persists.</div>
+      </div>
+    );
+  }
   if (!totals?.totals) return null;
 
   return (
@@ -321,10 +334,10 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                         </div>
                         {hasLegacySnapshot && (
                           <div className="mt-4">
-                            <div className={`rounded-2xl border px-4 py-3 text-sm shadow-inner ${isDark ? 'border-amber-400/70 bg-gradient-to-br from-amber-500/20 via-amber-400/10 to-transparent text-amber-100 shadow-amber-900/40' : 'border-amber-300 bg-gradient-to-br from-amber-100 via-amber-50 to-transparent text-amber-800 shadow-amber-200/60'}`}>
-                              <div className={`text-xs uppercase tracking-[0.3em] ${isDark ? 'text-amber-200/80' : 'text-amber-700'}`}>Legacy FRY 1.0</div>
-                              <div className={`mt-1 text-xl font-semibold tabular-nums ${isDark ? 'text-white' : 'text-amber-900'}`}>{fmt(legacySnapshot)} <span className={`text-sm font-normal ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>claimed</span></div>
-                              <p className={`mt-1 text-[0.7rem] ${isDark ? 'text-amber-100/80' : 'text-amber-700'}`}>Conversion to tFRY tool coming soon.</p>
+                            <div className={`rounded-2xl border px-4 py-3 text-sm shadow-inner ${isDark ? 'border-warning-400/70 bg-gradient-to-br from-warning-500/20 via-warning-400/10 to-transparent text-warning-100 shadow-warning-900/40' : 'border-warning-300 bg-gradient-to-br from-warning-100 via-warning-50 to-transparent text-warning-800 shadow-warning-200/60'}`}>
+                              <div className={`text-xs uppercase tracking-[0.3em] ${isDark ? 'text-warning-200/80' : 'text-warning-700'}`}>Legacy FRY 1.0</div>
+                              <div className={`mt-1 text-xl font-semibold tabular-nums ${isDark ? 'text-white' : 'text-warning-900'}`}>{fmt(legacySnapshot)} <span className={`text-sm font-normal ${isDark ? 'text-warning-200' : 'text-warning-700'}`}>claimed</span></div>
+                              <p className={`mt-1 text-[0.7rem] ${isDark ? 'text-warning-100/80' : 'text-warning-700'}`}>Conversion to tFRY tool coming soon.</p>
                             </div>
                           </div>
                         )}
@@ -522,7 +535,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                   <div>
                     FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
                   </div>
-                  <div className={`text-[0.6rem] ${isDark ? 'text-amber-200/90' : 'text-amber-700'}`}>
+                  <div className={`text-[0.6rem] ${isDark ? 'text-warning-200/90' : 'text-warning-700'}`}>
                     tFry (2681521901) is earned-only, not tradeable. Each tFry converts 1:1 into its product&rsquo;s token once that monetization tier goes live.
                   </div>
                 </div>
@@ -549,9 +562,9 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                       </div>
                     </div>
                     {hasLegacySnapshot && (
-                      <div className={`mt-3 rounded-xl border px-3 py-2 text-[0.7rem] ${isDark ? 'border-amber-400/50 bg-gradient-to-r from-amber-600/20 via-amber-400/10 to-transparent text-amber-100' : 'border-amber-300 bg-gradient-to-r from-amber-100 via-amber-50 to-transparent text-amber-800'}`}>
-                        <div className={`font-semibold ${isDark ? 'text-white' : 'text-amber-900'}`}>{fmt(legacySnapshot)} FRY 1.0 claimed</div>
-                        <div className={isDark ? 'text-amber-200/80' : 'text-amber-700'}>Conversion to tFry tool coming soon.</div>
+                      <div className={`mt-3 rounded-xl border px-3 py-2 text-[0.7rem] ${isDark ? 'border-warning-400/50 bg-gradient-to-r from-warning-600/20 via-warning-400/10 to-transparent text-warning-100' : 'border-warning-300 bg-gradient-to-r from-warning-100 via-warning-50 to-transparent text-warning-800'}`}>
+                        <div className={`font-semibold ${isDark ? 'text-white' : 'text-warning-900'}`}>{fmt(legacySnapshot)} FRY 1.0 claimed</div>
+                        <div className={isDark ? 'text-warning-200/80' : 'text-warning-700'}>Conversion to tFry tool coming soon.</div>
                       </div>
                     )}
                   </div>

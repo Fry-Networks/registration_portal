@@ -348,7 +348,7 @@ export default function FryConversionModal({
 
     if (isConverted) {
       try {
-        const response = await fetch('api/conversion/transfer_reward', {
+        const response = await fetch('/api/conversion/transfer_reward', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -635,23 +635,23 @@ export default function FryConversionModal({
             <div
               className={`mt-3 rounded-lg border p-3 text-sm ${
                 isDark
-                  ? 'border-amber-300/50 bg-amber-500/10 text-amber-50'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
+                  ? 'border-warning-300/50 bg-warning-500/10 text-warning-50'
+                  : 'border-warning-200 bg-warning-50 text-warning-800'
               }`}
             >
               {/* Surface a self-serve opt-in helper when conversion claims fail due to missing ASA opt-in. */}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="flex-1 space-y-2">
-                  <div className={isDark ? 'font-semibold text-amber-50' : 'font-semibold text-amber-900'}>
+                  <div className={isDark ? 'font-semibold text-warning-50' : 'font-semibold text-warning-900'}>
                     Opt in to {optInGuide.label} (ASA #{optInGuide.assetId}) to claim
                   </div>
-                  <p className={isDark ? 'text-amber-50/90' : 'text-amber-800'}>
+                  <p className={isDark ? 'text-warning-50/90' : 'text-warning-800'}>
                     Desktop: open Pera/Defly, search the ASA ID below, and opt in. Mobile: tap the scan
                     icon in your wallet and scan the QR to opt in instantly.
                   </p>
                   <div
                     className={`flex flex-wrap items-center gap-2 font-mono text-xs ${
-                      isDark ? 'text-amber-100' : 'text-amber-900'
+                      isDark ? 'text-warning-100' : 'text-warning-900'
                     }`}
                   >
                     ASA #{optInGuide.assetId}

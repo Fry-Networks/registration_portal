@@ -257,14 +257,13 @@ export default function PostSnapshotConversionModal({
     }
 
     try {
-      const response = await fetch('/api/conversion/get_fry_conversion', {
+      const response = await fetch('/api/conversion/get_post_snapshot', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          address: session.user.address,
-          convertType: '2485314946' // FRY 2.0 (doesn't matter for post-snapshot)
+          address: session.user.address
         })
       });
 
@@ -452,7 +451,7 @@ export default function PostSnapshotConversionModal({
               <RiCloseLine className="h-5 w-5 shrink-0" aria-hidden={true} />
             </button>
           </div>
-          <Title className={`mb-4 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+          <Title className={`mb-4 ${isDark ? 'text-warning-400' : 'text-warning-600'}`}>
             August 2025 FRY 1.0 Conversion
           </Title>
           
@@ -495,8 +494,8 @@ export default function PostSnapshotConversionModal({
           {postSnapshot && postSnapshot.eligible_fry1 > 0 && (
             <div className={`rounded-lg border p-4 mt-4 ${
               isDark 
-                ? 'border-amber-500/30 bg-amber-500/5' 
-                : 'border-amber-200 bg-amber-50'
+                ? 'border-warning-500/30 bg-warning-500/5' 
+                : 'border-warning-200 bg-warning-50'
             }`}>
               <p className={`mb-2 ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                 <strong>Eligible FRY 1.0: </strong>
@@ -518,9 +517,9 @@ export default function PostSnapshotConversionModal({
                   </p>
                   <Button
                     className={`bg-transparent ${
-                      isDark 
-                        ? 'text-white border-amber-500 hover:bg-amber-500/20 hover:border-amber-400' 
-                        : 'text-slate-900 border-amber-500 hover:bg-amber-50 hover:border-amber-600'
+                      isDark
+                        ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600'
+                        : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'
                     } ${isProcessing ? 'cursor-not-allowed opacity-50' : ''}`}
                     onClick={handleBurn}
                     disabled={isProcessing}
@@ -547,9 +546,9 @@ export default function PostSnapshotConversionModal({
                   </p>
                   <Button
                     className={`bg-transparent ${
-                      isDark 
-                        ? 'text-white border-green-500 hover:bg-green-500/20 hover:border-green-400' 
-                        : 'text-slate-900 border-green-500 hover:bg-green-50 hover:border-green-600'
+                      isDark
+                        ? 'text-white border-red-600 hover:bg-red-600 hover:border-red-600'
+                        : 'text-slate-900 border-red-600 hover:bg-red-50 hover:border-red-600'
                     } ${isProcessing ? 'cursor-not-allowed opacity-50' : ''}`}
                     onClick={handleClaim}
                     disabled={isProcessing}

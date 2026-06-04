@@ -34,7 +34,7 @@ const createFetcher = (refreshFingerprint: () => Promise<boolean>) => async (key
     const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-reward-summary', payload, timestamp);
     const clientToken = await getClientToken();
 
-    return fetch('api/rewards/get-reward-summary', {
+    return fetch('/api/rewards/get-reward-summary', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,5 +62,11 @@ export function useRewardSummary(miner_key?: string) {
     revalidateOnFocus: false,
     dedupingInterval: 30_000
   });
-  return swr;
+  return {
+    data: swr.data,
+    isLoading: swr.isLoading,
+    error: swr.error,
+    isError: Boolean(swr.error),
+    mutate: swr.mutate
+  };
 }

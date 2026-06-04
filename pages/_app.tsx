@@ -25,9 +25,24 @@ import { useWallet } from '@txnlab/use-wallet-react';
 import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from '../lib/wallet/manager';
 import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
 import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
+import PageErrorBoundary from '../components/PageErrorBoundary';
 import BrowserLockerWarning from '../components/BrowserLockerWarning';
 import SeasonalThemeProvider from '../app/seasonal-theme/SeasonalThemeProvider';
-import HolidayChrome from '../components/HolidayChrome'; // Global holiday overlay (snow/tint)
+import HolidayChrome from '../components/HolidayChrome';
+import WalletGate from '../components/WalletGate';
+import { JetBrains_Mono, Outfit } from 'next/font/google';
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
+const outfit = Outfit({
+  subsets: ['latin'],
+  variable: '--font-body',
+  display: 'swap',
+});
 
 interface MyAppProps extends AppProps {
   Component: NextPage;
@@ -35,19 +50,17 @@ interface MyAppProps extends AppProps {
 
 interface ProtectedComponentProps {
   Component: NextPage;
-  pageProps: any; // If you have a specific type for your pageProps, you can replace `any` with that.
+  pageProps: any;
 }
 
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
-
 export default function MyApp({ Component, pageProps }: MyAppProps) {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
   const router = useRouter();
 
-  // Allow announcements/notification tray on devices, history, and DIMO so the bell stays active where users expect it.
   const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history' || router.pathname === '/dimo';
   const showAnnouncementBanner = notificationsEnabled;
 
@@ -63,7 +76,6 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       }
     })();
 
-    // Initialize client token for API security
     (async () => {
       try {
         await getClientToken();
@@ -72,7 +84,6 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       }
     })();
 
-    // Ensure react-modal knows the app root for accessibility
     Modal.setAppElement?.('#__next');
 
     return () => {
@@ -82,7 +93,6 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   }, []);
 
   useEffect(() => {
-    // Safari hard-limits replaceState, so install the throttle as soon as we're on the client.
     installHistoryReplaceThrottle();
   }, []);
 
@@ -100,52 +110,55 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
     <ThemeProvider attribute="class" enableSystem defaultTheme="dark">
       <SeasonalThemeProvider>
         <ModalProvider>
-          {/* <WagmiProvider config={wagmiAdapter.wagmiConfig}>
-            <QueryClientProvider client={queryClient}> */}
-              <WalletProvider manager={walletManager}>
-                <SessionProvider session={pageProps.session}>
-                  <FingerprintProvider>
-                    <DevWalletProvider>
-                      <ToastProvider>
-                        <NotificationProvider isEnabled={notificationsEnabled}>
-                          <Navbar />
-                          {/* Holiday overlay lives at the app shell so all pages inherit festive chrome when active. */}
-                          <HolidayChrome />
-                          <div className="relative flex flex-col">
-                            {/* Block incompatible in-app browsers first, then surface extension warnings if history is blocked. */}
-                            <PeraInAppBrowserBlocker />
-                            <BrowserLockerWarning />
-                            {showAnnouncementBanner && <AnnouncementBanner />}
-                            <Head>
-                              <title>Fry Networks Dashboard</title>
-                              <meta
-                                name="description"
-                                content="Manage Fry Networks devices, rewards, staking, and credentials."
-                              />
-                              <meta name="application-name" content="Fry Networks Dashboard" />
-                              <link
-                                rel="icon"
-                                href={process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png'}
-                              />
-                            </Head>
-                            <div
-                              id="main"
-                              className="w-full min-h-screen"
-                            >
+          <WalletProvider manager={walletManager}>
+            <SessionProvider session={pageProps.session}>
+              <FingerprintProvider>
+                <DevWalletProvider>
+                  <ToastProvider>
+                    <NotificationProvider isEnabled={notificationsEnabled}>
+                      <Navbar />
+                      <HolidayChrome />
+                      <div className={`${jetbrainsMono.variable} ${outfit.variable} relative flex flex-col`}>
+                        <PeraInAppBrowserBlocker />
+                        <BrowserLockerWarning />
+                        {showAnnouncementBanner && <AnnouncementBanner />}
+                        <Head>
+                          <title>Fry Networks Dashboard</title>
+                          <meta
+                            name="description"
+                            content="Manage Fry Networks devices, rewards, staking, and credentials."
+                          />
+                          <meta name="application-name" content="Fry Networks Dashboard" />
+                          <meta property="og:title" content="Fry Networks Dashboard" />
+                          <meta property="og:description" content="Manage Fry Networks devices, rewards, staking, and credentials." />
+                          <meta property="og:image" content="https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png" />
+                          <meta property="og:url" content="https://dashboard.frynetworks.com" />
+                          <meta property="og:type" content="website" />
+                          <link
+                            rel="icon"
+                            href={process.env.NEXT_PUBLIC_DAPP_ICON_URL || 'https://static.wixstatic.com/media/b2ad32_3c66813c76c34794879d1a284bc90843~mv2.png'}
+                          />
+                        </Head>
+                        <div
+                          id="main"
+                          className="w-full min-h-screen"
+                        >
+                          <PageErrorBoundary>
+                            <WalletGate>
                               <ProtectedComponent
                                 Component={Component}
                                 pageProps={pageProps}
                               />
-                            </div>
-                          </div>
-                        </NotificationProvider>
-                      </ToastProvider>
-                    </DevWalletProvider>
-                  </FingerprintProvider>
-                </SessionProvider>
-              </WalletProvider>
-            {/* </QueryClientProvider>
-          </WagmiProvider> */}
+                            </WalletGate>
+                          </PageErrorBoundary>
+                        </div>
+                      </div>
+                    </NotificationProvider>
+                  </ToastProvider>
+                </DevWalletProvider>
+              </FingerprintProvider>
+            </SessionProvider>
+          </WalletProvider>
         </ModalProvider>
       </SeasonalThemeProvider>
     </ThemeProvider>
@@ -300,7 +313,7 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
             })
           );
         } finally {
-          await signOut({ redirect: true, callbackUrl: '/signin' });
+          await signOut({ redirect: false });
         }
       })();
     } else {
@@ -358,4 +371,4 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   }
 
   return <Component {...pageProps} />;
-};
+}

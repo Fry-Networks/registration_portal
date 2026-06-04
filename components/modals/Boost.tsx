@@ -170,7 +170,7 @@ export default function BoostModal({
       const timestamp = Math.floor(Date.now() / 1000);
       const signature = await generateRequestSignatureAsync('POST', '/api/rewards/boost', body, timestamp);
       
-      const response = await fetch('api/rewards/boost', {
+      const response = await fetch('/api/rewards/boost', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -313,7 +313,7 @@ export default function BoostModal({
         className="z-[180]"
       >
         <DialogPanel
-          className={`sm:max-w-xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
+          className={`max-w-full sm:max-w-xl min-h-[100dvh] sm:min-h-0 rounded-none sm:rounded-2xl ${isDark ? 'bg-gray-900 text-gray-100' : 'bg-white text-slate-900'}`}
           style={{ marginTop: 'calc(var(--navbar-height, 64px) + 12px)' }}
         >
           <div className="absolute right-0 top-0 pr-3 pt-3">

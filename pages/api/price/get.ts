@@ -4,10 +4,10 @@ import { authOptions } from '../auth/[...nextauth]';
 import { getFRYPrice } from '../../../lib/price';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Require auth to reduce abuse; user session is already required for most pages
+  // Soft auth gate: return empty prices for unauthenticated (token prices are public data)
   const session = await getServerSession(req, res, authOptions);
   if (!session || !session.user) {
-    res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'Unauthorized' });
+    res.status(200).json({ success: true, prices: {} });
     return;
   }
 

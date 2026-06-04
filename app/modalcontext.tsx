@@ -20,6 +20,7 @@ export const ModalProvider: React.FC<{ children: React.ReactNode }> = ({
     changeName: false,
     addDevice: false,
     stake: false,
+    stakeVerification: false,
     withdraw: false,
     boost: false,
     claim: false,

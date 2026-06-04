@@ -101,9 +101,9 @@ export default function SignIn({ signed }: SignInProps) {
           if (res?.error) {
             console.error('NextAuth signIn error:', res.error);
           } else if (res?.url) {
-            await router.push(res.url);
+            await router.replace(res.url);
           } else {
-            await router.push(callbackUrl);
+            await router.replace(callbackUrl);
           }
         } else {
           throw new Error('Failed to sign the transaction');
@@ -260,9 +260,9 @@ export default function SignIn({ signed }: SignInProps) {
             message: res.error
           });
         } else if (res?.url) {
-          await router.push(res.url);
+          await router.replace(res.url);
         } else {
-          await router.push(callbackUrl);
+          await router.replace(callbackUrl);
         }
       } catch (error) {
         const friendlyMessage =
@@ -306,7 +306,7 @@ export default function SignIn({ signed }: SignInProps) {
       return;
     }
 
-    const result = await fetch('api/check-user', {
+    const result = await fetch('/api/check-user', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -327,11 +327,6 @@ export default function SignIn({ signed }: SignInProps) {
     checkUser();
   }, [checkUser]);
 
-  useEffect(() => {
-    if (session && session.user && !session.user.email) {
-      signOut();
-    }
-  }, [session]);
 
   useEffect(() => {
     if (status !== 'authenticated' || !session?.user?.address) return;

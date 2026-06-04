@@ -134,7 +134,7 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                 )}
 
                 {isLegacyUnlock && (
-                    <Callout className="mt-4 mb-4" title="Legacy FRY 1.0 stake" icon={CheckCircleIcon} color="amber">
+                    <Callout className="mt-4 mb-4" title="Legacy FRY 1.0 stake" icon={CheckCircleIcon} color="rose">
                         This miner is still staked with the retired FRY 1.0 token. Withdraw below to reclaim the funds,
                         then re-stake with FRY 2.0 to restore verification rewards.
                     </Callout>
@@ -148,10 +148,10 @@ export default function WithdrawStakeVerification({ modalName, miner, staked }: 
                         Withdrawing your stake will remove your miner from the verification list. You will lose the verification multiplier and only earn base rewards until you re-stake with FRY 2.0.
                     </p>
 
-                    <label className="mt-3 flex items-center gap-2 text-sm text-[#3c1e00] dark:text-amber-100">
+                    <label className="mt-3 flex items-center gap-2 text-sm text-[#3c1e00] dark:text-warning-100">
                         <input
                             type="checkbox"
-                            className="h-4 w-4 rounded border-amber-700 text-amber-700 focus:ring-amber-500 dark:border-amber-200 dark:text-amber-200"
+                            className="h-4 w-4 rounded border-warning-700 text-warning-700 focus:ring-warning-500 dark:border-warning-200 dark:text-warning-200"
                             checked={acknowledged}
                             onChange={(event) => setAcknowledged(event.target.checked)}
                         />

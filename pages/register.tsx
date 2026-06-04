@@ -1,5 +1,8 @@
-﻿import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import PageShell from "../components/PageShell";
+import WizardProgressBar from '../components/WizardProgressBar';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import Sidebar from '../components/Sidebar';
 import { ChevronRightIcon } from '@heroicons/react/outline';
 import { Device, Product } from '../lib/types';
@@ -36,16 +39,21 @@ import switchbotLogo from '../assets/portals/switchbot.png';
 import tapoLogo from '../assets/portals/tapo.png';
 import tempestLogo from '../assets/portals/tempest.png';
 import weatherxmLogo from '../assets/portals/weatherxm.png';
-
 import * as h3 from 'h3-js';
 import { isValidCell } from "h3-js";
 import dynamic from 'next/dynamic';
 import mapboxgl, { LngLat, Map } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { deviceValidatorRegistry } from '../lib/validators';
-const MapboxAutocomplete = dynamic(() => import('@mapbox/search-js-react').then(mod => ({ default: mod.SearchBox })), { ssr: false });
-const HexMap = dynamic(() => import('../components/HexMap'), { ssr: false });
-mapboxgl.accessToken ='REDACTED_ROTATE_ME';
+const MapboxAutocomplete = dynamic(() => import('@mapbox/search-js-react').then(mod => ({
+  default: mod.SearchBox
+})), {
+  ssr: false
+});
+const HexMap = dynamic(() => import('../components/HexMap'), {
+  ssr: false
+});
+mapboxgl.accessToken = 'REDACTED_ROTATE_ME';
 
 // =============================
 // Regexes & Validation Helpers
@@ -56,19 +64,20 @@ mapboxgl.accessToken ='REDACTED_ROTATE_ME';
 export const MAC_ADDRESS_REGEX = /^(?:[0-9A-F]{2}[:-]){5}[0-9A-F]{2}$/i;
 export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 export const NAME_REGEX = /^[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F' \-\.]{1,64}$/; // letters + accents + ' - .
-export const NICKNAME_REGEX = /^.{0,64}$/;                     // optional, up to 64
+export const NICKNAME_REGEX = /^.{0,64}$/; // optional, up to 64
 export const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 export const ALGO_ADDRESS_REGEX = /^(?:[A-Z2-7]{58}|[A-Z2-7]{59})$/; // Algorand address (58 or 59 chars)
-export const IMEI_REGEX = /^\d{15}$/;                          // 15 digits
-export const HEX_STRING_16PLUS = /^[A-Fa-f0-9]{16,}$/;         // token/secret (>=16 hex) - default
-export const DEVICE_ID_REGEX = /^[A-Za-z0-9:_-]{3,64}$/;       // generic device ID
+export const IMEI_REGEX = /^\d{15}$/; // 15 digits
+export const HEX_STRING_16PLUS = /^[A-Fa-f0-9]{16,}$/; // token/secret (>=16 hex) - default
+export const DEVICE_ID_REGEX = /^[A-Za-z0-9:_-]{3,64}$/; // generic device ID
 export const HTTP_URL_REGEX = /^https?:\/\/[^\s]+$/i;
-export const USERNAME_REGEX = /^\S.{0,63}$/;                   // at least 1 non-space
-export const PASSWORD_REGEX = /^.{6,}$/;                       // 6+ any chars
+export const USERNAME_REGEX = /^\S.{0,63}$/; // at least 1 non-space
+export const PASSWORD_REGEX = /^.{6,}$/; // 6+ any chars
 export const STATION_ID_REGEX = /^[A-Za-z0-9_-]{1,64}$/;
-export const API_KEY_REGEX = /^[A-Za-z0-9_\-]{16,}$/;          // lenient (hex/base64url-like)
+export const API_KEY_REGEX = /^[A-Za-z0-9_\-]{16,}$/; // lenient (hex/base64url-like)
 export const RTSP_URL_REGEX = /^rtsps?:\/\/[^\s]+$/i;
-export const GMCMAP_ID_REGEX = /^\d{3,9}$/;                    // numeric id
+export const GMCMAP_ID_REGEX = /^\d{3,12}$/; // numeric id
+export const DEVICE_EUI_REGEX = /^[A-Fa-f0-9]{16}$/; // SenseCAP LoRaWAN DevEUI
 export const LAT_REGEX = /^-?([1-8]?\d(\.\d+)?|90(\.0+)?)$/;
 export const LNG_REGEX = /^-?(180(\.0+)?|1[0-7]\d(\.\d+)?|\d{1,2}(\.\d+)?)$/;
 
@@ -81,7 +90,8 @@ export const FIELD_REGEX: Record<string, RegExp> = {
   secret: HEX_STRING_16PLUS,
   deviceId: DEVICE_ID_REGEX,
   serverUrl: HTTP_URL_REGEX,
-  auth_key: HEX_STRING_16PLUS,   // legacy; not used by Shelly anymore
+  auth_key: HEX_STRING_16PLUS,
+  // legacy; not used by Shelly anymore
   api_key: API_KEY_REGEX,
   username: USERNAME_REGEX,
   password: PASSWORD_REGEX,
@@ -89,8 +99,8 @@ export const FIELD_REGEX: Record<string, RegExp> = {
   rtsp_url: RTSP_URL_REGEX,
   mac_address: MAC_ADDRESS_REGEX,
   device_mac: MAC_ADDRESS_REGEX,
+  device_eui: DEVICE_EUI_REGEX,
   gmcmap_id: GMCMAP_ID_REGEX,
-
   // Device Info / Wallet / Map
   email: EMAIL_REGEX,
   firstName: NAME_REGEX,
@@ -98,7 +108,7 @@ export const FIELD_REGEX: Record<string, RegExp> = {
   nickname: NICKNAME_REGEX,
   reward_wallet: ALGO_ADDRESS_REGEX,
   latitude: LAT_REGEX,
-  longitude: LNG_REGEX,
+  longitude: LNG_REGEX
 };
 
 // Optional human hints (global)
@@ -115,35 +125,33 @@ export const FIELD_HINT: Record<string, string> = {
   rtsp_url: 'Example: rtsp://user:pass@203.0.113.10:554/stream — use the device\'s public IP (not a private LAN IP) and ensure the port is forwarded to that device. Include protocol (rtsp:// or rtsps://), host, port and path.',
   mac_address: 'Example: AA:BB:CC:DD:EE:FF',
   device_mac: 'Example: AA:BB:CC:DD:EE:FF',
-  gmcmap_id: '3–9 digits',
+  device_eui: '16 hex characters (LoRaWAN DevEUI)',
+  gmcmap_id: '3–12 digits',
   email: 'example@domain.tld',
   firstName: 'Only letters, accents, hyphen, apostrophe, dot',
   lastName: 'Only letters, accents, hyphen, apostrophe, dot',
   reward_wallet: '58-character string (Algorand address)',
   latitude: '–90 to 90',
-  longitude: '–180 to 180',
+  longitude: '–180 to 180'
 };
 
 // --- Subtype-specific regex overrides ---
 // Only applied when that subtype is selected.
-const SWITCHBOT_TOKEN_REGEX = /^[A-Za-z0-9]{96}$/;      // exactly 96 alnum
-const SWITCHBOT_SECRET_REGEX = /^[A-Za-z0-9]{32}$/;     // exactly 32 alnum
-const SWITCHBOT_DEVICE_ID_REGEX = /^[A-Fa-f0-9]{12}$/;  // e.g., "404CCAA60FFA"
+const SWITCHBOT_TOKEN_REGEX = /^[A-Za-z0-9]{96}$/; // exactly 96 alnum
+const SWITCHBOT_SECRET_REGEX = /^[A-Za-z0-9]{32}$/; // exactly 32 alnum
+const SWITCHBOT_DEVICE_ID_REGEX = /^[A-Fa-f0-9]{12}$/; // e.g., "404CCAA60FFA"
 
 const AWAIR_TOKEN_REGEX = /^[A-Za-z0-9_-]{32,128}$/;
-const AWAIR_DEVICE_ID_REGEX = /^\d{3,12}$/;             // often numeric IDs
+const AWAIR_DEVICE_ID_REGEX = /^\d{3,12}$/; // often numeric IDs
 
 const ATMOTUBE_TOKEN_REGEX = /^[A-Za-z0-9_-]{16,128}$/;
 const ATMOTUBE_DEVICE_ID_REGEX = /^[A-Za-z0-9:_-]{3,64}$/;
-
 const KAITERRA_TOKEN_REGEX = /^[A-Za-z0-9]{32,128}$/;
 const KAITERRA_DEVICE_ID_REGEX = /^[A-Za-z0-9:_-]{3,64}$/;
-
 const TEMPEST_TOKEN_REGEX = /^[A-Za-z0-9]{16,64}$/;
-
-const SHELLY_AUTH_KEY_REGEX = /^[A-Za-z0-9]{92}$/;                        // exactly 92 alphanumeric
+const SHELLY_AUTH_KEY_REGEX = /^[A-Za-z0-9]{92}$/; // exactly 92 alphanumeric
 const SHELLY_SERVER_URL_REGEX = /^https:\/\/shelly[^\s/]*\.shelly\.cloud$/i; // starts https://shelly-*** ends .shelly.cloud (no path)
-const SHELLY_DEVICE_ID_REGEX = /^[A-Fa-f0-9]{12}$/;                      // MAC w/o colons
+const SHELLY_DEVICE_ID_REGEX = /^[A-Fa-f0-9]{12}$/; // MAC w/o colons
 
 // keys we override per subtype
 type SubtypeFieldKey = 'token' | 'secret' | 'deviceId' | 'serverUrl' | 'auth_key';
@@ -153,28 +161,28 @@ const REGEX_BY_SUBTYPE: Record<string, Partial<Record<SubtypeFieldKey, RegExp>>>
   switchbot: {
     token: SWITCHBOT_TOKEN_REGEX,
     secret: SWITCHBOT_SECRET_REGEX,
-    deviceId: SWITCHBOT_DEVICE_ID_REGEX,
+    deviceId: SWITCHBOT_DEVICE_ID_REGEX
   },
   awair: {
     token: AWAIR_TOKEN_REGEX,
-    deviceId: AWAIR_DEVICE_ID_REGEX,
+    deviceId: AWAIR_DEVICE_ID_REGEX
   },
   atmotube: {
     token: ATMOTUBE_TOKEN_REGEX,
-    deviceId: ATMOTUBE_DEVICE_ID_REGEX,
+    deviceId: ATMOTUBE_DEVICE_ID_REGEX
   },
   kaiterra: {
     token: KAITERRA_TOKEN_REGEX,
-    deviceId: KAITERRA_DEVICE_ID_REGEX,
+    deviceId: KAITERRA_DEVICE_ID_REGEX
   },
   tempest: {
-    token: TEMPEST_TOKEN_REGEX,
+    token: TEMPEST_TOKEN_REGEX
   },
   shelly: {
     auth_key: SHELLY_AUTH_KEY_REGEX,
     serverUrl: SHELLY_SERVER_URL_REGEX,
-    deviceId: SHELLY_DEVICE_ID_REGEX,
-  },
+    deviceId: SHELLY_DEVICE_ID_REGEX
+  }
 };
 
 // Optional: subtype-specific hints for overrides
@@ -182,35 +190,34 @@ const HINTS_BY_SUBTYPE: Record<string, Partial<Record<SubtypeFieldKey, string>>>
   switchbot: {
     token: 'Exactly 96 alphanumeric characters',
     secret: 'Exactly 32 alphanumeric characters',
-    deviceId: '12 hex characters (e.g., 404CCAA60FFA)',
+    deviceId: '12 hex characters (e.g., 404CCAA60FFA)'
   },
   awair: {
     token: '32–128 characters (letters, digits, _ or -)',
-    deviceId: 'Numeric ID (3–12 digits)',
+    deviceId: 'Numeric ID (3–12 digits)'
   },
   atmotube: {
     token: '16–128 characters (letters, digits, _ or -)',
-    deviceId: 'Device ID (3–64: letters/digits/_-:)',
+    deviceId: 'Device ID (3–64: letters/digits/_-:)'
   },
   kaiterra: {
     token: '32–128 alphanumeric characters',
-    deviceId: 'Device ID (3–64: letters/digits/_-:)',
+    deviceId: 'Device ID (3–64: letters/digits/_-:)'
   },
   tempest: {
-    token: '16–64 alphanumeric characters',
+    token: '16–64 alphanumeric characters'
   },
   shelly: {
     auth_key: 'Exactly 92 alphanumeric characters',
     serverUrl: 'Must be like https://shelly-***.shelly.cloud',
-    deviceId: '12 hex characters (MAC without colons)',
-  },
+    deviceId: '12 hex characters (MAC without colons)'
+  }
 };
 // --- formatters ---
 function formatMacWithColons(raw: string): string {
   const hex = (raw || '').replace(/[^A-Fa-f0-9]/g, '').toUpperCase().slice(0, 12);
   return (hex.match(/.{1,2}/g) || []).join(':');
 }
-
 function sanitizeImei(raw: string): string {
   return (raw || '').replace(/\D/g, '').slice(0, 15);
 }
@@ -231,7 +238,6 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
   node: 'Node Portal',
   aem: 'AI Edge Miner Portal'
 };
-
 export const FIELD_LABELS: Record<string, string> = {
   imei: 'IMEI',
   token: 'Token',
@@ -252,80 +258,205 @@ export const FIELD_LABELS: Record<string, string> = {
   IP: 'Public IP Address',
   email: 'Email',
   device_mac: 'Device MAC',
+  device_eui: 'Device EUI',
   client_id: 'Client ID',
   client_secret: 'Client Secret',
   sku: 'Model / SKU',
   pool_id: 'Pool ID',
+  access_token: 'Access Token',
+  refresh_token: 'Refresh Token',
+  device_sn: 'Device Serial Number'
 };
-
-export const PORTAL_SUBTYPES: Record<string, { id: string; name: string; sub_types?: string[] }[]> = {
-  air: [
-    { id: 'ambient', name: 'Ambient', sub_types: ['api_key'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key'] },
-    { id: 'pebble', name: 'Pebble', sub_types: ['imei'] },
-    { id: 'airthings', name: 'Airthings', sub_types: ['client_id', 'client_secret'] },
-    { id: 'purpleair', name: 'PurpleAir', sub_types: ['sensorId', 'readKey'] },
-    { id: 'awair', name: 'Awair', sub_types: ['token', 'deviceId'] },
-    { id: 'kaiterra', name: 'Kaiterra', sub_types: ['api_key', 'deviceId'] },
-    { id: 'atmotube', name: 'Atmotube', sub_types: ['token', 'deviceId'] },
-    { id: 'govee', name: 'Govee', sub_types: ['api_key', 'deviceId', 'sku'] },
-    { id: 'nrf', name: 'NRF', sub_types: ['token', 'deviceId'] },
-    { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
-  ],
-  energy: [
-    { id: 'switchbot', name: 'SwitchBot', sub_types: ['token', 'secret', 'deviceId'] },
-    { id: 'shelly', name: 'Shelly', sub_types: ['serverUrl', 'auth_key', 'deviceId'] },
-    { id: 'tapo', name: 'TP-Link Tapo', sub_types: ['username', 'password', 'IP'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key']}
-  ],
-  weather: [
-    { id: 'ambient', name: 'Ambient', sub_types: ['api_key', 'device_mac'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key', 'device_mac'] },
-    { id: 'misol', name: 'Misol', sub_types: ['app_key', 'api_key', 'device_mac'] },
-    { id: 'froggit', name: 'Froggit', sub_types: ['app_key', 'api_key', 'device_mac'] },
-    { id: 'weather-xm', name: 'Weather-XM', sub_types: ['username', 'password'] },
-    { id: 'tempest', name: 'Tempest', sub_types: ['station', 'token'] },
-    { id: 'lacrosse', name: 'LaCrosse', sub_types: ['email', 'password'] },
-    { id: 'sensecap', name: 'SenseCAP', sub_types: ['token', 'api_key', 'deviceId'] }
-  ],
-  water: [
-    { id: 'iopool', name: 'Iopool', sub_types: ['api_key', 'pool_id'] },
-    { id: 'ecowitt', name: 'Ecowitt', sub_types: ['app_key', 'api_key', 'device_mac'] },
-    { id: 'ambient', name: 'Ambient', sub_types: ['api_key', 'device_mac'] },
-    { id: 'misol', name: 'Misol', sub_types: ['app_key', 'api_key', 'device_mac'] },
-    { id: 'froggit', name: 'Froggit', sub_types: ['app_key', 'api_key', 'device_mac'] }
-  ],
-  camera: [
-    { id: 'rtsp', name: 'RTSP', sub_types: ['rtsp_url'] },
-    { id: 'tapo-cam', name: 'TP-Link Tapo', sub_types: ['rtsp_url'] },
-    { id: 'ring', name: 'Ring', sub_types: ['email', 'password'] },
-    { id: 'nest', name: 'Google Nest', sub_types: ['email', 'password'] },
-    { id: 'arlo', name: 'Arlo', sub_types: ['email', 'password'] }
-  ],
-  hardware: [{ id: 'hardware', name: 'MAC Address', sub_types: ['mac_address'] }],
-  node: [{ id: 'node', name: 'MAC Address', sub_types: ['mac_address'] }],
-  aem: [{ id: 'aem', name: 'MAC Address', sub_types: ['mac_address'] }],
-  radiation: [{ id: 'GMCMap', name: 'GMCMap', sub_types: ['gmcmap_id'] }]
+export const PORTAL_SUBTYPES: Record<string, {
+  id: string;
+  name: string;
+  sub_types?: string[];
+}[]> = {
+  air: [{
+    id: 'ambient',
+    name: 'Ambient',
+    sub_types: ['api_key', 'device_mac']
+  }, {
+    id: 'ecowitt',
+    name: 'Ecowitt',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'pebble',
+    name: 'Pebble',
+    sub_types: ['imei']
+  }, {
+    id: 'airthings',
+    name: 'Airthings',
+    sub_types: ['client_id', 'client_secret']
+  }, {
+    id: 'purpleair',
+    name: 'PurpleAir',
+    sub_types: ['sensorId', 'readKey']
+  }, {
+    id: 'awair',
+    name: 'Awair',
+    sub_types: ['token', 'deviceId']
+  }, {
+    id: 'kaiterra',
+    name: 'Kaiterra',
+    sub_types: ['api_key', 'deviceId']
+  }, {
+    id: 'atmotube',
+    name: 'Atmotube',
+    sub_types: ['token', 'deviceId']
+  }, {
+    id: 'govee',
+    name: 'Govee',
+    sub_types: ['api_key', 'deviceId', 'sku']
+  }, {
+    id: 'nrf',
+    name: 'nRF Cloud',
+    sub_types: ['api_key', 'deviceId']
+  }, {
+    id: 'sensecap',
+    name: 'SenseCAP',
+    sub_types: ['username', 'password', 'device_eui']
+  }],
+  energy: [{
+    id: 'switchbot',
+    name: 'SwitchBot',
+    sub_types: ['token', 'secret', 'deviceId']
+  }, {
+    id: 'shelly',
+    name: 'Shelly',
+    sub_types: ['serverUrl', 'auth_key', 'deviceId']
+  }, {
+    id: 'tapo',
+    name: 'TP-Link Tapo',
+    sub_types: ['username', 'password', 'IP']
+  }, {
+    id: 'ecowitt',
+    name: 'Ecowitt',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }],
+  weather: [{
+    id: 'ambient',
+    name: 'Ambient',
+    sub_types: ['api_key', 'device_mac']
+  }, {
+    id: 'ecowitt',
+    name: 'Ecowitt',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'misol',
+    name: 'Misol',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'froggit',
+    name: 'Froggit',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'weather-xm',
+    name: 'Weather-XM',
+    sub_types: ['username', 'password']
+  }, {
+    id: 'tempest',
+    name: 'Tempest',
+    sub_types: ['station', 'token']
+  }, {
+    id: 'lacrosse',
+    name: 'LaCrosse',
+    sub_types: ['email', 'password']
+  }, {
+    id: 'sensecap',
+    name: 'SenseCAP',
+    sub_types: ['username', 'password', 'device_eui']
+  }],
+  water: [{
+    id: 'iopool',
+    name: 'Iopool',
+    sub_types: ['api_key', 'pool_id']
+  }, {
+    id: 'ecowitt',
+    name: 'Ecowitt',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'ambient',
+    name: 'Ambient',
+    sub_types: ['api_key', 'device_mac']
+  }, {
+    id: 'misol',
+    name: 'Misol',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }, {
+    id: 'froggit',
+    name: 'Froggit',
+    sub_types: ['app_key', 'api_key', 'device_mac']
+  }],
+  camera: [{
+    id: 'rtsp',
+    name: 'RTSP',
+    sub_types: ['rtsp_url']
+  }, {
+    id: 'tapo-cam',
+    name: 'TP-Link Tapo',
+    sub_types: ['rtsp_url']
+  }, {
+    id: 'eufy',
+    name: 'Eufy Camera',
+    sub_types: ['email', 'password']
+  }, {
+    id: 'eufy-doorbell',
+    name: 'Eufy Doorbell',
+    sub_types: ['email', 'password']
+  }, {
+    id: 'ring',
+    name: 'Ring',
+    sub_types: ['email', 'password']
+  }, {
+    id: 'nest',
+    name: 'Google Nest',
+    sub_types: ['access_token', 'refresh_token']
+  }, {
+    id: 'arlo',
+    name: 'Arlo',
+    sub_types: ['email', 'password']
+  }],
+  hardware: [{
+    id: 'hardware',
+    name: 'MAC Address',
+    sub_types: ['mac_address']
+  }],
+  node: [{
+    id: 'node',
+    name: 'MAC Address',
+    sub_types: ['mac_address']
+  }],
+  aem: [{
+    id: 'aem',
+    name: 'MAC Address',
+    sub_types: ['mac_address']
+  }],
+  radiation: [{
+    id: 'GMCMap',
+    name: 'GMCMap',
+    sub_types: ['gmcmap_id']
+  }]
 };
-
 export const portalKeyFromMiner = (mk?: string) => {
   if (!mk) return '';
   const minerType = String(mk).split('-')[0];
-
   if (['OHAQM', 'IHAQM', 'ILAQM', 'IMAQM', 'OMAQM'].includes(minerType)) return 'air';
   if (['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'].includes(minerType)) return 'camera';
   if (['HWM', 'LWM'].includes(minerType)) return 'weather';
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
-  if (minerType === 'IRM') return 'radiation'; 
+  if (minerType === 'IRM') return 'radiation';
   if (['IDM', 'ODM', 'ISM', 'OSM', 'BM'].includes(minerType)) return 'hardware';
   if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return 'node';
-  if (minerType === 'AEM') return 'aem'; 
-
+  if (minerType === 'AEM') return 'aem';
   return '';
 };
-
-export default function RegisterPage({ products = [] }: { products?: Product[] }) {
+export default function RegisterPage({
+  products = []
+}: {
+  products?: Product[];
+}) {
   const router = useRouter();
   type NextRoute = Parameters<typeof router.push>[0];
   const [displayedHex, setDisplayedHex] = useState<string | null>(null);
@@ -335,15 +466,19 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
   const [deviceStatus, setDeviceStatus] = useState(false);
   const [locationStatus, setLocationStatus] = useState(false);
   const [walletStatus, setWalletStatus] = useState(false);
-  const { minerKey, clickable, type, section } = router.query;
+  const {
+    minerKey,
+    clickable,
+    type,
+    section
+  } = router.query;
   const isEditingExisting = useMemo(() => {
     if (typeof clickable === 'string') {
       const normalized = clickable.toLowerCase();
       return normalized === 'true' || normalized === '1';
     }
-
     if (Array.isArray(clickable)) {
-      return clickable.some((value) => {
+      return clickable.some(value => {
         if (typeof value !== 'string') return false;
         const normalized = value.toLowerCase();
         return normalized === 'true' || normalized === '1';
@@ -363,7 +498,6 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     if (Array.isArray(candidate) && candidate.length > 0) return candidate[0];
     return undefined;
   }, [minerKey, router.query?.minerKey, router.query?.miner_key]);
-
   useEffect(() => {
     if (!router.isReady) return;
     const sectionParam = Array.isArray(section) ? section[0] : section;
@@ -388,24 +522,26 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
   const [product, setProduct] = useState<Product | undefined>(undefined);
   const productsSafe = Array.isArray(products) ? products : [];
   const toast = useToastContext();
-  const { data: session, status: sessionStatus } = useSession();
-  const initLogRef = useRef({ missingKey: false, unauth: false, missingAddress: false });
-  const { resolvedTheme } = useTheme();
+  const {
+    data: session,
+    status: sessionStatus
+  } = useSession();
+  const initLogRef = useRef({
+    missingKey: false,
+    unauth: false,
+    missingAddress: false
+  });
+  const {
+    resolvedTheme
+  } = useTheme();
   const isDark = resolvedTheme !== 'light';
-  const pageBgClass = isDark ? 'bg-gray-950 text-white' : 'bg-slate-50 text-slate-900';
-  const panelClass = isDark
-    ? 'rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4 md:p-5'
-    : 'rounded-2xl border border-slate-200 bg-white shadow-sm p-4 md:p-5';
-  const panelSlimClass = isDark
-    ? 'rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-1 md:p-2 w-full h-full flex flex-col'
-    : 'rounded-2xl border border-slate-200 bg-white shadow-sm p-1 md:p-2 w-full h-full flex flex-col';
-  const labelClass = isDark ? 'block text-sm mb-1 text-gray-200' : 'block text-sm mb-1 text-slate-700';
-  const inputClass = isDark
-    ? 'w-full p-2 rounded-xl bg-gray-900 text-white ring-1 ring-white/10 focus:ring-red-500/50 outline-none'
-    : 'w-full p-2 rounded-xl bg-white text-slate-900 ring-1 ring-slate-200 focus:ring-red-400/60 outline-none border border-slate-200';
-  const helperTextClass = isDark ? 'mt-1 text-xs text-gray-400' : 'mt-1 text-xs text-slate-600';
-  const errorTextClass = isDark ? 'mt-1 text-xs text-red-400' : 'mt-1 text-xs text-red-600';
-
+  const pageBgClass = 'bg-surface text-ink';
+  const panelClass = 'bg-surface-elevated border border-divider rounded-token-xl p-space-6';
+  const panelSlimClass = 'bg-surface-elevated border border-divider rounded-token-xl p-space-2 w-full h-full flex flex-col';
+  const labelClass = 'block text-sm font-medium text-ink-secondary mb-1';
+  const inputClass = 'w-full bg-surface-strong border border-divider rounded-token-md px-4 py-2.5 text-ink outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition';
+  const helperTextClass = 'text-sm text-ink-secondary mt-1';
+  const errorTextClass = 'text-sm text-error-500 mt-1';
   const fromDimo = useMemo(() => {
     const flag = router.query?.from_dimo;
     if (typeof flag === 'string') return flag === '1' || flag.toLowerCase() === 'true';
@@ -415,17 +551,14 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     }
     return false;
   }, [router.query?.from_dimo]);
-
-  const safeNavigateToDevices = useCallback(
-    (options?: { force?: boolean }) => {
-      const force = options?.force === true;
-      // Allow explicit user exits when force=true; otherwise keep DIMO guard to prevent auto redirects.
-      if (!force && fromDimo) return;
-      router.push('/devices');
-    },
-    [fromDimo, router]
-  );
-
+  const safeNavigateToDevices = useCallback((options?: {
+    force?: boolean;
+  }) => {
+    const force = options?.force === true;
+    // Allow explicit user exits when force=true; otherwise keep DIMO guard to prevent auto redirects.
+    if (!force && fromDimo) return;
+    router.push('/devices');
+  }, [fromDimo, router]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // credentials state kept in memory until final submit
@@ -442,16 +575,14 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     // - ALL/TRUE/1 -> all prefixes require creds
     // - comma-separated list -> only those prefixes require creds
     const raw = (process.env.NEXT_PUBLIC_CREDENTIALS_NEEDED || '').trim();
-    if (!resolvedMinerKey) return true; // can't determine miner type -> skip credential requirement
+    if (!resolvedMinerKey) return false; // can't determine miner type -> assume credentials required (safer default)
 
     let neededSet: Set<string>;
     if (!raw) {
       neededSet = new Set(['ALL']);
     } else {
       const v = raw.toUpperCase();
-      if (v === 'NONE' || v === 'FALSE' || v === '0') neededSet = new Set();
-      else if (v === 'ALL' || v === 'TRUE' || v === '1') neededSet = new Set(['ALL']);
-      else neededSet = new Set(v.split(',').map(s => s.trim()).filter(Boolean));
+      if (v === 'NONE' || v === 'FALSE' || v === '0') neededSet = new Set();else if (v === 'ALL' || v === 'TRUE' || v === '1') neededSet = new Set(['ALL']);else neededSet = new Set(v.split(',').map(s => s.trim()).filter(Boolean));
     }
 
     // If empty set -> no credentials needed
@@ -459,7 +590,6 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
 
     // If ALL -> credentials required for all prefixes
     if (neededSet.has('ALL')) return false;
-
     const minerType = resolvedMinerKey.split('-')[0]?.toUpperCase();
     return !neededSet.has(minerType); // true => credentials NOT needed
   }, [resolvedMinerKey]);
@@ -470,18 +600,11 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
       setCredentialsValidated(true);
     }
   }, [credentialsNotNeeded]);
-
-  function validateField(
-    key: string,
-    value: string,
-    currentSubtype: string | null
-  ): string | null {
-  
+  function validateField(key: string, value: string, currentSubtype: string | null): string | null {
     // Normalize fields with a canonical format so validation is consistent.
     if (key === 'reward_wallet') {
       value = (value || '').trim().toUpperCase();
     }
-
     const sub = (currentSubtype || '').toLowerCase();
 
     // 1) Subtype-specific overrides take precedence
@@ -489,8 +612,8 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     if (subRegex) {
       if (!value) return 'This field is required';
       if (!subRegex.test(value)) {
-        return (HINTS_BY_SUBTYPE[sub]?.[key as SubtypeFieldKey]) || FIELD_HINT[key] || 'Invalid value';
-        }
+        return HINTS_BY_SUBTYPE[sub]?.[key as SubtypeFieldKey] || FIELD_HINT[key] || 'Invalid value';
+      }
       return null;
     }
 
@@ -503,29 +626,29 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
   }
 
   // subtype-aware constraints for HTML attributes
-  function getSubtypeConstraints(
-    field: string,
-    currentSubtype: string | null
-  ): { pattern?: string; maxLength?: number; placeholder?: string } {
-
+  function getSubtypeConstraints(field: string, currentSubtype: string | null): {
+    pattern?: string;
+    maxLength?: number;
+    placeholder?: string;
+  } {
     const sub = (currentSubtype || '').toLowerCase();
     const rx = REGEX_BY_SUBTYPE[sub]?.[field as SubtypeFieldKey];
     if (!rx) return {};
-
     const src = rx.source.replace(/^\^/, '').replace(/\$$/, '');
     let maxLength: number | undefined;
     const exactLen = src.match(/\{(\d+)\}$/);
-
     if (exactLen) maxLength = parseInt(exactLen[1], 10);
-
-    const placeholder = (HINTS_BY_SUBTYPE[sub]?.[field as SubtypeFieldKey]) || FIELD_HINT[field];
-    return { pattern: src, maxLength, placeholder };
+    const placeholder = HINTS_BY_SUBTYPE[sub]?.[field as SubtypeFieldKey] || FIELD_HINT[field];
+    return {
+      pattern: src,
+      maxLength,
+      placeholder
+    };
   }
 
   // update + validate a single credential field (with masks)
   function setCredAndValidate(k: string, v: string) {
     let value = v || '';
-
     if (k === 'mac_address') {
       value = formatMacWithColons(value);
     } else if (k === 'imei') {
@@ -533,26 +656,37 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     } else if (k === 'rtsp_url' || k === 'serverUrl') {
       value = value.trim();
     }
-
-    setCredentials((prev) => ({ ...prev, [k]: value }));
+    setCredentials(prev => ({
+      ...prev,
+      [k]: value
+    }));
     const err = validateField(k, value, selectedSubtype);
-    setFieldErrors((prev) => ({ ...prev, [k]: err ?? '' }));
-
+    setFieldErrors(prev => ({
+      ...prev,
+      [k]: err ?? ''
+    }));
   }
-
   function validateCredentialsGroup(keys: string[]): string[] {
     const missingOrBad: string[] = [];
-    const nextErrors: Record<string, string> = { ...fieldErrors };
+    const nextErrors: Record<string, string> = {
+      ...fieldErrors
+    };
     for (const k of keys) {
       const v = credentials[k] ?? '';
       const err = validateField(k, v, selectedSubtype);
       nextErrors[k] = err ?? '';
       if (err) missingOrBad.push(k);
     }
-
     setFieldErrors(nextErrors);
     return missingOrBad;
   }
+  const toggleFieldVisibility = (fieldName: string) => {
+    setVisibleFields(prev => ({
+      ...prev,
+      [fieldName]: !prev[fieldName]
+    }));
+  };
+  const isSensitiveField = (name: string) => /key|token|secret|password|api_key|apikey|auth_key|client_secret/i.test(name) && !/mac|deviceId|device_id|sku|station|pool_id|serverUrl|IP|host|port|url|email|username/i.test(name);
 
   // use module-level helpers: portalKeyFromMiner, PORTAL_DISPLAY_NAMES, FIELD_LABELS, PORTAL_SUBTYPES
   const effectivePortalKey = useMemo(() => {
@@ -564,31 +698,31 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
       const t = String(queryType).toLowerCase();
       if (PORTAL_SUBTYPES[t]) return t;
       for (const [portalKey, subtypeList] of Object.entries(PORTAL_SUBTYPES)) {
-        if (subtypeList.some((s) => String(s.id).toLowerCase() === t)) {
+        if (subtypeList.some(s => String(s.id).toLowerCase() === t)) {
           return portalKey;
         }
       }
     }
-
     const derived = portalKeyFromMiner(resolvedMinerKey);
     return derived || '';
   }, [device?.registered_portal_model, type, resolvedMinerKey]);
-
   const displayPortalTitle = useMemo(() => {
     return PORTAL_DISPLAY_NAMES[effectivePortalKey] ?? (effectivePortalKey ? `${effectivePortalKey[0].toUpperCase()}${effectivePortalKey.slice(1)} Portal` : null);
   }, [effectivePortalKey]);
-
   useEffect(() => {
     if (!resolvedMinerKey || !session?.user?.address) return;
-
     hasFetchedRef.current = false; // reset when identity changes
     (async () => {
       try {
         const res = await fetch(`/api/devices/${resolvedMinerKey}`, {
           method: 'POST',
-          headers: { 'Content-type': 'application/json' },
+          headers: {
+            'Content-type': 'application/json'
+          },
           credentials: 'include',
-          body: JSON.stringify({ address: session.user.address }),
+          body: JSON.stringify({
+            address: session.user.address
+          })
         });
         if (res.ok) {
           const data = await res.json();
@@ -603,7 +737,9 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
             part: 'register.deviceLookup',
             minerKey: resolvedMinerKey,
             walletAddress: session?.user?.address,
-            reason: { status: res.status }
+            reason: {
+              status: res.status
+            }
           });
           setDevice(undefined);
         }
@@ -623,11 +759,9 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
       }
     })();
   }, [resolvedMinerKey, session?.user?.address]);
-
   useEffect(() => {
     if (!router.isReady) return;
     if (sessionStatus === 'loading') return;
-
     if (!resolvedMinerKey && !initLogRef.current.missingKey) {
       initLogRef.current.missingKey = true;
       emitClientError({
@@ -636,10 +770,11 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
         part: 'register.init',
         minerKey: undefined,
         walletAddress: session?.user?.address ?? undefined,
-        reason: { query: router.query }
+        reason: {
+          query: router.query
+        }
       });
     }
-
     if (sessionStatus === 'unauthenticated' && !initLogRef.current.unauth) {
       initLogRef.current.unauth = true;
       emitClientError({
@@ -650,7 +785,6 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
         walletAddress: undefined
       });
     }
-
     if (sessionStatus === 'authenticated' && !session?.user?.address && !initLogRef.current.missingAddress) {
       initLogRef.current.missingAddress = true;
       emitClientError({
@@ -663,14 +797,12 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     }
   }, [router.isReady, router.query, sessionStatus, resolvedMinerKey, session?.user?.address]);
 
-
   // Note: automatic portal-type sync removed. Portal type will be saved explicitly
   // by the final save/register flows (persistCredentials + save-portal-type calls).
 
-
   const findProduct = useCallback((minerKey: string) => {
     const key = minerKey.split('-')[0];
-    const specificProduct = productsSafe.find((product) => product.key === key);
+    const specificProduct = productsSafe.find(product => product.key === key);
     return specificProduct;
   }, [productsSafe]);
 
@@ -682,13 +814,11 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     nickname: '',
     reward_wallet: ''
   });
-
   const [mapInfoData, setMapInfoData] = useState({
     latitude: '',
     longitude: '',
     h3Index: '' // NEW: track selected hex
   });
-
   const [hexSynced, setHexSynced] = useState(false);
   const mapCenter = useMemo<[number, number]>(() => {
     const lat = mapInfoData?.latitude ? Number(mapInfoData.latitude) : 44.03; // Rochester, MN lat
@@ -699,9 +829,10 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     portal: string | null;
     collection: string | null;
     api_type: string | null;
-    credentials: Record<string, string>
+    credentials: Record<string, string>;
   } | null>(null);
   const [credentialsPrefilled, setCredentialsPrefilled] = useState(false);
+  const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
   const [credentialActionLoading, setCredentialActionLoading] = useState(false);
   const [loadingStoredCredentials, setLoadingStoredCredentials] = useState(false);
   // Track whether credentials were just updated (to show Save & Exit)
@@ -714,7 +845,7 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     const normalized = String(key).toLowerCase();
     const options = PORTAL_SUBTYPES[normalized] ?? [];
     if (['node', 'aem', 'hardware'].includes(normalized)) {
-      return options.filter((option) => option.id !== 'mac');
+      return options.filter(option => option.id !== 'mac');
     }
     return options;
   }, [effectivePortalKey, type]);
@@ -723,10 +854,10 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
   const credentialsChanged = useMemo(() => {
     if (!existingCredentials) return true;
     if (!selectedSubtype) return true;
-    const match = availableSubtypes.find((s) => s.id === selectedSubtype);
+    const match = availableSubtypes.find(s => s.id === selectedSubtype);
     const keys = (match?.sub_types ?? []).slice();
     if (!keys.length) return true;
-    return keys.some((k) => (credentials[k] ?? '') !== (existingCredentials.credentials[k] ?? ''));
+    return keys.some(k => (credentials[k] ?? '') !== (existingCredentials.credentials[k] ?? ''));
   }, [credentials, existingCredentials, selectedSubtype, availableSubtypes]);
 
   // If user edits credentials after an update, clear the "just updated" flag
@@ -734,48 +865,39 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     if (credentialsJustUpdated) setCredentialsJustUpdated(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [credentials]);
-
   useEffect(() => {
-  if (device === undefined || !session || !session.user) {
-    return;
-  }
-
-  setProduct(findProduct(device.miner_key));
-
-  if (clickable) {
-    setPersonalInfoData({
-      email: (device as any).email ?? '',
-      firstName: device.names?.first_name ?? '',
-      lastName: device.names?.last_name ?? '',
-      nickname: device.nickname ?? '',
-      reward_wallet: (device as any).reward_wallet ?? ''
-    });
-
-    setMapInfoData({
-      latitude: device.position?.lat?.toString?.() ?? '',
-      longitude: device.position?.lng?.toString?.() ?? '',
-      h3Index:
-        device.position?.lat && device.position?.lng
-          ? h3.latLngToCell(Number(device.position.lat), Number(device.position.lng), 9)
-          : ''
-    });
-
-    setHexSynced(device.position?.lat != null && device.position?.lng != null);
-    setDeviceStatus(true);
-    setWalletStatus(true);
-    setLocationStatus(true);
-  } else {
-
-    setPersonalInfoData({
-      email: (session.user as any).email ?? '',
-      firstName: (session.user as any).first_name ?? '',
-      lastName: (session.user as any).last_name ?? '',
-      nickname: '',
-      reward_wallet: ''
-    });
-    setHexSynced(false);
-  }
-}, [device, session, clickable, findProduct]);
+    if (device === undefined || !session || !session.user) {
+      return;
+    }
+    setProduct(findProduct(device.miner_key));
+    if (clickable) {
+      setPersonalInfoData({
+        email: (device as any).email ?? '',
+        firstName: device.names?.first_name ?? '',
+        lastName: device.names?.last_name ?? '',
+        nickname: device.nickname ?? '',
+        reward_wallet: (device as any).reward_wallet ?? ''
+      });
+      setMapInfoData({
+        latitude: device.position?.lat?.toString?.() ?? '',
+        longitude: device.position?.lng?.toString?.() ?? '',
+        h3Index: device.position?.lat && device.position?.lng ? h3.latLngToCell(Number(device.position.lat), Number(device.position.lng), 9) : ''
+      });
+      setHexSynced(device.position?.lat != null && device.position?.lng != null);
+      setDeviceStatus(true);
+      setWalletStatus(true);
+      setLocationStatus(true);
+    } else {
+      setPersonalInfoData({
+        email: (session.user as any).email ?? '',
+        firstName: (session.user as any).first_name ?? '',
+        lastName: (session.user as any).last_name ?? '',
+        nickname: '',
+        reward_wallet: ''
+      });
+      setHexSynced(false);
+    }
+  }, [device, session, clickable, findProduct]);
 
   // When editing an existing device that already has a location, ensure the
   // map resolution / zoom isn't excessively high. Default to H3 resolution 6
@@ -785,7 +907,6 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
       setDisplayedHexRes(6);
     }
   }, [isEditingExisting, device?.position?.lat, device?.position?.lng, displayedHexRes]);
-  
   useEffect(() => {
     if (!isEditingExisting || !resolvedMinerKey || !session?.user?.address) {
       setExistingCredentials(null);
@@ -795,43 +916,48 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     }
     let cancelled = false;
     setLoadingStoredCredentials(true);
-
     (async () => {
       try {
         const res = await fetch('/api/credentials/get', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json'
+          },
           credentials: 'include',
-          body: JSON.stringify({ miner_key: resolvedMinerKey }),
+          body: JSON.stringify({
+            miner_key: resolvedMinerKey
+          })
         });
-
         if (cancelled) return;
-
         if (res.status === 404) {
           setExistingCredentials(null);
           setCredentialsValidated(false);
           setLoadingStoredCredentials(false);
           return;
         }
-
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
-
         if (!res.ok) {
           console.error('Failed to load stored credentials', data);
           setExistingCredentials(null);
           setCredentialsValidated(false);
           return;
         }
-
-        setCredentialsPrefilled(false);
         setExistingCredentials({
           portal: data.portal ?? null,
           collection: data.collection ?? null,
           api_type: data.api_type ?? null,
-          credentials: data.credentials ?? {},
+          credentials: data.credentials ?? {}
         });
-        setFieldErrors((prev) => ({ ...prev, ...(Object.keys(data.credentials ?? {}).reduce((acc: Record<string, string>, key: string) => { acc[key] = ''; return acc; }, {} as Record<string, string>)) }));
+        setCredentials(data.credentials ?? {});
+        setCredentialsPrefilled(true);
+        setFieldErrors(prev => ({
+          ...prev,
+          ...Object.keys(data.credentials ?? {}).reduce((acc: Record<string, string>, key: string) => {
+            acc[key] = '';
+            return acc;
+          }, {} as Record<string, string>)
+        }));
         setCredentialsValidated(true);
       } catch (err) {
         if (!cancelled) {
@@ -845,22 +971,19 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
         }
       }
     })();
-
     return () => {
       cancelled = true;
     };
   }, [isEditingExisting, resolvedMinerKey, session?.user?.address]);
-
   useEffect(() => {
     if (!existingCredentials || credentialsPrefilled) return;
-
     const saved = existingCredentials.credentials ?? {};
     const apiType = existingCredentials.api_type;
 
     // Try to find a matching subtype. Prefer the explicit api_type if present.
     let match = null as (typeof availableSubtypes[number]) | null;
     if (apiType) {
-      match = availableSubtypes.find((s) => s.id === apiType) ?? null;
+      match = availableSubtypes.find(s => s.id === apiType) ?? null;
     } else {
       // No explicit api_type saved — attempt to infer by comparing saved credential keys
       // to each subtype's required keys. Prefer the first subtype where all keys exist
@@ -869,7 +992,7 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
       for (const s of availableSubtypes) {
         const keys = s.sub_types ?? [];
         if (!keys.length) continue;
-        const allPresent = keys.every((k) => saved[k] !== undefined && saved[k] !== '');
+        const allPresent = keys.every(k => saved[k] !== undefined && saved[k] !== '');
         if (allPresent) {
           match = s;
           break;
@@ -879,12 +1002,12 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
         match = availableSubtypes[0];
       }
     }
-
     if (!match) return;
-
     setSelectedSubtype(match.id);
-    setCredentials((prev) => {
-      const next = { ...prev };
+    setCredentials(prev => {
+      const next = {
+        ...prev
+      };
       (match!.sub_types ?? []).forEach((key: string) => {
         next[key] = saved[key] ?? '';
       });
@@ -892,41 +1015,62 @@ export default function RegisterPage({ products = [] }: { products?: Product[] }
     });
     setCredentialsPrefilled(true);
   }, [existingCredentials, availableSubtypes, credentialsPrefilled]);
-
-const sections = [
-    { id: 0, title: 'Credentials' },
-    { id: 1, title: 'Personal Information' },
-    { id: 2, title: 'Localization' }
-  ];
+  const sections = [{
+    id: 0,
+    title: 'Credentials'
+  }, {
+    id: 1,
+    title: 'Personal Information'
+  }, {
+    id: 2,
+    title: 'Localization'
+  }];
 
   // Auto-select when there is exactly one subtype
   useEffect(() => {
     if (availableSubtypes.length === 1 && !selectedSubtype) {
       setSelectedSubtype(availableSubtypes[0].id);
       const nextCreds: Record<string, string> = {};
-      (availableSubtypes[0].sub_types ?? []).forEach((k) => (nextCreds[k] = credentials[k] ?? ''));
-      setCredentials((prev) => ({ ...prev, ...nextCreds }));
+      (availableSubtypes[0].sub_types ?? []).forEach(k => nextCreds[k] = credentials[k] ?? '');
+      setCredentials(prev => ({
+        ...prev,
+        ...nextCreds
+      }));
     }
   }, [availableSubtypes, credentials, selectedSubtype]);
 
   // SwitchBot discovery state
-  const [switchbotDevices, setSwitchbotDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType?: string }>>([]);
+  const [switchbotDevices, setSwitchbotDevices] = useState<Array<{
+    deviceId: string;
+    deviceName: string;
+    deviceType?: string;
+  }>>([]);
   const [switchbotLoading, setSwitchbotLoading] = useState(false);
   const [switchbotError, setSwitchbotError] = useState<string | null>(null);
 
   // Shelly device discovery states
-  const [shellyDevices, setShellyDevices] = useState<Array<{ deviceId: string; deviceName: string; deviceType?: string }>>([]);
+  const [shellyDevices, setShellyDevices] = useState<Array<{
+    deviceId: string;
+    deviceName: string;
+    deviceType?: string;
+  }>>([]);
   const [shellyLoading, setShellyLoading] = useState(false);
   const [shellyError, setShellyError] = useState<string | null>(null);
-
-  const submitCredentials = async (options: { suppressToast?: boolean } = {}): Promise<boolean> => {
+  const submitCredentials = async (options: {
+    suppressToast?: boolean;
+  } = {}): Promise<boolean> => {
     if (!resolvedMinerKey || !session?.user.address) {
-      toast.error({ heading: 'Error', message: 'Missing miner key or session.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Missing miner key or session.'
+      });
       return false;
     }
-
     if (!selectedSubtype) {
-      toast.error({ heading: 'Error', message: 'Please select a device subtype.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Please select a device subtype.'
+      });
       return false;
     }
 
@@ -934,39 +1078,52 @@ const sections = [
     const validator = deviceValidatorRegistry.getValidator(selectedSubtype);
     if (!validator) {
       // Fallback to original validation for unsupported device types
-      const needed = (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []);
+      const needed = availableSubtypes.find(s => s.id === selectedSubtype)?.sub_types ?? [];
       const bad = validateCredentialsGroup(needed);
-
       if (bad.length > 0) {
-        toast.error({ heading: 'Error', message: `Fix invalid fields: ${bad.join(', ')}` });
+        toast.error({
+          heading: 'Error',
+          message: `Fix invalid fields: ${bad.join(', ')}`
+        });
         return false;
       }
-
       try {
         const res = await fetch('/api/credentials/validate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json'
+          },
           credentials: 'include',
-          body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials })
+          body: JSON.stringify({
+            miner_key: resolvedMinerKey,
+            api_type: selectedSubtype,
+            credentials
+          })
         });
-
         const data = await res.json().catch(() => ({}));
-
         if (!res.ok) {
           setCredentialsValidated(false);
-          toast.error({ heading: 'Error', message: data.message ?? 'Credentials validation failed' });
+          toast.error({
+            heading: 'Error',
+            message: data.message ?? 'Credentials validation failed'
+          });
           return false;
         }
-
         setCredentialsValidated(true);
         if (!options.suppressToast) {
-          toast.success({ heading: 'Success', message: data.message ?? 'Credentials validated successfully.' });
+          toast.success({
+            heading: 'Success',
+            message: data.message ?? 'Credentials validated successfully.'
+          });
         }
         return true;
       } catch (error) {
         setCredentialsValidated(false);
         console.error(error);
-        toast.error({ heading: 'Error', message: 'Failed to validate credentials' });
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to validate credentials'
+        });
         return false;
       }
     }
@@ -984,41 +1141,51 @@ const sections = [
           const payload = buildCredentialPayload();
           const res = await fetch('/api/credentials/validate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json'
+            },
             credentials: 'include',
-            body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials: payload }),
+            body: JSON.stringify({
+              miner_key: resolvedMinerKey,
+              api_type: selectedSubtype,
+              credentials: payload
+            })
           });
-
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             setCredentialsValidated(false);
             if (!options.suppressToast) {
-              toast.error({ heading: 'Error', message: data.message ?? 'Validation failed' });
+              toast.error({
+                heading: 'Error',
+                message: data.message ?? 'Validation failed'
+              });
             }
             return false;
           }
-
           setCredentialsValidated(true);
           if (!options.suppressToast) {
-            toast.success({ heading: 'Success', message: data.message ?? 'Credentials validated successfully.' });
+            toast.success({
+              heading: 'Success',
+              message: data.message ?? 'Credentials validated successfully.'
+            });
           }
           return true;
         } catch (err) {
           setCredentialsValidated(false);
           console.error('Validation submission failed', err);
-          toast.error({ heading: 'Error', message: 'Failed to validate credentials' });
+          toast.error({
+            heading: 'Error',
+            message: 'Failed to validate credentials'
+          });
           return false;
         }
       }
-
       const validationContext = {
         session,
         minerKey: resolvedMinerKey,
         currentDeviceId: credentials['deviceId']
       };
-
       const result = await validator.validateCredentials(credentials, validationContext);
-
       if (!result.success) {
         setCredentialsValidated(false);
         // Handle device-specific error states
@@ -1029,7 +1196,10 @@ const sections = [
           setShellyError(result.error || 'Validation failed');
         }
         if (!options.suppressToast) {
-          toast.error({ heading: 'Error', message: result.error || 'Credentials validation failed' });
+          toast.error({
+            heading: 'Error',
+            message: result.error || 'Credentials validation failed'
+          });
         }
         return false;
       }
@@ -1052,27 +1222,40 @@ const sections = [
           // For mac-like validators the deviceId is a normalized mac
           if ((dev.deviceId || '').includes(':') && (payload['mac_address'] === undefined || payload['mac_address'] !== dev.deviceId)) {
             payload['mac_address'] = dev.deviceId;
-            setCredentials((prev) => ({ ...prev, mac_address: dev.deviceId }));
+            setCredentials(prev => ({
+              ...prev,
+              mac_address: dev.deviceId
+            }));
           }
           // For switchbot/shelly the important key is deviceId
           if (subtypeLower2 === 'switchbot' || subtypeLower2 === 'shelly') {
             payload['deviceId'] = dev.deviceId;
-            setCredentials((prev) => ({ ...prev, deviceId: dev.deviceId }));
+            setCredentials(prev => ({
+              ...prev,
+              deviceId: dev.deviceId
+            }));
           }
         }
-
         const res = await fetch('/api/credentials/validate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json'
+          },
           credentials: 'include',
-          body: JSON.stringify({ miner_key: resolvedMinerKey, api_type: selectedSubtype, credentials: payload }),
+          body: JSON.stringify({
+            miner_key: resolvedMinerKey,
+            api_type: selectedSubtype,
+            credentials: payload
+          })
         });
-
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           setCredentialsValidated(false);
           if (!options.suppressToast) {
-            toast.error({ heading: 'Error', message: data.message ?? 'Validation failed' });
+            toast.error({
+              heading: 'Error',
+              message: data.message ?? 'Validation failed'
+            });
           }
           return false;
         }
@@ -1080,11 +1263,10 @@ const sections = [
         // Server-side validation passed
         setCredentialsValidated(true);
         const deviceCount = devices.length;
-
         if (deviceCount > 0) {
           if (subtypeLower === 'switchbot') {
             setSwitchbotError(null);
-            setSwitchbotDevices(devices.map((d) => ({
+            setSwitchbotDevices(devices.map(d => ({
               deviceId: d.deviceId,
               deviceName: d.deviceName,
               deviceType: d.deviceType
@@ -1092,22 +1274,17 @@ const sections = [
           }
           if (subtypeLower === 'shelly') {
             setShellyError(null);
-            setShellyDevices(devices.map((d) => ({
+            setShellyDevices(devices.map(d => ({
               deviceId: d.deviceId,
               deviceName: d.deviceName,
               deviceType: d.deviceType
             })));
           }
         }
-
         if (!options.suppressToast) {
-          const isMacDevice = devices.some(
-            (dev) => typeof dev?.deviceId === 'string' && dev.deviceId.includes(':')
-          );
-
+          const isMacDevice = devices.some(dev => typeof dev?.deviceId === 'string' && dev.deviceId.includes(':'));
           let heading: string;
           let message: string | undefined = data?.message;
-
           if (isMacDevice) {
             heading = 'MAC Address verified';
             if (!message || message.toLowerCase() === 'validation successful') {
@@ -1122,22 +1299,27 @@ const sections = [
               message = 'Credentials look good and are ready to save.';
             }
           }
-
-          toast.success({ heading, message });
+          toast.success({
+            heading,
+            message
+          });
         }
         return true;
       } catch (err) {
         console.error('Server validation failed', err);
         setCredentialsValidated(false);
         if (!options.suppressToast) {
-          toast.error({ heading: 'Error', message: (err as any)?.message ?? 'Failed to validate credentials on server' });
+          toast.error({
+            heading: 'Error',
+            message: (err as any)?.message ?? 'Failed to validate credentials on server'
+          });
         }
         return false;
       }
     } catch (error: any) {
       setCredentialsValidated(false);
       console.error(error);
-      
+
       // Handle device-specific error states
       if (selectedSubtype.toLowerCase() === 'switchbot') {
         setSwitchbotError(error?.message || 'Validation failed');
@@ -1145,9 +1327,11 @@ const sections = [
       if (selectedSubtype.toLowerCase() === 'shelly') {
         setShellyError(error?.message || 'Validation failed');
       }
-      
       if (!options.suppressToast) {
-        toast.error({ heading: 'Error', message: error?.message || 'Failed to validate credentials' });
+        toast.error({
+          heading: 'Error',
+          message: error?.message || 'Failed to validate credentials'
+        });
       }
       return false;
     }
@@ -1156,22 +1340,20 @@ const sections = [
   // helper to return keys for the currently selected credential subtype
   const activeCredentialKeys = useCallback((): string[] => {
     if (!selectedSubtype) return [];
-    const match = availableSubtypes.find((s) => s.id === selectedSubtype);
+    const match = availableSubtypes.find(s => s.id === selectedSubtype);
     return (match?.sub_types ?? []).slice();
   }, [availableSubtypes, selectedSubtype]);
-
   const hasCredentialData = useCallback(() => {
     const keys = activeCredentialKeys();
     if (!keys.length) {
-      return Object.values(credentials).some((value) => {
+      return Object.values(credentials).some(value => {
         if (typeof value === 'string') {
           return value.trim().length > 0;
         }
         return Boolean(value);
       });
     }
-
-    return keys.some((key) => {
+    return keys.some(key => {
       const value = credentials[key];
       if (typeof value === 'string') {
         return value.trim().length > 0;
@@ -1179,88 +1361,114 @@ const sections = [
       return Boolean(value);
     });
   }, [activeCredentialKeys, credentials]);
-
   const buildCredentialPayload = useCallback(() => {
     const keys = activeCredentialKeys();
     if (!keys.length) {
       return credentials;
     }
     const payload: Record<string, string> = {};
-    keys.forEach((key) => {
+    keys.forEach(key => {
       payload[key] = credentials[key] ?? '';
     });
     return payload;
   }, [activeCredentialKeys, credentials]);
-
-  const persistCredentials = useCallback(async (): Promise<{ ok: boolean; collection?: string | null }> => {
+  const persistCredentials = useCallback(async (): Promise<{
+    ok: boolean;
+    collection?: string | null;
+  }> => {
     if (!session?.user.address || !resolvedMinerKey) {
-      return { ok: false };
+      return {
+        ok: false
+      };
     }
-
     if (!hasCredentialData()) {
-      return { ok: true };
+      return {
+        ok: true
+      };
     }
-
     if (!credentialsValidated) {
-      return { ok: false };
+      return {
+        ok: false
+      };
     }
-
     try {
       const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
       const res = await fetch('/api/devices/save-credentials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         credentials: 'include',
         body: JSON.stringify({
           miner_key: resolvedMinerKey,
           portal: effectivePortalKey ?? queryType ?? null,
           credentials: buildCredentialPayload(),
-          api_type: selectedSubtype,
-        }),
+          api_type: selectedSubtype
+        })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         console.error('Failed to persist credentials', data);
-        return { ok: false };
+        return {
+          ok: false
+        };
       }
-      return { ok: true, collection: data.collection ?? null };
+      return {
+        ok: true,
+        collection: data.collection ?? null
+      };
     } catch (err) {
       console.error('Failed to persist credentials', err);
-      return { ok: false };
+      return {
+        ok: false
+      };
     }
   }, [buildCredentialPayload, credentialsValidated, effectivePortalKey, type, resolvedMinerKey, selectedSubtype, session?.user?.address, hasCredentialData]);
-
   const handleCredentialUpdate = async () => {
     if (!selectedSubtype) {
-      toast.error({ heading: 'Error', message: 'Select a subtype before updating credentials.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Select a subtype before updating credentials.'
+      });
       return;
     }
     setCredentialActionLoading(true);
     try {
-      const ok = await submitCredentials({ suppressToast: true });
+      const ok = await submitCredentials({
+        suppressToast: true
+      });
       if (!ok) return;
       const result = await persistCredentials();
       if (!result.ok) {
-        toast.error({ heading: 'Error', message: 'Failed to save credentials' });
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to save credentials'
+        });
         return;
       }
       const keys = activeCredentialKeys();
       const stored: Record<string, string> = {};
-      keys.forEach((key) => {
+      keys.forEach(key => {
         stored[key] = credentials[key] ?? '';
       });
       setExistingCredentials({
         portal: effectivePortalKey ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : existingCredentials?.portal ?? null) ?? null,
         collection: result.collection ?? existingCredentials?.collection ?? null,
         api_type: selectedSubtype,
-        credentials: stored,
+        credentials: stored
       });
       setCredentialsPrefilled(true);
-  toast.success({ heading: 'Success', message: 'Credentials updated.' });
-  setCredentialsJustUpdated(true);
+      toast.success({
+        heading: 'Success',
+        message: 'Credentials updated.'
+      });
+      setCredentialsJustUpdated(true);
     } catch (err) {
       console.error('Failed to update credentials', err);
-      toast.error({ heading: 'Error', message: 'Failed to save credentials' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save credentials'
+      });
     } finally {
       setCredentialActionLoading(false);
     }
@@ -1269,42 +1477,57 @@ const sections = [
   // Validate, persist credentials and then navigate back to devices
   const handleUpdateAndExit = async () => {
     if (!selectedSubtype) {
-      toast.error({ heading: 'Error', message: 'Select a subtype before updating credentials.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Select a subtype before updating credentials.'
+      });
       return;
     }
     setCredentialActionLoading(true);
     try {
-      const ok = await submitCredentials({ suppressToast: true });
+      const ok = await submitCredentials({
+        suppressToast: true
+      });
       if (!ok) return;
       const result = await persistCredentials();
       if (!result.ok) {
-        toast.error({ heading: 'Error', message: 'Failed to save credentials' });
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to save credentials'
+        });
         return;
       }
       const keys = activeCredentialKeys();
       const stored: Record<string, string> = {};
-      keys.forEach((key) => {
+      keys.forEach(key => {
         stored[key] = credentials[key] ?? '';
       });
       setExistingCredentials({
         portal: effectivePortalKey ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : existingCredentials?.portal ?? null) ?? null,
         collection: result.collection ?? existingCredentials?.collection ?? null,
         api_type: selectedSubtype,
-        credentials: stored,
+        credentials: stored
       });
       setCredentialsPrefilled(true);
-  toast.success({ heading: 'Success', message: 'Credentials updated.' });
-  setCredentialsJustUpdated(true);
+      toast.success({
+        heading: 'Success',
+        message: 'Credentials updated.'
+      });
+      setCredentialsJustUpdated(true);
       // After successful save, return to devices list (DIMO users can force-exit via CTA)
-      safeNavigateToDevices({ force: true });
+      safeNavigateToDevices({
+        force: true
+      });
     } catch (err) {
       console.error('Failed to update credentials', err);
-      toast.error({ heading: 'Error', message: 'Failed to save credentials' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save credentials'
+      });
     } finally {
       setCredentialActionLoading(false);
     }
   };
-
   const handleCredentialUnlink = async () => {
     if (!resolvedMinerKey) return;
     const keysToClear = activeCredentialKeys();
@@ -1312,25 +1535,38 @@ const sections = [
     try {
       const res = await fetch('/api/credentials/unlink', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         credentials: 'include',
-        body: JSON.stringify({ miner_key: resolvedMinerKey, portal: existingCredentials?.collection ?? existingCredentials?.portal ?? null }),
+        body: JSON.stringify({
+          miner_key: resolvedMinerKey,
+          portal: existingCredentials?.collection ?? existingCredentials?.portal ?? null
+        })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error({ heading: 'Error', message: data.message ?? 'Failed to unlink credentials' });
+        toast.error({
+          heading: 'Error',
+          message: data.message ?? 'Failed to unlink credentials'
+        });
         return;
       }
-      toast.success({ heading: 'Success', message: data.message ?? 'Credentials unlinked.' });
+      toast.success({
+        heading: 'Success',
+        message: data.message ?? 'Credentials unlinked.'
+      });
       setExistingCredentials(null);
       setCredentialsPrefilled(false);
       setCredentials({});
       setSelectedSubtype(null);
       setCredentialsValidated(false);
-      setFieldErrors((prev) => {
+      setFieldErrors(prev => {
         if (!keysToClear.length) return prev;
-        const next = { ...prev };
-        keysToClear.forEach((key) => {
+        const next = {
+          ...prev
+        };
+        keysToClear.forEach(key => {
           if (key in next) {
             delete next[key];
           }
@@ -1339,107 +1575,136 @@ const sections = [
       });
     } catch (err) {
       console.error('Failed to unlink credentials', err);
-      toast.error({ heading: 'Error', message: 'Failed to unlink credentials' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to unlink credentials'
+      });
     } finally {
       setCredentialActionLoading(false);
     }
   };
+  const savePersonalInformation = async (): Promise<boolean> => {
+    const pi = {
+      email: (personalInfoData.email ?? '').trim(),
+      firstName: (personalInfoData.firstName ?? '').trim(),
+      lastName: (personalInfoData.lastName ?? '').trim(),
+      nickname: (personalInfoData.nickname ?? '').trim(),
+      reward_wallet: (personalInfoData.reward_wallet ?? '').trim()
+    };
+    const errs: Record<string, string> = {};
+    errs.email = validateField('email', pi.email, null) || '';
+    errs.firstName = validateField('firstName', pi.firstName, null) || '';
+    errs.lastName = validateField('lastName', pi.lastName, null) || '';
+    if (pi.nickname) errs.nickname = validateField('nickname', pi.nickname, null) || '';
+    if (pi.reward_wallet) errs.reward_wallet = validateField('reward_wallet', pi.reward_wallet, null) || '';
+    setFieldErrors(prev => ({
+      ...prev,
+      ...errs
+    }));
+    if (Object.values(errs).some(Boolean)) {
+      toast.error({
+        heading: 'Error',
+        message: 'Please fix Personal Information fields.'
+      });
+      return false;
+    }
+    if (!resolvedMinerKey) {
+      toast.error({
+        heading: 'Error',
+        message: 'Miner key is missing.'
+      });
+      return false;
+    }
+    if (!session?.user.address) {
+      toast.error({
+        heading: 'Error',
+        message: 'Your wallet session has expired.'
+      });
+      return false;
+    }
 
-const savePersonalInformation = async (): Promise<boolean> => {
+    // Persist personal info into main.devices
+    const resp1 = await fetch('/api/devices/save-device-info', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        miner_key: resolvedMinerKey,
+        email: pi.email,
+        names: {
+          first_name: pi.firstName,
+          last_name: pi.lastName
+        },
+        nickname: pi.nickname,
+        address: session.user.address
+      })
+    });
+    if (!resp1.ok) {
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save personal details'
+      });
+      return false;
+    }
 
-  const pi = {
-    email: (personalInfoData.email ?? '').trim(),
-    firstName: (personalInfoData.firstName ?? '').trim(),
-    lastName: (personalInfoData.lastName ?? '').trim(),
-    nickname: (personalInfoData.nickname ?? '').trim(),
-    reward_wallet: (personalInfoData.reward_wallet ?? '').trim(),
+    // Persist reward wallet into main.devices
+    const resp2 = await fetch('/api/devices/save-wallet-info', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        miner_key: resolvedMinerKey,
+        reward_wallet: pi.reward_wallet,
+        address: session.user.address
+      })
+    });
+    if (!resp2.ok) {
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save rewards wallet'
+      });
+      return false;
+    }
+    toast.success({
+      heading: 'Success',
+      message: 'Personal Information saved'
+    });
+    return true;
   };
-
-  const errs: Record<string,string> = {};
-  errs.email = validateField('email', pi.email, null) || '';
-  errs.firstName = validateField('firstName', pi.firstName, null) || '';
-  errs.lastName = validateField('lastName', pi.lastName, null) || '';
-
-  if (pi.nickname) errs.nickname = validateField('nickname', pi.nickname, null) || '';
-  if (pi.reward_wallet) errs.reward_wallet = validateField('reward_wallet', pi.reward_wallet, null) || '';
-
-  setFieldErrors((prev) => ({ ...prev, ...errs }));
-  if (Object.values(errs).some(Boolean)) {
-    toast.error({ heading: 'Error', message: 'Please fix Personal Information fields.' });
-    return false;
-  }
-
-  if (!resolvedMinerKey) {
-    toast.error({ heading: 'Error', message: 'Miner key is missing.' });
-    return false;
-  }
-
-  if (!session?.user.address) {
-    toast.error({ heading: 'Error', message: 'Your wallet session has expired.' });
-    return false;
-  }
-
-  // Persist personal info into main.devices
-  const resp1 = await fetch('/api/devices/save-device-info', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      miner_key: resolvedMinerKey,
-      email: pi.email,
-      names: { first_name: pi.firstName, last_name: pi.lastName },
-      nickname: pi.nickname,
-      address: session.user.address
-    })
-  });
-
-  if (!resp1.ok) {
-    toast.error({ heading: 'Error', message: 'Failed to save personal details' });
-    return false;
-  }
-
-  // Persist reward wallet into main.devices
-  const resp2 = await fetch('/api/devices/save-wallet-info', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({
-      miner_key: resolvedMinerKey,
-      reward_wallet: pi.reward_wallet,
-      address: session.user.address
-    })
-  });
-
-  if (!resp2.ok) {
-    toast.error({ heading: 'Error', message: 'Failed to save rewards wallet' });
-    return false;
-  }
-
-  toast.success({ heading: 'Success', message: 'Personal Information saved' });
-  return true;
-};
-
   const saveMapInformation = async (): Promise<boolean> => {
     const m = mapInfoData;
     const mapErrs: Record<string, string> = {};
     mapErrs.latitude = validateField('latitude', m.latitude || '', null) || '';
     mapErrs.longitude = validateField('longitude', m.longitude || '', null) || '';
-    setFieldErrors((prev) => ({ ...prev, ...mapErrs }));
-    if (Object.values(mapErrs).some((v) => !!v)) {
-      toast.error({ heading: 'Error', message: 'Please enter a valid latitude/longitude.' });
+    setFieldErrors(prev => ({
+      ...prev,
+      ...mapErrs
+    }));
+    if (Object.values(mapErrs).some(v => !!v)) {
+      toast.error({
+        heading: 'Error',
+        message: 'Please enter a valid latitude/longitude.'
+      });
       return false;
     }
-
     if (!resolvedMinerKey) {
-      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Miner key is missing.'
+      });
       return false;
     }
-
     if (!session?.user.address) {
-      toast.error({ heading: 'Error', message: 'Your wallet session has expired.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Your wallet session has expired.'
+      });
       return false;
     }
-
     try {
       const saveData = {
         miner_key: resolvedMinerKey,
@@ -1449,48 +1714,56 @@ const savePersonalInformation = async (): Promise<boolean> => {
         },
         address: session.user.address
       };
-
       const response = await fetch('/api/devices/save-map-info', {
         method: 'POST',
         body: JSON.stringify(saveData),
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         credentials: 'include'
       });
-
       if (response.ok) {
-        toast.success({ heading: 'Success', message: 'Save map information successfully' });
+        toast.success({
+          heading: 'Success',
+          message: 'Save map information successfully'
+        });
         return true;
       }
-
-      toast.error({ heading: 'Error', message: 'Failed to save map information' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save map information'
+      });
       return false;
     } catch (error) {
-      toast.error({ heading: 'Error', message: 'Failed to save map information' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save map information'
+      });
       return false;
     }
   };
-
   const evaluatePostRegistrationRoute = useCallback((): NextRoute => {
     const productMinerKey = device?.miner_key ?? resolvedMinerKey;
     const haveProducts = productsSafe.length > 0;
-    const product =
-      haveProducts && productMinerKey
-        ? findProductByMinerKey(productMinerKey, productsSafe)
-        : undefined;
+    const product = haveProducts && productMinerKey ? findProductByMinerKey(productMinerKey, productsSafe) : undefined;
     const registrationNeeded = product ? isRegistrationNeeded(product) : null;
     const nodeStakingNeeded = product ? isNodeStakingNeeded(product) : null;
-
-    const destination: NextRoute =
-      productMinerKey
-        ? { pathname: '/devices', query: { minerKey: productMinerKey } }
-        : '/devices';
+    const destination: NextRoute = productMinerKey ? {
+      pathname: '/devices',
+      query: {
+        minerKey: productMinerKey
+      }
+    } : '/devices';
     return destination;
   }, [device?.miner_key, resolvedMinerKey, productsSafe]);
 
   // Update registerDevice to use the new personal+localization flow
   const registerDevice = async () => {
     if (!resolvedMinerKey) {
-      toast.error({ heading: 'Error', message: 'Miner key is missing.' });
+      toast.error({
+        heading: 'Error',
+        message: 'Miner key is missing.'
+      });
       emitClientError({
         message: 'Register submit blocked: missing miner key.',
         issueType: 'REGISTER_FLOW_ERROR',
@@ -1502,17 +1775,17 @@ const savePersonalInformation = async (): Promise<boolean> => {
     }
 
     // Save personal first, then localization
-    const stepsSucceeded =
-      (await savePersonalInformation()) &&
-      (await saveMapInformation());
-
+    const stepsSucceeded = (await savePersonalInformation()) && (await saveMapInformation());
     if (!stepsSucceeded) return;
 
     // Registration step + persist credentials (same as before)
     let registrationSucceeded = registrationCompleted || device?.is_registered || false;
     if (!clickable) {
       if (!session?.user.address) {
-        toast.error({ heading: 'Error', message: 'Your wallet session has expired.' });
+        toast.error({
+          heading: 'Error',
+          message: 'Your wallet session has expired.'
+        });
         emitClientError({
           message: 'Register submit blocked: missing session address.',
           issueType: 'REGISTER_FLOW_ERROR',
@@ -1528,14 +1801,14 @@ const savePersonalInformation = async (): Promise<boolean> => {
       if (persistResult.ok && selectedSubtype) {
         const keys = activeCredentialKeys();
         const stored: Record<string, string> = {};
-        keys.forEach((key) => {
+        keys.forEach(key => {
           stored[key] = credentials[key] ?? '';
         });
         setExistingCredentials({
-    portal: effectivePortalKey ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : existingCredentials?.portal ?? null) ?? null,
+          portal: effectivePortalKey ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : existingCredentials?.portal ?? null) ?? null,
           collection: persistResult.collection ?? existingCredentials?.collection ?? null,
           api_type: selectedSubtype,
-          credentials: stored,
+          credentials: stored
         });
 
         // Now that credentials were persisted, call the registration endpoint to flip is_registered
@@ -1545,40 +1818,58 @@ const savePersonalInformation = async (): Promise<boolean> => {
           try {
             const response = await fetch('/api/registrations/register', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json'
+              },
               credentials: 'include',
-              body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
+              body: JSON.stringify({
+                miner_key: resolvedMinerKey,
+                address: session.user.address,
+                type: typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null
+              })
             });
             if (!response.ok) {
               const j = await response.json().catch(() => ({}));
               console.error('Registration endpoint failed after save:', j);
-              toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
+              toast.error({
+                heading: 'Warning',
+                message: 'Credentials saved but failed to finalize registration.'
+              });
             } else {
               setRegistrationCompleted(true);
-              setDevice((prev) => ({ ...(prev ?? {} as Device), miner_key: resolvedMinerKey, is_registered: true } as Device));
+              setDevice(prev => ({
+                ...(prev ?? {} as Device),
+                miner_key: resolvedMinerKey,
+                is_registered: true
+              }) as Device);
               registrationSucceeded = true;
             }
           } catch (e) {
             console.error('Failed to call registration endpoint after save', e);
-            toast.error({ heading: 'Warning', message: 'Credentials saved but failed to finalize registration.' });
+            toast.error({
+              heading: 'Warning',
+              message: 'Credentials saved but failed to finalize registration.'
+            });
           }
         }
       }
-        // Ensure registered_portal_model is set immediately when registering
+      // Ensure registered_portal_model is set immediately when registering
       try {
-  // choose portal type to save: prefer explicit query `type`, fall back to effectivePortalKey
-  const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
-  const portalToSave = queryType ?? effectivePortalKey ?? null;
+        // choose portal type to save: prefer explicit query `type`, fall back to effectivePortalKey
+        const queryType = typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null;
+        const portalToSave = queryType ?? effectivePortalKey ?? null;
         if (portalToSave && resolvedMinerKey && session?.user?.address) {
           const sp = await fetch(`/api/devices/save-portal-type`, {
             method: 'POST',
-            headers: { 'Content-type': 'application/json' },
+            headers: {
+              'Content-type': 'application/json'
+            },
             credentials: 'include',
             body: JSON.stringify({
               miner_key: resolvedMinerKey,
               type: String(portalToSave).toLowerCase(),
-              address: session.user.address,
-            }),
+              address: session.user.address
+            })
           });
           if (sp.ok) {
             const d = await sp.json().catch(() => ({}));
@@ -1595,33 +1886,41 @@ const savePersonalInformation = async (): Promise<boolean> => {
       router.push(evaluatePostRegistrationRoute());
     }
   };
-
   const handleSyncHexOrSave = async () => {
     // If not synced yet: validate lat/lon, compute res7 H3, update state and let HexMap fit to it
     if (!hexSynced) {
       const latitude = (mapInfoData.latitude ?? '').trim();
       const longitude = (mapInfoData.longitude ?? '').trim();
-
       const latError = validateField('latitude', latitude, null) || '';
       const lonError = validateField('longitude', longitude, null) || '';
-      setFieldErrors((prev) => ({ ...prev, latitude: latError, longitude: lonError }));
-
+      setFieldErrors(prev => ({
+        ...prev,
+        latitude: latError,
+        longitude: lonError
+      }));
       if (!latError && !lonError && latitude && longitude) {
         const parsedLat = Number(latitude);
         const parsedLng = Number(longitude);
-
         if (!Number.isFinite(parsedLat) || !Number.isFinite(parsedLng)) {
-          setFieldErrors((prev) => ({ ...prev, latitude: 'Invalid number', longitude: 'Invalid number' }));
+          setFieldErrors(prev => ({
+            ...prev,
+            latitude: 'Invalid number',
+            longitude: 'Invalid number'
+          }));
           return;
         }
-
         if (displayedHexRes == null) {
-          toast.error({ heading: 'Map', message: 'Zoom the map first so we can match the active resolution.' });
+          toast.error({
+            heading: 'Map',
+            message: 'Zoom the map first so we can match the active resolution.'
+          });
           return;
         }
-
         const idx = h3.latLngToCell(parsedLat, parsedLng, displayedHexRes);
-        setMapInfoData((p: any) => ({ ...p, h3Index: idx }));
+        setMapInfoData((p: any) => ({
+          ...p,
+          h3Index: idx
+        }));
 
         // Mark synced so UI switches to "Save"
         setHexSynced(true);
@@ -1658,11 +1957,16 @@ const savePersonalInformation = async (): Promise<boolean> => {
       // Then persist credentials (if any)
       const persistResult = await persistCredentials();
       if (!persistResult.ok) {
-        toast.error({ heading: 'Error', message: 'Failed to persist credentials.' });
+        toast.error({
+          heading: 'Error',
+          message: 'Failed to persist credentials.'
+        });
         return;
       }
-
-      toast.success({ heading: 'Success', message: 'Location and credentials saved.' });
+      toast.success({
+        heading: 'Success',
+        message: 'Location and credentials saved.'
+      });
 
       // Ensure portal type is saved immediately as well
       try {
@@ -1671,13 +1975,15 @@ const savePersonalInformation = async (): Promise<boolean> => {
         if (portalToSave && resolvedMinerKey && session?.user?.address) {
           const sp = await fetch(`/api/devices/save-portal-type`, {
             method: 'POST',
-            headers: { 'Content-type': 'application/json' },
+            headers: {
+              'Content-type': 'application/json'
+            },
             credentials: 'include',
             body: JSON.stringify({
               miner_key: resolvedMinerKey,
               type: String(portalToSave).toLowerCase(),
-              address: session.user.address,
-            }),
+              address: session.user.address
+            })
           });
           if (sp.ok) {
             const d = await sp.json().catch(() => ({}));
@@ -1695,23 +2001,39 @@ const savePersonalInformation = async (): Promise<boolean> => {
           if (resolvedMinerKey && session?.user?.address) {
             const r = await fetch('/api/registrations/register', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json'
+              },
               credentials: 'include',
-              body: JSON.stringify({ miner_key: resolvedMinerKey, address: session.user.address, type: (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) })
+              body: JSON.stringify({
+                miner_key: resolvedMinerKey,
+                address: session.user.address,
+                type: typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null
+              })
             });
             if (!r.ok) {
               const j = await r.json().catch(() => ({}));
               console.error('Registration endpoint failed after save:', j);
-              toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
+              toast.error({
+                heading: 'Warning',
+                message: 'Saved but failed to finalize registration.'
+              });
             } else {
               setRegistrationCompleted(true);
-              setDevice((prev) => ({ ...(prev ?? {} as Device), miner_key: resolvedMinerKey, is_registered: true } as Device));
+              setDevice(prev => ({
+                ...(prev ?? {} as Device),
+                miner_key: resolvedMinerKey,
+                is_registered: true
+              }) as Device);
               registrationSucceeded = true;
             }
           }
         } catch (e) {
           console.error('Failed to call registration endpoint after save', e);
-          toast.error({ heading: 'Warning', message: 'Saved but failed to finalize registration.' });
+          toast.error({
+            heading: 'Warning',
+            message: 'Saved but failed to finalize registration.'
+          });
         }
       }
 
@@ -1722,36 +2044,39 @@ const savePersonalInformation = async (): Promise<boolean> => {
       return;
     } catch (err: any) {
       console.error('Failed to save location/credentials', err);
-      toast.error({ heading: 'Error', message: 'Failed to save location/credentials' });
+      toast.error({
+        heading: 'Error',
+        message: 'Failed to save location/credentials'
+      });
     }
   };
 
   // Update handleNext to reflect new steps
   const handleNext = () => {
-
     switch (currentSection) {
-      case 1: // leaving Personal Information
+      case 1:
+        // leaving Personal Information
         setDeviceStatus(true);
         setWalletStatus(true); // keep Sidebar completion consistent
         break;
       default:
         break;
     }
-
     if (currentSection < sections.length - 1) {
-      setCurrentSection((prev) => prev + 1);
+      setCurrentSection(prev => prev + 1);
     } else {
       registerDevice();
     }
   };
-
   const handleCancel = async () => {
     const isFullyRegistered = device?.is_registered === true || isEditingExisting;
     if (!isFullyRegistered && resolvedMinerKey && session?.user.address) {
       try {
         await fetch('/api/registrations/cancel', {
           method: 'POST',
-          headers: { 'Content-type': 'application/json' },
+          headers: {
+            'Content-type': 'application/json'
+          },
           credentials: 'include',
           body: JSON.stringify({
             miner_key: resolvedMinerKey,
@@ -1762,73 +2087,68 @@ const savePersonalInformation = async (): Promise<boolean> => {
         // swallow cancel errors
       }
     }
-    safeNavigateToDevices({ force: true });
+    safeNavigateToDevices({
+      force: true
+    });
   };
-
   const handleSkip = () => {
     if (isEditingExisting) {
       handleCancel();
       return;
     }
-
     if (currentSection > 0) {
-      setCurrentSection((prev) => prev - 1);
+      setCurrentSection(prev => prev - 1);
     } else {
-      safeNavigateToDevices({ force: true });
+      safeNavigateToDevices({
+        force: true
+      });
     }
   };
-
   const handleRewardWalletPaste = () => {
     const walletAddress = (session as any)?.user?.address;
     if (!walletAddress) {
       return;
     }
-    setPersonalInfoData((prev) => ({ ...prev, reward_wallet: walletAddress }));
-    setFieldErrors((prev) => ({ ...prev, reward_wallet: '' }));
+    setPersonalInfoData(prev => ({
+      ...prev,
+      reward_wallet: walletAddress
+    }));
+    setFieldErrors(prev => ({
+      ...prev,
+      reward_wallet: ''
+    }));
   };
-
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
-
-  const subtypeLogoMap: Record<string, StaticImageData> = useMemo(
-    () => ({
-      airthings: airthingsLogo,
-      ambient: ambientLogo,
-      atmotube: atmotubeLogo,
-      awair: awairLogo,
-      ecowitt: ecowittLogo,
-      gmcmap: gmcmapLogo,
-      govee: goveeLogo,
-      iopool: iopoolLogo,
-      kaiterra: kaiterraLogo,
-      lacrosse: lacrosseLogo,
-      nrf: nrfLogo,
-      pebble: pebbleLogo,
-      purpleair: purpleairLogo,
-      rtsp: RTSPLogo,
-      sensecap: sensecapLogo,
-      shelly: shellyLogo,
-      switchbot: switchbotLogo,
-      tapo: tapoLogo,
-      tempest: tempestLogo,
-      weatherxm: weatherxmLogo
-    }),
-    []
-  );
-
-  const currentSubtypeKeys = useMemo(
-    () => (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []),
-    [availableSubtypes, selectedSubtype]
-  );
-
+  const subtypeLogoMap: Record<string, StaticImageData> = useMemo(() => ({
+    airthings: airthingsLogo,
+    ambient: ambientLogo,
+    atmotube: atmotubeLogo,
+    awair: awairLogo,
+    ecowitt: ecowittLogo,
+    gmcmap: gmcmapLogo,
+    govee: goveeLogo,
+    iopool: iopoolLogo,
+    kaiterra: kaiterraLogo,
+    lacrosse: lacrosseLogo,
+    nrf: nrfLogo,
+    pebble: pebbleLogo,
+    purpleair: purpleairLogo,
+    rtsp: RTSPLogo,
+    sensecap: sensecapLogo,
+    shelly: shellyLogo,
+    switchbot: switchbotLogo,
+    tapo: tapoLogo,
+    tempest: tempestLogo,
+    weatherxm: weatherxmLogo
+  }), []);
+  const currentSubtypeKeys = useMemo(() => availableSubtypes.find(s => s.id === selectedSubtype)?.sub_types ?? [], [availableSubtypes, selectedSubtype]);
   const selectedSubtypeLower = useMemo(() => norm(selectedSubtype), [selectedSubtype]);
-
   const credentialsInvalid = useMemo(() => {
     if (!selectedSubtype) return true;
-    return currentSubtypeKeys.some((k) => !!validateField(k, credentials[k] ?? '', selectedSubtype));
+    return currentSubtypeKeys.some(k => !!validateField(k, credentials[k] ?? '', selectedSubtype));
   }, [selectedSubtype, currentSubtypeKeys, credentials]);
-
   const rewardWalletInvalid = useMemo(() => {
     const walletRaw = personalInfoData.reward_wallet ?? '';
     const wallet = (walletRaw || '').trim();
@@ -1841,150 +2161,135 @@ const savePersonalInformation = async (): Promise<boolean> => {
   // Footer error rendering helpers: prefer explicit fieldErrors (set by validators/save) to avoid
   // showing a transient wallet invalid message during quick UI state changes.
   const footerHasWalletFieldError = Boolean(fieldErrors.reward_wallet);
-  const footerShouldShowErrors = ((!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)) || footerHasWalletFieldError);
-
+  const footerShouldShowErrors = !credentialsNotNeeded && (credentialsInvalid || !credentialsValidated) || footerHasWalletFieldError;
   const switchbotPrereqsOk = useMemo(() => {
     if ((selectedSubtype || '').toLowerCase() !== 'switchbot') return true;
     const t = credentials['token'] ?? '';
     const s = credentials['secret'] ?? '';
     return !validateField('token', t, selectedSubtype) && !validateField('secret', s, selectedSubtype);
   }, [selectedSubtype, credentials]);
-
   const shellyPrereqsOk = useMemo(() => {
     if ((selectedSubtype || '').toLowerCase() !== 'shelly') return true;
     const authKey = credentials['auth_key'] ?? '';
     const serverUrl = credentials['serverUrl'] ?? '';
     return !validateField('auth_key', authKey, selectedSubtype) && !validateField('serverUrl', serverUrl, selectedSubtype);
   }, [selectedSubtype, credentials]);
+  return <PageShell title="Register Device" breadcrumb={true}>
+    {registrationCompleted ? (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-space-6">
+        <div className="w-20 h-20 rounded-full bg-success-500/10 border-2 border-success-500 flex items-center justify-center animate-bounce">
+          <svg className="w-10 h-10 text-success-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h1 className="text-3xl font-display font-bold text-ink">Registration Complete!</h1>
+        <p className="text-ink-secondary">Your device has been successfully registered.</p>
+        <Link href="/devices" className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2.5 rounded-token-md font-semibold transition shadow-token-md">
+          Go to My Devices &rarr;
+        </Link>
+      </div>
+    ) : (
+      <>
+        {/* Stepper */}
+        <div className="w-full mb-space-8 px-4 pt-4">
+          <div className="text-sm text-ink-secondary font-display mb-4 text-center">
+            Step {currentSection === 0 ? 1 : currentSection === 1 ? 2 : 4} of 4
+          </div>
+          <div className="flex items-center w-full max-w-3xl mx-auto">
+            {['Credentials', 'Device', 'Wallet', 'Location'].map((label, idx) => {
+              const completed = [credentialsValidated, deviceStatus, walletStatus, locationStatus][idx];
+              const isCurrent = currentSection === 0 ? idx === 0 : currentSection === 1 ? idx === 1 : idx === 3;
+              const isFuture = !completed && !isCurrent;
+              return (
+                <React.Fragment key={label}>
+                  {idx > 0 && (
+                    <div className={`flex-1 h-[2px] ${completed ? 'bg-primary-500' : 'bg-divider'}`} />
+                  )}
+                  <div className="flex flex-col items-center">
+                    <div className={`relative z-10 w-12 h-12 rounded-full flex items-center justify-center text-sm font-semibold transition ${completed && !isCurrent ? 'bg-primary-500 text-white' : ''} ${isCurrent ? 'bg-surface-elevated border-2 border-primary-500 text-primary-500 ring-2 ring-primary-500/50 animate-pulse' : ''} ${isFuture ? 'bg-surface-strong border border-divider text-ink-secondary' : ''}`}>
+                      {completed && !isCurrent ? '✓' : idx + 1}
+                    </div>
+                    <span className={`mt-2 text-xs font-medium ${isCurrent ? 'text-primary-500' : ''} ${completed ? 'text-primary-500' : ''} ${isFuture ? 'text-ink-secondary' : ''}`}>
+                      {label}
+                    </span>
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
 
-    return (
-    <div className="flex h-[calc(100vh-92px)] overflow-hidden">
-      <style jsx global>{`
-        .react-mapbox-ac-menu,
-        .react-mapbox-ac-suggestion {
-          color: #111 !important;
-        }
-        .react-mapbox-ac-suggestion:hover {
-          color: #111 !important;
-        }
-        .mapboxgl-ctrl-geocoder {
-          width: 100% !important;
-          border-radius: 8px !important;
-          border: 1px solid #dc2626 !important;
-          background-color: white !important;
-          color: #111827 !important;
-          height: 40px !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-          font-size: 14px !important;
-        }
-        .mapboxgl-ctrl-geocoder input {
-          padding: 8px !important;
-          color: #111827 !important;
-          background-color: white !important;
-        }
-      `}</style>
+        <div className="max-w-6xl mx-auto px-4 pb-space-8 space-y-space-6">
+          {/* Contextual BYOD link */}
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <Link href="https://byod.frynetworks.com" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-primary-500 hover:text-primary-400 font-medium transition">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>
+              Learn about BYOD →
+            </Link>
+          </div>
 
-      <Sidebar
-        completionStatus={{
-          credentials: credentialsValidated,
-          device: deviceStatus,
-          wallet: walletStatus,
-          map: locationStatus,
-        }}
-        isOpen={isSidebarOpen}
-        toggleSidebar={toggleSidebar}
-        setCurrentSection={setCurrentSection}
-        currentSection={currentSection}
-  portalTitle={displayPortalTitle ?? device?.registered_portal_model ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : null) ?? null}
-      />
-      {!isSidebarOpen && (
-        <button
-          onClick={toggleSidebar}
-          className="fixed top-1/2 left-1 z-50 transform -translate-y-1/2 flex flex-col space-y-1 md:hidden"
-        >
-          <ChevronRightIcon className="h-6 w-6" />
-        </button>
-      )}
+          <style jsx global>{`
+            .react-mapbox-ac-menu,
+            .react-mapbox-ac-suggestion {
+              color: #111 !important;
+            }
+            .react-mapbox-ac-suggestion:hover {
+              color: #111 !important;
+            }
+            .mapboxgl-ctrl-geocoder {
+              width: 100% !important;
+              border-radius: 8px !important;
+              border: 1px solid #dc2626 !important;
+              background-color: white !important;
+              color: #111827 !important;
+              height: 40px !important;
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+              font-size: 14px !important;
+            }
+            .mapboxgl-ctrl-geocoder input {
+              padding: 8px !important;
+              color: #111827 !important;
+              background-color: white !important;
+            }
+          `}</style>
 
-      <div className="relative w-full h-full overflow-hidden">
-        <div
-          className="flex h-full w-full transition-transform duration-700 ease-in-out"
-          style={{ transform: `translateX(-${currentSection * 100}%)` }}
-        >
           {/* Credentials / Portal intro page (index 0) */}
-          <div className="flex-shrink-0 w-full h-full">
-            <div className={`flex h-full flex-col ${pageBgClass}`}>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
-                <SectionBanner
-                  image={bgImg}
-                  title={displayPortalTitle ?? ((typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : 'Portal'))}
-                  subtitle="Select the subtype and provide credentials. You can validate and save before continuing."
-                  height={160}
-                  darkOverlay={0.45}
-                  mode={isDark ? 'dark' : 'light'}
-                />
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {currentSection === 0 && (
+            <div className="space-y-space-6">
+              <SectionBanner image={bgImg} title={displayPortalTitle ?? (typeof type === 'string' ? type : Array.isArray(type) && type.length > 0 ? type[0] : 'Portal')} subtitle="Select the subtype and provide credentials. You can validate and save before continuing." height={160} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-space-6">
                 {/* Left column */}
                 <div className="lg:col-span-1">
-                  <div className={panelClass}>
-                    <h3 className="font-semibold mb-3">Available Subtypes</h3>
-                    {availableSubtypes.length > 0 ? (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {availableSubtypes.map((opt) => {
+                  <div className="bg-surface-elevated border border-divider rounded-token-xl p-space-6 shadow-token-md">
+                    <h3 className="font-display font-semibold text-ink mb-3">Available Subtypes</h3>
+                    {availableSubtypes.length > 0 ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {availableSubtypes.map(opt => {
                           const isLockedSubtype = !!(existingCredentials?.api_type && existingCredentials.api_type !== opt.id);
                           const disabled = credentialActionLoading || loadingStoredCredentials || isLockedSubtype;
                           const normalizedId = opt.id.toLowerCase();
                           const logo = subtypeLogoMap[normalizedId];
-                          return (
-                            <button
-                              key={opt.id}
-                              type="button"
-                              disabled={disabled}
-                              className={`group flex flex-col items-center justify-center rounded-xl border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
-                                selectedSubtype === opt.id
-                                  ? isDark
-                                    ? 'border-red-500 bg-red-600/10 shadow-md'
-                                    : 'border-red-500 bg-red-50 shadow-sm'
-                                  : isDark
-                                    ? 'border-white/10 bg-gray-900/70 hover:border-red-400/70 hover:bg-gray-900'
-                                    : 'border-slate-200 bg-white hover:border-red-300 hover:bg-red-50'
-                              } ${disabled ? (isDark ? 'opacity-50 cursor-not-allowed hover:border-white/10 hover:bg-gray-900/70' : 'opacity-50 cursor-not-allowed hover:border-slate-200 hover:bg-white') : ''}`}
-                              onClick={() => {
-                                if (disabled) return;
-                                setSelectedSubtype(opt.id);
-                                const nextCreds: Record<string, string> = {};
-                                (opt.sub_types ?? []).forEach((k: string) => (nextCreds[k] = credentials[k] ?? ''));
-                                setCredentials((prev) => ({ ...prev, ...nextCreds }));
-                                if (normalizedId !== 'switchbot') {
-                                  setSwitchbotDevices([]);
-                                  setSwitchbotError(null);
-                                }
-                              }}
-                            >
-                             {logo ? (
-                               <Image
-                                 src={logo}
-                                 alt={opt.name}
-                                 className="h-14 w-auto object-contain transition group-hover:scale-105"
-                                 width={96}
-                                 height={56}
-                               />
-                             ) : (
-                               <span className={`px-3 py-2 text-sm font-medium ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>{opt.name}</span>
-                             )}
-                              {existingCredentials?.api_type === opt.id ? (
-                                <span className="mt-2 text-[11px] text-red-200 text-center px-2">
+                          return <button key={opt.id} type="button" disabled={disabled} className={`group flex flex-col items-center justify-center rounded-token-lg border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${selectedSubtype === opt.id ? 'border-primary-500 bg-primary-500/10 shadow-token-sm' : 'border-divider bg-surface hover:border-primary-500/50 hover:bg-surface-strong'} ${disabled ? 'opacity-50 cursor-not-allowed hover:border-divider hover:bg-surface' : ''}`} onClick={() => {
+                            if (disabled) return;
+                            setSelectedSubtype(opt.id);
+                            const nextCreds: Record<string, string> = {};
+                            (opt.sub_types ?? []).forEach((k: string) => nextCreds[k] = credentials[k] ?? '');
+                            setCredentials(prev => ({
+                              ...prev,
+                              ...nextCreds
+                            }));
+                            if (normalizedId !== 'switchbot') {
+                              setSwitchbotDevices([]);
+                              setSwitchbotError(null);
+                            }
+                          }}>
+                             {logo ? <Image src={logo} alt={opt.name} className="h-14 w-auto object-contain transition group-hover:scale-105" width={96} height={56} /> : <span className="px-3 py-2 text-sm font-medium text-ink">{opt.name}</span>}
+                              {existingCredentials?.api_type === opt.id ? <span className="mt-2 text-[11px] text-primary-400 text-center px-2">
                                   Linked to stored credentials
-                                </span>
-                              ) : null}
-                            </button>
-                          );
+                                </span> : null}
+                            </button>;
                         })}
-                      </div>
-                    ) : (
-                      <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>No subtypes available for this portal.</p>
-                    )}
-                    <div className={`mt-4 text-xs space-y-1 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
+                      </div> : <p className="text-sm text-ink-secondary">No subtypes available for this portal.</p>}
+                    <div className="mt-4 text-xs space-y-1 text-ink-secondary">
                       <p>Your credentials are kept local until you complete registration.</p>
                       <p>Use the Validate button to check credentials before moving on.</p>
                     </div>
@@ -1993,59 +2298,52 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                 {/* Right column: credentials card */}
                 <div className="lg:col-span-2">
-                  <div className={panelClass}>
-                    {credentialsNotNeeded ? (
-                      /* Temporary page for devices that don't need credentials */
+                  <div className="bg-surface-elevated border border-divider rounded-token-xl p-space-6 shadow-token-md">
+                    {credentialsNotNeeded ? (/* Temporary page for devices that don't need credentials */
                       <div className="text-center py-8">
                         <div className="mb-4">
-                          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-green-500/20 flex items-center justify-center">
-                            <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-success-500/10 flex items-center justify-center">
+                            <svg className="w-8 h-8 text-success-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
-                          <h3 className={`text-xl font-semibold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No Credentials Required</h3>
-                          <p className={isDark ? 'text-gray-300 mb-4' : 'text-slate-700 mb-4'}>
+                          <h3 className="text-xl font-display font-semibold mb-2 text-ink">No Credentials Required</h3>
+                          <p className="text-ink-secondary mb-4">
                             This device type ({resolvedMinerKey?.split('-')[0]}) does not require credentials configuration at this time.
                           </p>
-                          <p className={isDark ? 'text-sm text-gray-400' : 'text-sm text-slate-600'}>
+                          <p className="text-sm text-ink-secondary">
                             You can proceed directly to the next step to complete your device registration.
                           </p>
                         </div>
-                      </div>
-                    ) : (
-                      /* Original credentials form */
+                      </div>) : (/* Original credentials form */
                       <>
-                        {loadingStoredCredentials ? <p className={`text-sm mb-3 ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>Loading stored credentials…</p> : null}
-                        {existingCredentials?.api_type ? (
-                          <p className={`text-xs mb-2 ${isDark ? 'text-red-300' : 'text-red-600'}`}>
+                        {loadingStoredCredentials ? <p className="text-sm mb-3 text-ink-secondary">Loading stored credentials…</p> : null}
+                        {existingCredentials?.api_type ? <p className="text-xs mb-2 text-error-500">
                             Stored credentials are linked to subtype{' '}
-                            {availableSubtypes.find((s) => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
-                          </p>
-                        ) : null}
-                        {selectedSubtype ? (
-                      <>
-                        <h4 className="font-semibold mb-3">
-                          {(selectedSubtype === 'mac' || selectedSubtype === 'node-mac')
-                            ? "What is the MAC address of the device on which the software is installed?"
-                            : `Credentials Hub - ${selectedSubtype}`}
+                            {availableSubtypes.find(s => s.id === existingCredentials.api_type)?.name ?? existingCredentials.api_type}. Unlink to make changes.
+                          </p> : null}
+                        {selectedSubtype ? <>
+                        <h4 className="font-display font-semibold text-ink mb-3">
+                          {selectedSubtype === 'mac' || selectedSubtype === 'node-mac' ? "What is the MAC address of the device on which the software is installed?" : `Credentials Hub - ${selectedSubtype}`}
                         </h4>
 
-                        {(availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? ['key']).map((field: string) => {
-                          if (field === 'deviceId' && selectedSubtypeLower === 'switchbot') return null;
-                          if (field === 'deviceId' && selectedSubtypeLower === 'shelly') return null;
-                          const value = credentials[field] ?? '';
-                          const err = fieldErrors[field];
-                          const hint = (HINTS_BY_SUBTYPE[(selectedSubtype || '').toLowerCase()]?.[field] as any) || FIELD_HINT[field];
-                          const { pattern, maxLength, placeholder } = getSubtypeConstraints(field, selectedSubtype);
-                          return (
-                            <div key={field} className="mb-3">
-                              <label className={labelClass}>{FIELD_LABELS[field] ?? field}</label>
-                              <input
-                                disabled={credentialActionLoading || loadingStoredCredentials}
-                                value={value}
-                                onChange={(e) => setCredAndValidate(field, e.target.value)}
-                                onBlur={(e) => setCredAndValidate(field, e.target.value)}
-                                onFocus={(e) => {
+                        {(availableSubtypes.find(s => s.id === selectedSubtype)?.sub_types ?? ['key']).map((field: string) => {
+                            if (field === 'deviceId' && selectedSubtypeLower === 'switchbot') return null;
+                            if (field === 'deviceId' && selectedSubtypeLower === 'shelly') return null;
+                            const value = credentials[field] ?? '';
+                            const err = fieldErrors[field];
+                            const hint = HINTS_BY_SUBTYPE[(selectedSubtype || '').toLowerCase()]?.[field] as any || FIELD_HINT[field];
+                            const {
+                              pattern,
+                              maxLength,
+                              placeholder
+                            } = getSubtypeConstraints(field, selectedSubtype);
+                            const isSensitive = isSensitiveField(field);
+                            const inputType = isSensitive ? visibleFields[field] ? 'text' : 'password' : 'text';
+                            return <div key={field} className="mb-3">
+                              <label className="block text-sm font-medium text-ink-secondary mb-1">{FIELD_LABELS[field] ?? field}</label>
+                              <div className="relative">
+                                <input type={inputType} disabled={credentialActionLoading || loadingStoredCredentials} value={value} onChange={e => setCredAndValidate(field, e.target.value)} onBlur={e => setCredAndValidate(field, e.target.value)} onFocus={e => {
                                   // For RTSP fields, if empty, prefill with rtsp:// to guide the user
                                   if ((field || '').toLowerCase() === 'rtsp_url') {
                                     const cur = e.currentTarget.value || '';
@@ -2054,21 +2352,11 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                       setCredAndValidate(field, 'rtsp://');
                                     }
                                   }
-                                }}
-                                
-                                onPaste={(e) => {
+                                }} onPaste={e => {
                                   const pasted = e.clipboardData?.getData('text') || '';
                                   if (field === 'mac_address') {
                                     e.preventDefault();
-                                    setCredAndValidate(
-                                      field,
-                                      (pasted || '')
-                                        .replace(/[^A-Fa-f0-9]/g, '')
-                                        .toUpperCase()
-                                        .slice(0, 12)
-                                        .match(/.{1,2}/g)
-                                        ?.join(':') || ''
-                                    );
+                                    setCredAndValidate(field, (pasted || '').replace(/[^A-Fa-f0-9]/g, '').toUpperCase().slice(0, 12).match(/.{1,2}/g)?.join(':') || '');
                                   } else if (field === 'imei') {
                                     e.preventDefault();
                                     setCredAndValidate(field, (pasted || '').replace(/\D/g, '').slice(0, 15));
@@ -2087,49 +2375,26 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                     const prefix = useSecure ? 'rtsps://' : 'rtsp://';
                                     setCredAndValidate(field, prefix + p);
                                   }
-                                }}
-                                inputMode={field === 'imei' ? 'numeric' : undefined}
-                                pattern={
-                                  pattern ??
-                                  (field === 'imei'
-                                    ? '\\d{15}'
-                                    : field === 'mac_address'
-                                    ? '[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}'
-                                    : undefined)
-                                }
-                                maxLength={
-                                  maxLength ??
-                                  (field === 'mac_address' ? 17 : field === 'imei' ? 15 : undefined)
-                                }
-                                placeholder={
-                                  placeholder ??
-                                  ((field || '').toLowerCase() === 'rtsp_url'
-                                    ? 'rtsp://username:password@host:port/path'
-                                    : field === 'mac_address'
-                                    ? 'AA:BB:CC:DD:EE:FF'
-                                    : field === 'imei'
-                                    ? '15 digits'
-                                    : undefined)
-                                }
-                                autoCapitalize="off"
-                                autoCorrect="off"
-                                spellCheck={false}
-                                className={`w-full p-2 rounded-xl outline-none ring-1 disabled:cursor-not-allowed ${isDark ? 'bg-gray-900 text-white disabled:bg-gray-900/60' : 'bg-white text-slate-900 border border-slate-200 disabled:bg-slate-100'} ${
-                                  err ? (isDark ? 'ring-red-500' : 'ring-red-500') : isDark ? 'ring-white/10 focus:ring-red-500/50' : 'ring-slate-200 focus:ring-red-400/60'
-                                }`}
-                              />
-                              {err ? <p className={errorTextClass}>{err}</p> : hint ? <p className={helperTextClass}>{hint}</p> : null}
-                            </div>
-                          );
-                        })}
+                                }} inputMode={field === 'imei' ? 'numeric' : undefined} pattern={pattern ?? (field === 'imei' ? '\\d{15}' : field === 'mac_address' ? '[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}' : undefined)} maxLength={maxLength ?? (field === 'mac_address' ? 17 : field === 'imei' ? 15 : undefined)} placeholder={placeholder ?? ((field || '').toLowerCase() === 'rtsp_url' ? 'rtsp://username:password@host:port/path' : field === 'mac_address' ? 'AA:BB:CC:DD:EE:FF' : field === 'imei' ? '15 digits' : undefined)} autoCapitalize="off" autoCorrect="off" spellCheck={false} className={`w-full px-4 py-2.5 rounded-token-md outline-none ring-1 border border-divider bg-surface-strong text-ink placeholder-ink-secondary disabled:cursor-not-allowed disabled:opacity-50 transition ${err ? 'ring-error-500 border-error-500' : 'ring-transparent focus:ring-primary-500 focus:border-primary-500'}`} />
+                              {isSensitive && <button type="button" onClick={() => toggleFieldVisibility(field)} className="absolute right-3 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded-token-sm bg-surface-elevated border border-divider text-ink-secondary hover:text-ink hover:bg-surface-strong transition">
+                                  {visibleFields[field] ? 'Hide' : 'Show'}
+                                </button>}
+                              </div>
+                              {err ? <p className="mt-1 text-sm text-error-500">{err}</p> : hint ? <p className="mt-1 text-xs text-ink-secondary">{hint}</p> : null}
+                            </div>;
+                          })}
 
                         {(selectedSubtype || '').toLowerCase() === 'switchbot' && (
-                          <div className="mt-4">
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              <button
-                                className={isDark ? 'px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50' : 'px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-red-50 disabled:opacity-50'}
-                                disabled={switchbotLoading || !switchbotPrereqsOk}
-                                onClick={async () => {
+                          <details className="mt-4 rounded-token-md border border-divider bg-surface-strong/50 group">
+                            <summary className="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-medium text-ink hover:bg-surface-elevated/50 transition rounded-token-md">
+                              <span>Discover SwitchBot Devices</span>
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 transition-transform group-open:rotate-180">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </summary>
+                            <div className="px-4 pb-4">
+                              <div className="flex flex-wrap gap-2 mb-2 mt-2">
+                                <button className="px-3 py-2 rounded-token-md bg-surface-strong border border-divider hover:bg-surface-elevated text-ink disabled:opacity-50 transition" disabled={switchbotLoading || !switchbotPrereqsOk} onClick={async () => {
                                   setSwitchbotError(null);
                                   setSwitchbotDevices([]);
                                   setSwitchbotLoading(true);
@@ -2137,19 +2402,34 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                     const validator = deviceValidatorRegistry.getValidator('switchbot');
 
                                     // Call both the validator (if available) and the original API endpoint.
-                                    let validatorDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
-                                    let apiDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let validatorDevices: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
+                                    let apiDevices: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
                                     let validatorErr: string | null = null;
                                     let apiErr: string | null = null;
-
                                     if (validator && validator.discoverDevices) {
                                       try {
-                                        const validationContext = { session, minerKey: resolvedMinerKey, currentDeviceId: credentials['deviceId'] };
+                                        const validationContext = {
+                                          session,
+                                          minerKey: resolvedMinerKey,
+                                          currentDeviceId: credentials['deviceId']
+                                        };
                                         const result = await validator.discoverDevices(credentials, validationContext);
                                         if (!result.success) {
                                           validatorErr = result.error ?? 'Validator discovery failed';
                                         } else if (result.devices && Array.isArray(result.devices)) {
-                                          validatorDevices = result.devices.map(d => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType }));
+                                          validatorDevices = result.devices.map(d => ({
+                                            deviceId: d.deviceId,
+                                            deviceName: d.deviceName,
+                                            deviceType: d.deviceType
+                                          }));
                                         }
                                       } catch (e: any) {
                                         validatorErr = e?.message ?? String(e);
@@ -2160,7 +2440,9 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                     try {
                                       const res = await fetch('/api/energy/switchbot-devices', {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
+                                        headers: {
+                                          'Content-Type': 'application/json'
+                                        },
                                         credentials: 'include',
                                         body: JSON.stringify({
                                           token: credentials['token'],
@@ -2168,23 +2450,25 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                           address: session?.user?.address,
                                           miner_key: resolvedMinerKey,
                                           currentDeviceId: credentials['deviceId']
-                                        }),
+                                        })
                                       });
-
                                       if (!res.ok) {
                                         const j = await res.json().catch(() => ({}));
                                         apiErr = j?.message ?? 'Failed to fetch SwitchBot devices';
                                       } else {
                                         const j = await res.json();
-                                        if (Array.isArray(j.devices)) apiDevices = j.devices;
-                                        else apiErr = 'No devices returned';
+                                        if (Array.isArray(j.devices)) apiDevices = j.devices;else apiErr = 'No devices returned';
                                       }
                                     } catch (e: any) {
                                       apiErr = e?.message ?? String(e);
                                     }
 
                                     // Merge validatorDevices + apiDevices (dedupe by deviceId)
-                                    const merged: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    const merged: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
                                     const seen = new Set<string>();
                                     for (const d of validatorDevices) {
                                       if (!d || !d.deviceId) continue;
@@ -2200,7 +2484,6 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                       seen.add(id);
                                       merged.push(d);
                                     }
-
                                     if (merged.length > 0) {
                                       setSwitchbotDevices(merged);
                                     } else {
@@ -2213,133 +2496,130 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   } finally {
                                     setSwitchbotLoading(false);
                                   }
-                                }}
-                              >
-                                {switchbotLoading ? 'Discovering devices...' : 'Discover devices'}
-                              </button>
-                              <button
-                                className={isDark ? 'px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800' : 'px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100'}
-                                onClick={() => {
+                                }}>
+                                  {switchbotLoading ? 'Discovering devices...' : 'Discover devices'}
+                                </button>
+                                <button className="px-3 py-2 rounded-token-md border border-divider hover:bg-surface-strong text-ink-secondary hover:text-ink transition" onClick={() => {
                                   setSwitchbotDevices([]);
                                   setSwitchbotError(null);
-                                }}
-                              >
-                                Clear
-                              </button>
-                            </div>
-
-                            {selectedSubtypeLower === 'switchbot' && (
-                              <div className="mt-4 space-y-3">
-                                {switchbotError && (
-                                  <p className="text-xs text-red-400">{switchbotError}</p>
-                                )}
-                                {switchbotLoading && (
-                                  <p className={helperTextClass}>Discovering devices…</p>
-                                )}
-                                {!switchbotLoading && switchbotDevices.length === 0 && !switchbotError && (
-                                  <p className={helperTextClass}>
-                                    Use “Discover devices” to pull available SwitchBot plugs linked to this token and secret.
-                                  </p>
-                                )}
-                                {switchbotDevices.length > 0 && (
-                                  <div>
-                                    <h5 className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
-                                      Select the device you want to link
-                                    </h5>
-                                    <div className="relative">
-                                      <select
-                                        className={`w-full appearance-none rounded-xl border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 ${
-                                          isDark
-                                            ? 'border-white/10 bg-gray-900/70 text-gray-100 focus:border-red-500 focus:ring-red-500/50'
-                                            : 'border-slate-200 bg-white text-slate-900 focus:border-red-500 focus:ring-red-400/60'
-                                        }`}
-                                        value={credentials['deviceId'] ?? ''}
-                                        onChange={(e) => {
-                                          setSwitchbotError(null);
-                                          setCredAndValidate('deviceId', e.target.value);
-                                        }}
-                                      >
-                                        <option value="" disabled>
-                                          Choose a device
-                                        </option>
-                                        {switchbotDevices.map((device) => (
-                                          <option key={device.deviceId} value={device.deviceId}>
-                                            {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <span className={`pointer-events-none absolute inset-y-0 right-3 flex items-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
-                                        ▼
-                                      </span>
-                                    </div>
-                                    <p className={`${helperTextClass} mt-2`}>
-                                      Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
-                                    </p>
-                                  </div>
-                                )}
+                                }}>
+                                  Clear
+                                </button>
                               </div>
-                            )}
-                          </div>
+
+                              {selectedSubtypeLower === 'switchbot' && <div className="mt-4 space-y-3">
+                                  {switchbotError && <p className="text-xs text-error-500">{switchbotError}</p>}
+                                  {switchbotLoading && <p className="mt-1 text-xs text-ink-secondary">Discovering devices…</p>}
+                                  {!switchbotLoading && switchbotDevices.length === 0 && !switchbotError && <p className="mt-1 text-xs text-ink-secondary">
+                                      Use &ldquo;Discover devices&rdquo; to pull available SwitchBot plugs linked to this token and secret.
+                                    </p>}
+                                  {switchbotDevices.length > 0 && <div>
+                                      <h5 className="text-sm font-semibold text-ink mb-2">
+                                        Select the device you want to link
+                                      </h5>
+                                      <div className="relative">
+                                        <select className="w-full appearance-none rounded-token-md border border-divider px-3 py-2 pr-10 text-sm bg-surface-strong text-ink focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" value={credentials['deviceId'] ?? ''} onChange={e => {
+                                    setSwitchbotError(null);
+                                    setCredAndValidate('deviceId', e.target.value);
+                                  }}>
+                                          <option value="" disabled>
+                                            Choose a device
+                                          </option>
+                                          {switchbotDevices.map(device => <option key={device.deviceId} value={device.deviceId}>
+                                              {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
+                                            </option>)}
+                                        </select>
+                                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-ink-secondary">
+                                          ▼
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-xs text-ink-secondary">
+                                        Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
+                                      </p>
+                                    </div>}
+                                </div>}
+                            </div>
+                          </details>
                         )}
 
                         {(selectedSubtype || '').toLowerCase() === 'shelly' && (
-                          <div className="mt-4">
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              <button
-                                className={isDark ? 'px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-50' : 'px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-red-50 disabled:opacity-50'}
-                                disabled={shellyLoading || !shellyPrereqsOk}
-                                onClick={async () => {
+                          <details className="mt-4 rounded-token-md border border-divider bg-surface-strong/50 group">
+                            <summary className="cursor-pointer list-none flex items-center justify-between px-4 py-3 text-sm font-medium text-ink hover:bg-surface-elevated/50 transition rounded-token-md">
+                              <span>Discover Shelly Devices</span>
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 transition-transform group-open:rotate-180">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </summary>
+                            <div className="px-4 pb-4">
+                              <div className="flex flex-wrap gap-2 mb-2 mt-2">
+                                <button className="px-3 py-2 rounded-token-md bg-surface-strong border border-divider hover:bg-surface-elevated text-ink disabled:opacity-50 transition" disabled={shellyLoading || !shellyPrereqsOk} onClick={async () => {
                                   setShellyError(null);
                                   setShellyDevices([]);
                                   setShellyLoading(true);
                                   try {
                                     const validator = deviceValidatorRegistry.getValidator('shelly');
-
-                                    let validatorDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
-                                    let apiDevices: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    let validatorDevices: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
+                                    let apiDevices: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
                                     let validatorErr: string | null = null;
                                     let apiErr: string | null = null;
-
                                     if (validator && validator.discoverDevices) {
                                       try {
-                                        const validationContext = { session, minerKey: resolvedMinerKey, currentDeviceId: credentials['deviceId'] };
+                                        const validationContext = {
+                                          session,
+                                          minerKey: resolvedMinerKey,
+                                          currentDeviceId: credentials['deviceId']
+                                        };
                                         const result = await validator.discoverDevices(credentials, validationContext);
                                         if (!result.success) {
                                           validatorErr = result.error ?? 'Validator discovery failed';
                                         } else if (result.devices && Array.isArray(result.devices)) {
-                                          validatorDevices = result.devices.map(d => ({ deviceId: d.deviceId, deviceName: d.deviceName, deviceType: d.deviceType }));
+                                          validatorDevices = result.devices.map(d => ({
+                                            deviceId: d.deviceId,
+                                            deviceName: d.deviceName,
+                                            deviceType: d.deviceType
+                                          }));
                                         }
                                       } catch (e: any) {
                                         validatorErr = e?.message ?? String(e);
                                       }
                                     }
-
                                     try {
                                       const res = await fetch('/api/energy/shelly-devices', {
                                         method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
+                                        headers: {
+                                          'Content-Type': 'application/json'
+                                        },
                                         credentials: 'include',
                                         body: JSON.stringify({
                                           authKey: credentials['auth_key'],
                                           serverURL: credentials['serverUrl'],
                                           address: session?.user?.address,
-                                          miner_key: resolvedMinerKey,
-                                        }),
+                                          miner_key: resolvedMinerKey
+                                        })
                                       });
-
                                       if (!res.ok) {
                                         const j = await res.json().catch(() => ({}));
                                         apiErr = j?.message ?? 'Failed to fetch Shelly devices';
                                       } else {
                                         const j = await res.json();
-                                        if (Array.isArray(j.devices)) apiDevices = j.devices;
-                                        else apiErr = 'No devices returned';
+                                        if (Array.isArray(j.devices)) apiDevices = j.devices;else apiErr = 'No devices returned';
                                       }
                                     } catch (e: any) {
                                       apiErr = e?.message ?? String(e);
                                     }
-
-                                    const merged: Array<{ deviceId: string; deviceName: string; deviceType?: string }> = [];
+                                    const merged: Array<{
+                                      deviceId: string;
+                                      deviceName: string;
+                                      deviceType?: string;
+                                    }> = [];
                                     const seen = new Set<string>();
                                     for (const d of validatorDevices) {
                                       if (!d || !d.deviceId) continue;
@@ -2355,9 +2635,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                       seen.add(id);
                                       merged.push(d);
                                     }
-
-                                    if (merged.length > 0) setShellyDevices(merged);
-                                    else {
+                                    if (merged.length > 0) setShellyDevices(merged);else {
                                       const errMsg = validatorErr || apiErr || 'No devices returned';
                                       setShellyError(errMsg);
                                     }
@@ -2366,81 +2644,54 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   } finally {
                                     setShellyLoading(false);
                                   }
-                                }}
-                              >
-                                {shellyLoading ? 'Discovering devices...' : 'Discover devices'}
-                              </button>
-                              <button
-                                className={isDark ? 'px-3 py-2 rounded-xl border border-gray-700 hover:bg-gray-800' : 'px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-100'}
-                                onClick={() => {
+                                }}>
+                                  {shellyLoading ? 'Discovering devices...' : 'Discover devices'}
+                                </button>
+                                <button className="px-3 py-2 rounded-token-md border border-divider hover:bg-surface-strong text-ink-secondary hover:text-ink transition" onClick={() => {
                                   setShellyDevices([]);
                                   setShellyError(null);
-                                }}
-                              >
-                                Clear
-                              </button>
-                            </div>
-
-                            {selectedSubtypeLower === 'shelly' && (
-                              <div className="mt-4 space-y-3">
-                                {shellyError && (
-                                  <p className="text-xs text-red-400">{shellyError}</p>
-                                )}
-                                {shellyLoading && (
-                                  <p className={helperTextClass}>Discovering devices…</p>
-                                )}
-                                {!shellyLoading && shellyDevices.length === 0 && !shellyError && (
-                                  <p className={helperTextClass}>
-                                    Use &ldquo;Discover devices&rdquo; to pull available Shelly devices linked to this auth key and server URL.
-                                  </p>
-                                )}
-                                {shellyDevices.length > 0 && (
-                                  <div>
-                                    <h5 className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-100' : 'text-slate-800'}`}>
-                                      Select the device you want to link
-                                    </h5>
-                                    <div className="relative">
-                                      <select
-                                        className={`w-full appearance-none rounded-xl border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 ${
-                                          isDark
-                                            ? 'border-white/10 bg-gray-900/70 text-gray-100 focus:border-red-500 focus:ring-red-500/50'
-                                            : 'border-slate-200 bg-white text-slate-900 focus:border-red-500 focus:ring-red-400/60'
-                                        }`}
-                                        value={credentials['deviceId'] ?? ''}
-                                        onChange={(e) => {
-                                          setShellyError(null);
-                                          setCredAndValidate('deviceId', e.target.value);
-                                        }}
-                                      >
-                                        <option value="" disabled>
-                                          Choose a device
-                                        </option>
-                                        {shellyDevices.map((device) => (
-                                          <option key={device.deviceId} value={device.deviceId}>
-                                            {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <span className={`pointer-events-none absolute inset-y-0 right-3 flex items-center ${isDark ? 'text-gray-400' : 'text-slate-500'}`}>
-                                        ▼
-                                      </span>
-                                    </div>
-                                    <p className={`${helperTextClass} mt-2`}>
-                                      Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
-                                    </p>
-                                  </div>
-                                )}
+                                }}>
+                                  Clear
+                                </button>
                               </div>
-                            )}
-                          </div>
+
+                              {selectedSubtypeLower === 'shelly' && <div className="mt-4 space-y-3">
+                                  {shellyError && <p className="text-xs text-error-500">{shellyError}</p>}
+                                  {shellyLoading && <p className="mt-1 text-xs text-ink-secondary">Discovering devices…</p>}
+                                  {!shellyLoading && shellyDevices.length === 0 && !shellyError && <p className="mt-1 text-xs text-ink-secondary">
+                                      Use &ldquo;Discover devices&rdquo; to pull available Shelly devices linked to this auth key and server URL.
+                                    </p>}
+                                  {shellyDevices.length > 0 && <div>
+                                      <h5 className="text-sm font-semibold text-ink mb-2">
+                                        Select the device you want to link
+                                      </h5>
+                                      <div className="relative">
+                                        <select className="w-full appearance-none rounded-token-md border border-divider px-3 py-2 pr-10 text-sm bg-surface-strong text-ink focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" value={credentials['deviceId'] ?? ''} onChange={e => {
+                                    setShellyError(null);
+                                    setCredAndValidate('deviceId', e.target.value);
+                                  }}>
+                                          <option value="" disabled>
+                                            Choose a device
+                                          </option>
+                                          {shellyDevices.map(device => <option key={device.deviceId} value={device.deviceId}>
+                                              {device.deviceName || device.deviceId} · {device.deviceType || 'Unknown type'}
+                                            </option>)}
+                                        </select>
+                                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-ink-secondary">
+                                          ▼
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-xs text-ink-secondary">
+                                        Selected device ID: {credentials['deviceId'] ? credentials['deviceId'] : 'None'}
+                                      </p>
+                                    </div>}
+                                </div>}
+                            </div>
+                          </details>
                         )}
 
                         <div className="flex gap-2 mt-5">
-                          <button
-                            type="button"
-                            className={isDark ? 'px-4 py-2 rounded-xl border border-gray-700 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed'}
-                            disabled={credentialActionLoading || loadingStoredCredentials || Boolean(existingCredentials)}
-                            onClick={() => {
+                          <button type="button" className="px-4 py-2 rounded-token-md border border-divider hover:bg-surface-elevated text-ink disabled:opacity-50 disabled:cursor-not-allowed transition" disabled={credentialActionLoading || loadingStoredCredentials || Boolean(existingCredentials)} onClick={() => {
                               if (existingCredentials) return;
                               setSelectedSubtype(null);
                               setCredentialsPrefilled(false);
@@ -2448,225 +2699,185 @@ const savePersonalInformation = async (): Promise<boolean> => {
                               setSwitchbotError(null);
                               setShellyDevices([]);
                               setShellyError(null);
-                              const keys = (availableSubtypes.find((s) => s.id === selectedSubtype)?.sub_types ?? []);
+                              const keys = availableSubtypes.find(s => s.id === selectedSubtype)?.sub_types ?? [];
                               const cleared: Record<string, string> = {};
-                              keys.forEach((k: string) => (cleared[k] = ''));
-                              setFieldErrors((prev) => ({ ...prev, ...cleared }));
-                              setCredentials((prev) => {
+                              keys.forEach((k: string) => cleared[k] = '');
+                              setFieldErrors(prev => ({
+                                ...prev,
+                                ...cleared
+                              }));
+                              setCredentials(prev => {
                                 if (!keys.length) return prev;
-                                const next = { ...prev };
-                                keys.forEach((k) => {
+                                const next = {
+                                  ...prev
+                                };
+                                keys.forEach(k => {
                                   delete next[k];
                                 });
                                 return next;
                               });
                               setCredentialsValidated(false);
-                            }}
-                          >
+                            }}>
                             Clear
                           </button>
-                          {existingCredentials ? (
-                            <>
-                              <button
-                                type="button"
-                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={credentialActionLoading || loadingStoredCredentials || !selectedSubtype || !credentialsChanged}
-                                onClick={handleCredentialUpdate}
-                              >
+                          {existingCredentials ? <>
+                              <button type="button" className="px-4 py-2 rounded-token-md bg-primary-500 hover:bg-primary-600 border border-primary-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition shadow-token-sm" disabled={credentialActionLoading || loadingStoredCredentials || !selectedSubtype || !credentialsChanged} onClick={handleCredentialUpdate}>
                                 Update
                               </button>
-                              <button
-                                type="button"
-                                className={isDark ? 'px-4 py-2 rounded-xl border border-gray-500 hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed'}
-                                disabled={credentialActionLoading || loadingStoredCredentials}
-                                onClick={handleCredentialUnlink}
-                              >
+                              <button type="button" className="px-4 py-2 rounded-token-md border border-divider hover:bg-surface-elevated text-ink-secondary hover:text-ink disabled:opacity-50 disabled:cursor-not-allowed transition" disabled={credentialActionLoading || loadingStoredCredentials} onClick={handleCredentialUnlink}>
                                 Unlink
                               </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                              disabled={credentialActionLoading || loadingStoredCredentials || credentialsInvalid}
-                              onClick={async () => await submitCredentials()}
-                            >
+                            </> : <button type="button" className="px-4 py-2 rounded-token-md bg-primary-500 hover:bg-primary-600 border border-primary-500 text-white disabled:opacity-50 disabled:cursor-not-allowed transition shadow-token-sm" disabled={credentialActionLoading || loadingStoredCredentials || credentialsInvalid} onClick={async () => await submitCredentials()}>
                               Validate
-                            </button>
-                          )}
+                            </button>}
                         </div>
-                      </>
-                        ) : (
-                          <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>Choose a subtype on the left to enter credentials.</div>
-                        )}
-                      </>
-                    )}
+                      </> : <div className="text-sm text-ink-secondary">Choose a subtype on the left to enter credentials.</div>}
+                      </>)}
                   </div>
                 </div>
               </div>
-              </div>
+
               {/* Footer nav for section 0 */}
-              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
-                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
+              <div className="bg-surface-elevated border border-divider rounded-token-xl px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 shadow-token-md">
+                <button className="text-ink-secondary hover:text-ink px-4 py-2 transition" onClick={() => safeNavigateToDevices({
+                  force: true
+                })}>
                   Cancel
                 </button>
-                {credentialsJustUpdated && (
-                  <button
-                    className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 border border-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={handleUpdateAndExit}
-                  >
+                {credentialsJustUpdated && <button className="px-4 py-2 rounded-token-md bg-primary-500 hover:bg-primary-600 border border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-token-sm" onClick={handleUpdateAndExit}>
                     Save & Exit
-                  </button>
-                )}
-                <button
-                  className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
-                  onClick={() => {
-                    if (!credentialsNotNeeded && credentialsInvalid) {
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        reward_wallet: footerHasWalletFieldError ? prev.reward_wallet : prev.reward_wallet,
-                      }));
-                      return;
-                    }
-                    if (!credentialsNotNeeded && !switchbotPrereqsOk) {
-                      setSwitchbotError('Provide a valid token and secret before discovering devices.');
-                      return;
-                    }
-                    if (!credentialsNotNeeded && !shellyPrereqsOk) {
-                      setShellyError('Provide valid Shelly auth key and server URL.');
-                      return;
-                    }
-                    handleNext();
-                  }}
-                  disabled={!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)}
-                >
+                  </button>}
+                <button className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2.5 rounded-token-md font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => {
+                  if (!credentialsNotNeeded && credentialsInvalid) {
+                    setFieldErrors(prev => ({
+                      ...prev,
+                      reward_wallet: footerHasWalletFieldError ? prev.reward_wallet : prev.reward_wallet
+                    }));
+                    return;
+                  }
+                  if (!credentialsNotNeeded && !switchbotPrereqsOk) {
+                    setSwitchbotError('Provide a valid token and secret before discovering devices.');
+                    return;
+                  }
+                  if (!credentialsNotNeeded && !shellyPrereqsOk) {
+                    setShellyError('Provide valid Shelly auth key and server URL.');
+                    return;
+                  }
+                  handleNext();
+                }} disabled={!credentialsNotNeeded && (credentialsInvalid || !credentialsValidated)}>
                   Next
                 </button>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Personal Information (index 1) - unchanged layout from earlier */}
-          <div className="flex-shrink-0 w-full h-full">
-            <div className={`flex h-full flex-col ${pageBgClass}`}>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 space-y-6">
-                <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
+          {/* Personal Information (index 1) */}
+          {currentSection === 1 && (
+            <div className="space-y-space-6">
+              <SectionBanner image={bgImg} title="Personal Information" subtitle="Tell us about the owner and rewards wallet." height={160} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
 
-                <div className={`${panelClass} w-full flex flex-col gap-4`}>
+              <div className="bg-surface-elevated border border-divider rounded-token-xl p-space-6 shadow-token-md w-full flex flex-col gap-4">
                 {/* Email */}
                 <div>
-                  <label className={labelClass}>Email</label>
-                  <input
-                    value={personalInfoData.email}
-                    onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, email: e.target.value }))}
-                    className={inputClass}
-                    placeholder="example@domain.tld"
-                  />
-                  {fieldErrors.email && <p className={errorTextClass}>{fieldErrors.email}</p>}
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Email</label>
+                  <input value={personalInfoData.email} onChange={e => setPersonalInfoData((p: any) => ({
+                      ...p,
+                      email: e.target.value
+                    }))} className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="example@domain.tld" />
+                  {fieldErrors.email && <p className="mt-1 text-sm text-error-500">{fieldErrors.email}</p>}
                 </div>
 
                 {/* First / Last */}
                 <div className="space-y-3">
                   <div>
-                    <label className={labelClass}>First Name</label>
-                    <input
-                      value={personalInfoData.firstName}
-                      onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, firstName: e.target.value }))}
-                      className={inputClass}
-                      placeholder="Samuel"
-                    />
-                    {fieldErrors.firstName && <p className={errorTextClass}>{fieldErrors.firstName}</p>}
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">First Name</label>
+                    <input value={personalInfoData.firstName} onChange={e => setPersonalInfoData((p: any) => ({
+                        ...p,
+                        firstName: e.target.value
+                      }))} className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="Samuel" />
+                    {fieldErrors.firstName && <p className="mt-1 text-sm text-error-500">{fieldErrors.firstName}</p>}
                   </div>
                   <div>
-                    <label className={labelClass}>Last Name</label>
-                    <input
-                      value={personalInfoData.lastName}
-                      onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, lastName: e.target.value }))}
-                      className={inputClass}
-                      placeholder="Fry"
-                    />
-                    {fieldErrors.lastName && <p className={errorTextClass}>{fieldErrors.lastName}</p>}
+                    <label className="block text-sm font-medium text-ink-secondary mb-1">Last Name</label>
+                    <input value={personalInfoData.lastName} onChange={e => setPersonalInfoData((p: any) => ({
+                        ...p,
+                        lastName: e.target.value
+                      }))} className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="Fry" />
+                    {fieldErrors.lastName && <p className="mt-1 text-sm text-error-500">{fieldErrors.lastName}</p>}
                   </div>
                 </div>
 
                 {/* Device Nickname */}
                 <div>
-                  <label className={labelClass}>Device Nickname</label>
-                  <input
-                    value={personalInfoData.nickname}
-                    onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, nickname: e.target.value }))}
-                    className={inputClass}
-                    placeholder="Basement Bandwidth Miner 1 / Office Energy Miner 2..."
-                  />
-                  {fieldErrors.nickname && <p className={errorTextClass}>{fieldErrors.nickname}</p>}
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Device Nickname</label>
+                  <input value={personalInfoData.nickname} onChange={e => setPersonalInfoData((p: any) => ({
+                      ...p,
+                      nickname: e.target.value
+                    }))} className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="Basement Bandwidth Miner 1 / Office Energy Miner 2..." />
+                  {fieldErrors.nickname && <p className="mt-1 text-sm text-error-500">{fieldErrors.nickname}</p>}
                 </div>
 
                 {/* Rewards Wallet (Algorand) */}
                 <div className="space-y-2">
-                  <label className={labelClass}>Rewards Wallet (Algorand)</label>
+                  <label className="block text-sm font-medium text-ink-secondary mb-1">Rewards Wallet (Algorand)</label>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <input
-                      value={personalInfoData.reward_wallet}
-                      onChange={(e) => setPersonalInfoData((p: any) => ({ ...p, reward_wallet: e.target.value.trim() }))}
-                      className={`${inputClass} sm:flex-1`}
-                      placeholder="58-char Algorand address"
-                    />
+                    <input value={personalInfoData.reward_wallet} onChange={e => setPersonalInfoData((p: any) => ({
+                        ...p,
+                        reward_wallet: e.target.value.trim()
+                      }))} className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition sm:flex-1" placeholder="58-char Algorand address" />
                     <PasteAddress handlePaste={handleRewardWalletPaste} />
                   </div>
 
-                  {fieldErrors.reward_wallet && <p className={errorTextClass}>{fieldErrors.reward_wallet}</p>}
-                  <p className={helperTextClass}>{FIELD_HINT.reward_wallet}</p>
+                  {fieldErrors.reward_wallet && <p className="mt-1 text-sm text-error-500">{fieldErrors.reward_wallet}</p>}
+                  <p className="mt-1 text-xs text-ink-secondary">{FIELD_HINT.reward_wallet}</p>
                 </div>
-              </div>
               </div>
 
               {/* Footer nav for Personal */}
-              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
-                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
+              <div className="bg-surface-elevated border border-divider rounded-token-xl px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 shadow-token-md">
+                <button className="text-ink-secondary hover:text-ink px-4 py-2 transition" onClick={() => safeNavigateToDevices({
+                  force: true
+                })}>
                   Cancel
                 </button>
-                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded' : 'px-4 py-2 border border-slate-300 rounded'} onClick={() => setCurrentSection(0)}>
+                <button className="text-ink-secondary hover:text-ink px-4 py-2 transition" onClick={() => setCurrentSection(0)}>
                   Back
                 </button>
-                <button
-                  className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
-                  onClick={() => {
-                    // Only enforce credential validity when credentials are required by env
-                    if (rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)) {
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        reward_wallet: rewardWalletInvalid ? (FIELD_HINT.reward_wallet ?? 'Provide a valid rewards wallet address.') : prev.reward_wallet,
-                      }));
-                      return;
-                    }
-                    handleNext();
-                  }}
-                  disabled={rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)}
-                >
+                <button className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2.5 rounded-token-md font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => {
+                  // Only enforce credential validity when credentials are required by env
+                  if (rewardWalletInvalid || !credentialsNotNeeded && credentialsInvalid) {
+                    setFieldErrors(prev => ({
+                      ...prev,
+                      reward_wallet: rewardWalletInvalid ? FIELD_HINT.reward_wallet ?? 'Provide a valid rewards wallet address.' : prev.reward_wallet
+                    }));
+                    return;
+                  }
+                  handleNext();
+                }} disabled={rewardWalletInvalid || !credentialsNotNeeded && credentialsInvalid}>
                   Next
                 </button>
+                {(rewardWalletInvalid || (!credentialsNotNeeded && credentialsInvalid)) && (
+                  <p className="text-error-500 text-xs mt-2 w-full text-right">Enter a valid rewards wallet address to continue.</p>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Localization (index 2) – AUTOFIT VERSION (v9: toolbar grid + HexMap auto-resolution) */}
-          <div className="flex-shrink-0 w-full h-full">
-            <div className={`flex h-full flex-col ${pageBgClass}`}>
-              <div className="flex-1 overflow-y-auto p-1 sm:p-2 md:p-3 space-y-3">
-                <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
+          {/* Localization (index 2) */}
+          {currentSection === 2 && (
+            <div className="space-y-space-6">
+              <SectionBanner image={bgImg} title="Localization" subtitle="Search your address or pick an H3 hex. We will store the median coordinates." height={110} darkOverlay={0.45} mode={isDark ? 'dark' : 'light'} />
 
-                {/* Autofit card: fills available width/height */}
-                <div className={panelSlimClass}>
+              {/* Autofit card: fills available width/height */}
+              <div className="bg-surface-elevated border border-divider rounded-token-xl p-space-6 shadow-token-md">
                 {/* Toolbar (search + lon/lat) — responsive grid that aligns labels + inputs */}
                 <div className="flex flex-col gap-1 mt-0.5">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
                     {/* Search: spans 6 columns on md+ */}
                     <div className="md:col-span-6 flex flex-col">
-                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Search</label>
+                      <label className="text-sm font-medium text-ink-secondary mb-1">Search</label>
                       <div className="w-full">
-                        <MapboxAutocomplete
-                          accessToken={mapboxgl.accessToken!}
-                          onRetrieve={(result: any) => {
+                        <MapboxAutocomplete accessToken={mapboxgl.accessToken!} onRetrieve={(result: any) => {
                             if (result?.features?.[0]?.geometry?.coordinates) {
                               const [lng, lat] = result.features[0].geometry.coordinates;
                               const parsedLat = Number(lat);
@@ -2679,7 +2890,7 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                   ...p,
                                   latitude: String(parsedLat),
                                   longitude: String(parsedLng),
-                                  h3Index: cell,
+                                  h3Index: cell
                                 }));
                                 // update displayed hex + resolution so HexMap can zoom/update view
                                 try {
@@ -2688,13 +2899,15 @@ const savePersonalInformation = async (): Promise<boolean> => {
                                 } catch (e) {
                                   // silent fallback if state setters not available in this scope
                                 }
-                                setFieldErrors((prev: any) => ({ ...prev, latitude: '', longitude: '' }));
+                                setFieldErrors((prev: any) => ({
+                                  ...prev,
+                                  latitude: '',
+                                  longitude: ''
+                                }));
                                 setHexSynced(true);
                               }
                             }
-                          }}
-                          placeholder="Search location..."
-                        />
+                          }} placeholder="Search location..." />
                       </div>
                       {/* reserve error space to avoid vertical shifts (smaller) */}
                       <div className="min-h-[0.25rem] mt-0" />
@@ -2702,44 +2915,44 @@ const savePersonalInformation = async (): Promise<boolean> => {
 
                     {/* Longitude: spans 3 columns on md+ */}
                     <div className="md:col-span-3 flex flex-col">
-                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Longitude</label>
-                      <input
-                        type="text"
-                        className={`w-full p-2 h-10 rounded border ${isDark ? 'border-red-600 text-white bg-gray-900' : 'border-red-500 text-slate-900 bg-white'}`}
-                        placeholder="Longitude"
-                        value={mapInfoData.longitude ?? ''}
-                        onChange={(e) => {
+                      <label className="text-sm font-medium text-ink-secondary mb-1">Longitude</label>
+                      <input type="text" className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="Longitude" value={mapInfoData.longitude ?? ''} onChange={e => {
                           const input = e.target.value;
                           if (/^-?\d*\.?\d*$/.test(input)) {
                             const lonError = validateField('longitude', input, null) || '';
-                            setMapInfoData((p: any) => ({ ...p, longitude: input }));
-                            setFieldErrors((prev: any) => ({ ...prev, longitude: lonError }));
+                            setMapInfoData((p: any) => ({
+                              ...p,
+                              longitude: input
+                            }));
+                            setFieldErrors((prev: any) => ({
+                              ...prev,
+                              longitude: lonError
+                            }));
                             setHexSynced(false);
                           }
-                        }}
-                      />
-                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.longitude ? 'text-red-500' : isDark ? 'text-gray-400' : 'text-slate-600'}`}>{fieldErrors.longitude ?? ''}</span>
+                        }} />
+                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.longitude ? 'text-error-500' : 'text-ink-secondary'}`}>{fieldErrors.longitude ?? ''}</span>
                     </div>
 
                     {/* Latitude: spans 3 columns on md+ */}
                     <div className="md:col-span-3 flex flex-col">
-                      <label className={isDark ? 'text-sm mb-1 text-white' : 'text-sm mb-1 text-slate-700'}>Latitude</label>
-                      <input
-                        type="text"
-                        className={`w-full p-2 h-10 rounded border ${isDark ? 'border-red-600 text-white bg-gray-900' : 'border-red-500 text-slate-900 bg-white'}`}
-                        placeholder="Latitude"
-                        value={mapInfoData.latitude ?? ''}
-                        onChange={(e) => {
+                      <label className="text-sm font-medium text-ink-secondary mb-1">Latitude</label>
+                      <input type="text" className="w-full px-4 py-2.5 rounded-token-md border border-divider bg-surface-strong text-ink placeholder-ink-secondary outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 transition" placeholder="Latitude" value={mapInfoData.latitude ?? ''} onChange={e => {
                           const input = e.target.value;
                           if (/^-?\d*\.?\d*$/.test(input)) {
                             const latError = validateField('latitude', input, null) || '';
-                            setMapInfoData((p: any) => ({ ...p, latitude: input }));
-                            setFieldErrors((prev: any) => ({ ...prev, latitude: latError }));
+                            setMapInfoData((p: any) => ({
+                              ...p,
+                              latitude: input
+                            }));
+                            setFieldErrors((prev: any) => ({
+                              ...prev,
+                              latitude: latError
+                            }));
                             setHexSynced(false);
                           }
-                        }}
-                      />
-                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.latitude ? 'text-red-500' : isDark ? 'text-gray-400' : 'text-slate-600'}`}>{fieldErrors.latitude ?? ''}</span>
+                        }} />
+                      <span className={`min-h-[1.25rem] text-sm mt-1 ${fieldErrors.latitude ? 'text-error-500' : 'text-ink-secondary'}`}>{fieldErrors.latitude ?? ''}</span>
                     </div>
                   </div>
                 </div>
@@ -2748,105 +2961,95 @@ const savePersonalInformation = async (): Promise<boolean> => {
                 {/* Map + H3 section fills remaining space — map grows to fill */}
                   <div className="flex-1 min-h-0 flex flex-col">
                   <div className="relative flex-1 min-h-0">
-                    {displayedHex && displayedHexRes !== null && (
-                      <div className={`absolute bottom-3 left-3 z-[500] px-3 py-1 rounded text-xs shadow ${isDark ? 'bg-gray-900/80 text-gray-200' : 'bg-white/95 text-slate-800 border border-slate-200'}`}>
+                    {displayedHex && displayedHexRes !== null && <div className="absolute bottom-3 left-3 z-[500] px-3 py-1 rounded-token-sm text-xs shadow-token-sm bg-surface-elevated/90 text-ink border border-divider">
                         Res {displayedHexRes} · {displayedHex}
-                      </div>
-                    )}
-                    <HexMap
-                      resolution={undefined}
-                      autoResolution={true}
-                      initialZoom={4}
-                      center={mapCenter}
-                      selectedCell={mapInfoData?.h3Index && isValidCell(mapInfoData.h3Index) ? mapInfoData.h3Index : undefined}
-                      neighborsK={1}
-                      onSelect={(cell: string, lat: number, lng: number) => {
-                        setMapInfoData({ latitude: String(lat), longitude: String(lng), h3Index: cell });
-                        setFieldErrors((prev: any) => ({ ...prev, latitude: '', longitude: '' }));
+                      </div>}
+                    <HexMap resolution={undefined} autoResolution={true} initialZoom={4} center={mapCenter} selectedCell={mapInfoData?.h3Index && isValidCell(mapInfoData.h3Index) ? mapInfoData.h3Index : undefined} neighborsK={1} onSelect={(cell: string, lat: number, lng: number) => {
+                        setMapInfoData({
+                          latitude: String(lat),
+                          longitude: String(lng),
+                          h3Index: cell
+                        });
+                        setFieldErrors((prev: any) => ({
+                          ...prev,
+                          latitude: '',
+                          longitude: ''
+                        }));
                         setHexSynced(true);
-                      }}
-                      onDisplayCellChange={(cell: string | null, res: number) => {
+                      }} onDisplayCellChange={(cell: string | null, res: number) => {
                         setDisplayedHex(cell);
                         setDisplayedHexRes(res);
-                      }}
-                      className="rounded-2xl overflow-hidden w-full h-full min-h-[20rem]"
-                    />
+                      }} className="rounded-2xl overflow-hidden w-full h-full min-h-[20rem]" />
                   </div>
 
                   {/* NOTE: H3 input (label + input + helper text) intentionally removed so the map occupies more vertical space */}
                 </div>
               </div>
 
-              </div>
-
               {/* Footer nav for Localization */}
-              <div className={`border-t px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 ${isDark ? 'border-white/10 bg-gray-950 text-white' : 'border-slate-200 bg-white text-slate-900 shadow-sm'}`}>
-                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded hover:bg-gray-500' : 'px-4 py-2 border border-slate-300 rounded hover:bg-slate-100'} onClick={() => safeNavigateToDevices({ force: true })}>
+              <div className="bg-surface-elevated border border-divider rounded-token-xl px-4 sm:px-6 md:px-8 py-4 flex flex-wrap justify-end gap-2 shadow-token-md">
+                <button className="text-ink-secondary hover:text-ink px-4 py-2 transition" onClick={() => safeNavigateToDevices({
+                  force: true
+                })}>
                   Cancel
                 </button>
-                <button className={isDark ? 'px-4 py-2 border border-gray-500 rounded' : 'px-4 py-2 border border-slate-300 rounded'} onClick={() => setCurrentSection(1)}>
+                <button className="text-ink-secondary hover:text-ink px-4 py-2 transition" onClick={() => setCurrentSection(1)}>
                   Back
                 </button>
                 <div className="flex flex-col items-end">
-                  <button
-                    className={isDark ? 'px-4 py-2 border border-red-600 rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed' : 'px-4 py-2 border border-red-600 text-red-700 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed'}
-                    type="button"
-                    onClick={handleSyncHexOrSave}
-                    disabled={( !credentialsNotNeeded && credentialsInvalid) || rewardWalletInvalid}
-                  >
+                  <button className="bg-primary-500 hover:bg-primary-600 text-white px-6 py-2.5 rounded-token-md font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed" type="button" onClick={handleSyncHexOrSave} disabled={!credentialsNotNeeded && credentialsInvalid || rewardWalletInvalid}>
                     {hexSynced ? 'Save' : 'Sync Hex'}
                   </button>
-                  {footerShouldShowErrors && (
-                    <p className="mt-2 text-xs text-red-300 text-right">
+                  {footerShouldShowErrors && <p className="mt-2 text-xs text-error-500 text-right">
                       {!credentialsNotNeeded && credentialsInvalid ? 'Fix credential fields for the selected subtype.' : ''}
                       {!credentialsNotNeeded && credentialsInvalid && footerHasWalletFieldError ? ' ' : ''}
                       {footerHasWalletFieldError ? fieldErrors.reward_wallet : ''}
-                      {!credentialsNotNeeded && !credentialsInvalid && !credentialsValidated
-                        ? 'Validate your credentials before continuing.'
-                        : ''}
-                    </p>
-                  )}
+                      {!credentialsNotNeeded && !credentialsInvalid && !credentialsValidated ? 'Validate your credentials before continuing.' : ''}
+                    </p>}
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
-      </div>
-    </div>
-  );
+      </>
+    )}
+  </PageShell>;
 }
-
 export async function getServerSideProps(context: any) {
   // Use getServerSession to avoid internal fetch errors to NEXTAUTH_URL_INTERNAL.
   const session = await getServerSession(context.req, context.res, authOptions);
   if (!session || !(session as any).user?.address) {
-    return { props: {} };
+    return {
+      props: {}
+    };
   }
   try {
     const client = await clientPromise;
     const db = client.db('main');
     const products = await db.collection('products').find({}).toArray();
     if (!products) {
-      return { props: { products: [] } };
+      return {
+        props: {
+          products: []
+        }
+      };
     } else {
       return {
         props: {
-          products: JSON.parse(
-            JSON.stringify(
-              products.map((product) => {
-                return {
-                  name: product.name,
-                  key: product.key,
-                  reward: product.reward
-                };
-              })
-            )
-          )
+          products: JSON.parse(JSON.stringify(products.map(product => {
+            return {
+              name: product.name,
+              key: product.key,
+              reward: product.reward
+            };
+          })))
         }
       };
     }
   } catch (error) {
     console.error(error);
-    return { props: {} };
+    return {
+      props: {}
+    };
   }
 }

@@ -23,7 +23,7 @@ export default function ConnectMenu() {
         <Flex flexDirection='col' justifyContent='between' alignItems='center'>
             {/* Show pending message when wallet operation is in progress */}
             {isWalletPending && (
-                <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg text-yellow-800 dark:text-yellow-200 text-sm">
+                <div className="mb-4 p-3 bg-warning-100 dark:bg-warning-900/30 border border-warning-300 dark:border-warning-700 rounded-lg text-warning-800 dark:text-warning-200 text-sm">
                     <strong>Transaction in progress</strong> — Please complete or cancel your current request in Pera Wallet.
                 </div>
             )}

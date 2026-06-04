@@ -80,16 +80,16 @@ export default function DailyRow({
         </div>
       )}
       {expanded && (
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-col sm:flex-row gap-2">
         <button
-          className={`px-3 py-1.5 border rounded-lg text-sm transition-colors duration-150 ${claimBtnClass}`}
+          className={`px-3 py-1.5 border rounded-lg text-sm transition-colors duration-150 w-full sm:w-auto min-h-[44px] ${claimBtnClass}`}
           disabled={!canClaim}
           onClick={() => onClaim(item)}
         >
           Claim
         </button>
         <button
-          className={`px-3 py-1.5 border rounded-lg text-sm transition-colors duration-150 ${boostBtnClass}`}
+          className={`px-3 py-1.5 border rounded-lg text-sm transition-colors duration-150 w-full sm:w-auto min-h-[44px] ${boostBtnClass}`}
           disabled={!canBoost}
           onClick={() => onBoost(item)}
         >

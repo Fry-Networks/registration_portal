@@ -38,7 +38,7 @@ const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
       className="z-[100]"
     >
       <DialogPanel
-        className={`sm:max-w-2xl ${
+        className={`max-w-full sm:max-w-2xl min-h-[100dvh] sm:min-h-0 rounded-none sm:rounded-2xl ${
           isDark
             ? 'bg-[#0b0b0f] text-white border border-gray-800 shadow-[0_18px_45px_rgba(0,0,0,0.6)]'
             : 'bg-white text-slate-900 border border-slate-200 shadow-[0_18px_45px_rgba(15,23,42,0.15)]'

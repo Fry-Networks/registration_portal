@@ -165,7 +165,7 @@ export default function WithdrawModal({
       >
           {/* Align modal palette with the verification withdraw styling so text stays legible on both themes. */}
         <DialogPanel
-          className={`sm:max-w-xl ${isDark ? 'bg-[#111827] text-gray-100' : 'bg-white text-slate-900'}`}
+          className={`max-w-full sm:max-w-xl min-h-[100dvh] sm:min-h-0 rounded-none sm:rounded-2xl ${isDark ? 'bg-[#111827] text-gray-100' : 'bg-white text-slate-900'}`}
         >
           <div className="absolute right-0 top-0 pr-3 pt-3">
             <button
@@ -195,17 +195,17 @@ export default function WithdrawModal({
               withdraw the token immediately.
             </p>
           )} */}
-          <div className="mt-4 rounded-2xl border border-amber-500/50 bg-amber-100 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-100">
-            <p className="font-semibold text-[#3c1e00] dark:text-amber-50">
+          <div className="mt-4 rounded-2xl border border-warning-500/50 bg-warning-100 px-4 py-3 text-sm text-warning-900 dark:bg-warning-500/10 dark:text-warning-100">
+            <p className="font-semibold text-[#3c1e00] dark:text-warning-50">
               Withdrawing removes your verification multiplier.
             </p>
-            <p className="text-xs mt-1 text-[#3c1e00] dark:text-amber-100/90">
+            <p className="text-xs mt-1 text-[#3c1e00] dark:text-warning-100/90">
               You will earn base rewards only until you re-stake with FRY&nbsp;2.0 and restore your multiplier bonus.
             </p>
-            <label className="mt-3 flex items-center gap-2 text-xs text-[#3c1e00] dark:text-amber-100">
+            <label className="mt-3 flex items-center gap-2 text-xs text-[#3c1e00] dark:text-warning-100">
               <input
                 type="checkbox"
-                className="h-4 w-4 rounded border-amber-700 text-amber-700 focus:ring-amber-500 dark:border-amber-200 dark:text-amber-200"
+                className="h-4 w-4 rounded border-warning-700 text-warning-700 focus:ring-warning-500 dark:border-warning-200 dark:text-warning-200"
                 checked={acknowledged}
                 onChange={(event) => setAcknowledged(event.target.checked)}
               />

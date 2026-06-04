@@ -13,7 +13,6 @@ export async function connect() {
     logger.info('Connecting to MongoDB...', { database: 'MongoDB' });
     await mongoose.connect(uri);
     logDatabaseConnection('connected');
-    mongoose.connection.useDb('main');
 
     mongoose.connection.on('connected', () => {
         logDatabaseConnection('connected');

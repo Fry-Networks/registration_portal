@@ -16,6 +16,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { isProductStakeAvailable } from '../pages/devices';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import {
   computeDeviceStatus,
   isNodeProduct,
@@ -28,7 +29,7 @@ import {
   isBoostAssetSupported
 } from '../lib/utils';
 import { getLegacyForceTimestamp, isLegacyVerificationStake } from '../lib/legacyStake';
-import { describeMacIssue } from '../lib/validators/macAddressValidator';
+import { describeMacIssue, validateMacAddress } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
 // import WithdrawIcon from './WithdrawIcon';
 import StakingIcon from './StakeIcon';
@@ -36,7 +37,7 @@ import EditIcon from './EditIcon';
 import SettingIcon from './SettingIcon';
 import { useSession } from 'next-auth/react';
 import Tooltip from './Tooltip';
-import { useRewardSummary } from '../lib/hooks/useRewardSummary';
+import { useRewardSummary, type Summary } from '../lib/hooks/useRewardSummary';
 import { useToastContext } from '../hooks/ToastContext';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { useTheme } from 'next-themes';
@@ -67,9 +68,10 @@ function isLinkRequiredForPrefix(prefix: string) {
   return CREDENTIALS_NEEDED.has(prefix);
 }
 
-// Hardware check uses the same `NEXT_PUBLIC_CREDENTIALS_NEEDED` parsing above.
+// Hardware MAC check is independent of credential portal requirements —
+// the hardware type list at the call site already filters which prefixes need it.
 function isHardwareCheckRequiredForPrefix(prefix: string) {
-  return isLinkRequiredForPrefix(prefix);
+  return true;
 }
 
 function serializeDeviceSnapshot(device: Device | undefined): string {
@@ -108,6 +110,12 @@ type RewardWalletOptInStatus = 'unknown' | 'checking' | 'missing' | 'present';
 
 export default function DeviceListItem({
   initialDevice,
+  batchRewardSummary,
+  batchDeviceInfo,
+  batchOptInStatus,
+  batchRewardError,
+  batchDeviceError,
+  batchTokenError,
   product,
   tokenMetadata = {},
   stakeable,
@@ -120,10 +128,17 @@ export default function DeviceListItem({
   handleWithdrawStake,
   handleWithdrawAllButton,
   initialStatus,
-  hardwareStatus
+  hardwareStatus,
+  waivedMinerTypes
   // handleAlgoWithdrawButton,
 }: {
   initialDevice: Device;
+  batchRewardSummary?: Summary;
+  batchDeviceInfo?: Device;
+  batchOptInStatus?: { opted_in: boolean };
+  batchRewardError?: boolean;
+  batchDeviceError?: boolean;
+  batchTokenError?: boolean;
   product: Product;
   stakeable: boolean;
   handleDeleteButton: (device: Device) => void;
@@ -140,9 +155,13 @@ export default function DeviceListItem({
     linked: boolean;
     valid: boolean;
     miner_mac?: string;
+    device_mac?: string;
+    mac_match?: boolean;
+    mac_last_changed?: string;
     reason?: string;
     detail?: string;
   };
+  waivedMinerTypes?: string[];
   // handleAlgoWithdrawButton: (device: Device) => void;
 }) {
   const toast = useToastContext();
@@ -156,6 +175,7 @@ export default function DeviceListItem({
     (initialStatus as any) || {}
   );
   const [device, setDevice] = useState<Device>(initialDevice);
+  useEffect(() => { if (batchDeviceInfo) setDevice(prev => Object.assign(Object.assign(Object.create(Object.getPrototypeOf(prev) ?? Object.prototype), prev), batchDeviceInfo)); }, [batchDeviceInfo]);
   const initialDeviceSnapshot = useRef<string>('');
   const { data: session } = useSession();
   const { wallets } = useWallet();
@@ -175,6 +195,11 @@ export default function DeviceListItem({
     src: StaticImageData;
   } | null>(null);
 
+  // MAC address self-service state
+  const [registeredMacInput, setRegisteredMacInput] = useState('');
+  const [macSaveLoading, setMacSaveLoading] = useState(false);
+  const [macSaveError, setMacSaveError] = useState<string | null>(null);
+
   useEffect(() => {
     setIsPortalReady(true);
   }, []);
@@ -190,13 +215,13 @@ export default function DeviceListItem({
     : 'rounded-lg border border-slate-200 bg-white/95 shadow-sm';
   const metricLabelClass = isDark ? 'text-gray-500' : 'text-slate-500';
   const iconButtonClass = isDark
-    ? 'inline-flex p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400'
-    : 'inline-flex p-1.5 text-slate-600 transition hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300';
+    ? 'inline-flex items-center gap-1.5 p-1.5 text-white/70 transition hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400'
+    : 'inline-flex items-center gap-1.5 p-1.5 text-slate-600 transition hover:text-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300';
   const subTextMuted = isDark ? 'text-gray-400' : 'text-slate-600';
   const textStrong = isDark ? 'text-white' : 'text-slate-900';
   const textGreen = isDark ? 'text-green-300' : 'text-emerald-800';
   const textRed = isDark ? 'text-red-300' : 'text-red-700';
-  const textAmber = isDark ? 'text-amber-100' : 'text-amber-800';
+  const textAmber = isDark ? 'text-warning-100' : 'text-warning-800';
   const textGray = isDark ? 'text-gray-500' : 'text-slate-500';
   const overlayClass = isDark ? 'bg-black/70' : 'bg-black/40';
   const modalShellClass = isDark
@@ -303,19 +328,16 @@ export default function DeviceListItem({
     const palette = {
       // Red badges: keep dark mode unchanged; in light mode use a stronger fill and darker text for legibility.
       red: isDark
-        ? 'bg-red-500/20 text-yellow-200 border border-red-400/40'
+        ? 'bg-red-500/20 text-warning-200 border border-red-400/40'
         : 'bg-red-200 text-red-800 border border-red-400',
-      yellow: isDark
-        ? 'bg-yellow-500/20 text-yellow-200 border border-yellow-400/40'
-        : 'bg-amber-50 text-amber-800 border border-amber-200',
+      warning: isDark
+        ? 'bg-warning-500/20 text-warning-200 border border-warning-400/40'
+        : 'bg-warning-50 text-warning-800 border border-warning-200',
       green: isDark
         ? 'bg-green-500/20 text-green-200 border border-green-400/40'
         : 'bg-emerald-50 text-emerald-800 border border-emerald-200',
-      amber: isDark
-        ? 'bg-amber-500/20 text-amber-100 border border-amber-400/40'
-        : 'bg-amber-50 text-amber-800 border border-amber-200'
     };
-    type Badge = { label: string; className: string; severity: 'red' | 'yellow' | 'green' | 'default'; info?: string };
+    type Badge = { label: string; className: string; severity: 'red' | 'warning' | 'green' | 'default'; info?: string };
     const badges: Array<Badge> = [];
     const portalHelp =
       'Open the gear icon (Portal settings) and complete the Fry portal link so rewards keep flowing.';
@@ -346,14 +368,14 @@ export default function DeviceListItem({
     badges.push(
       device.verified
         ? { label: 'Verified', className: palette.green, severity: 'green' }
-        : { label: 'Unverified', className: palette.yellow, severity: 'yellow' }
+        : { label: 'Unverified', className: palette.warning, severity: 'warning' }
     );
 
     if (isLegacyStake) {
       badges.push({
         label: 'Legacy FRY 1.0 stake',
-        className: palette.amber,
-        severity: 'yellow',
+        className: palette.warning,
+        severity: 'warning',
         info: 'Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.'
       });
     }
@@ -373,7 +395,7 @@ export default function DeviceListItem({
 
     const severityRank: Record<Badge['severity'], number> = {
       red: 0,
-      yellow: 1,
+      warning: 1,
       green: 2,
       default: 3
     };
@@ -391,7 +413,7 @@ export default function DeviceListItem({
   ]);
 
   // Determine verification prerequisites based on product config and current device state
-  const needsRegistration = isRegistrationNeeded(product);
+  const needsRegistration = isRegistrationNeeded(product, waivedMinerTypes);
   const needsNodeStake = isNodeProduct(product) && isNodeStakingNeeded(product);
   const hasRegistration = isRegistrationStaked(device);
   const hasNode = isNodeStaked(device);
@@ -442,8 +464,8 @@ export default function DeviceListItem({
 
     if (shouldShowYellow) {
       return {
-        borderClass: 'border-yellow-400',
-        hoverRingClass: 'hover:ring-2 hover:ring-yellow-300/70 hover:ring-offset-0',
+        borderClass: 'border-warning-400',
+        hoverRingClass: 'hover:ring-2 hover:ring-warning-300/70 hover:ring-offset-0',
       };
     }
 
@@ -460,7 +482,8 @@ export default function DeviceListItem({
     };
   }, [stakeable, device, shouldShowRed, shouldShowYellow, deviceStatusOkay]);
 
-  const { data: rewardSummary } = useRewardSummary(device?.miner_key);
+  const { data: _fetchedSummary } = useRewardSummary(!batchRewardSummary && batchRewardError ? device?.miner_key : undefined);
+  const rewardSummary = batchRewardSummary ?? _fetchedSummary;
   const [countdown, setCountdown] = useState<string>("");
   const [verificationCountdown, setVerificationCountdown] = useState<string | null>(null);
   const anchorId = useMemo(() => anchorIdForMinerKey(device.miner_key), [device.miner_key]);
@@ -635,7 +658,12 @@ export default function DeviceListItem({
   }, [formatUsdAmount, nodeStakeUsd, nodeTokenDetail.label]);
 
   useEffect(() => {
-    // This hook lives below the reward token helpers so the constants are defined before use (prevents TDZ errors).
+    if (batchOptInStatus) {
+      setRewardWalletOptInStatus(batchOptInStatus.opted_in ? 'present' : 'missing');
+      return;
+    }
+    if (!batchTokenError) return;
+    // batch failed — fall back to per-device check
     if (!rewardWalletAddress || !rewardAssetIdForOptIn) {
       setRewardWalletOptInStatus('unknown');
       return;
@@ -683,7 +711,7 @@ export default function DeviceListItem({
       cancelled = true;
       controller.abort();
     };
-  }, [rewardAssetIdForOptIn, rewardWalletAddress]);
+  }, [batchOptInStatus, batchTokenError, rewardAssetIdForOptIn, rewardWalletAddress]);
 
 
   const rewardWalletNeedsOptIn =
@@ -817,7 +845,7 @@ export default function DeviceListItem({
         value: typeTwoDaily,
         accent: {
           light: 'text-[#92400E]',
-          dark: 'text-amber-300'
+          dark: 'text-warning-300'
         }
       }
     ];
@@ -906,7 +934,7 @@ export default function DeviceListItem({
         });
         if (response.ok) {
           const data = await response.json();
-          setDevice(data.device as Device);
+          setDevice(prev => Object.assign(Object.assign(Object.create(Object.getPrototypeOf(prev) ?? Object.prototype), prev), data.device));
         }
       } catch (error) {
         console.error(error);
@@ -922,6 +950,9 @@ export default function DeviceListItem({
         linked: boolean;
         valid: boolean;
         miner_mac?: string;
+        device_mac?: string;
+        mac_match?: boolean;
+        mac_last_changed?: string;
         reason?: string;
         detail?: string;
       }
@@ -984,8 +1015,10 @@ export default function DeviceListItem({
   }, [initialDevice]);
 
   useEffect(() => {
-    fetchDeviceInfo(initialDevice.miner_key);
-  }, [fetchDeviceInfo, initialDevice.miner_key]);
+    if (!batchDeviceInfo && batchDeviceError) {
+      fetchDeviceInfo(initialDevice.miner_key);
+    }
+  }, [batchDeviceInfo, batchDeviceError, fetchDeviceInfo, initialDevice.miner_key]);
 
   useEffect(() => {
     if (rewardSummary) {
@@ -1148,7 +1181,7 @@ export default function DeviceListItem({
               <span className="text-gray-400">Lock Type:</span>
               <span className="font-medium">
                 {device.staked.type === 'two' ? (
-                  <span className="text-amber-300">Type 2 (6 month lock)</span>
+                  <span className="text-warning-300">Type 2 (6 month lock)</span>
                 ) : (
                   <span className="text-sky-300">Type 1 (24 hour lock)</span>
                 )}
@@ -1170,15 +1203,15 @@ export default function DeviceListItem({
         key: 'verification-withdrawn',
         label: 'Verification stake withdrew on',
         date: formatDateTime(verificationWithdrawal.time ?? device?.staked?.time),
-        color: 'border-amber-500/60 bg-amber-500/10',
+        color: 'border-warning-500/60 bg-warning-500/10',
         tooltip: (
           <div className="min-w-[280px] space-y-2">
-            <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+            <div className="border-b border-warning-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-warning-300">
               Verification Withdrawal
             </div>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
               <span className="text-gray-400">Amount:</span>
-              <span className="font-semibold text-amber-200">{formatAmount(verificationWithdrawal.amount)}</span>
+              <span className="font-semibold text-warning-200">{formatAmount(verificationWithdrawal.amount)}</span>
 
               <span className="text-gray-400">Asset ID:</span>
               <span className="font-mono text-[0.65rem]">{formatAssetId(verificationWithdrawal.asset_id ?? device?.staked?.asset_id, 'stake')}</span>
@@ -1198,15 +1231,15 @@ export default function DeviceListItem({
         key: 'verification-legacy',
         label: 'Verification stake withdrew on',
         date: formatDateTime(device.staked.time),
-        color: 'border-amber-500/60 bg-amber-500/10',
+        color: 'border-warning-500/60 bg-warning-500/10',
         tooltip: (
           <div className="min-w-[260px] space-y-2">
-            <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+            <div className="border-b border-warning-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-warning-300">
               Verification Withdrawal
             </div>
             <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
               <span className="text-gray-400">Amount:</span>
-              <span className="font-semibold text-amber-200">{formatAmount(device.staked.amount)}</span>
+              <span className="font-semibold text-warning-200">{formatAmount(device.staked.amount)}</span>
 
               <span className="text-gray-400">Asset ID:</span>
               <span className="font-mono text-[0.65rem]">{formatAssetId(device.staked.asset_id, 'stake')}</span>
@@ -1284,15 +1317,15 @@ export default function DeviceListItem({
           key: 'registration-withdrawn',
           label: 'Registration stake withdrew on',
           date: formatDateTime(withdrawalSource.time ?? registrationDetail.time),
-          color: 'border-amber-500/60 bg-amber-500/10',
+          color: 'border-warning-500/60 bg-warning-500/10',
           tooltip: (
             <div className="min-w-[250px] space-y-2">
-              <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+              <div className="border-b border-warning-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-warning-300">
                 Registration Withdrawal
               </div>
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-gray-400">Amount:</span>
-                <span className="font-semibold text-amber-200">
+                <span className="font-semibold text-warning-200">
                   {formatAmount(withdrawalSource.amount)}
                 </span>
 
@@ -1336,15 +1369,15 @@ export default function DeviceListItem({
           key: 'node',
           label: 'Node operation staked on',
           date: formatDateTime(nodeStakeSource.time),
-          color: 'border-orange-500/60 bg-orange-500/10',
+          color: 'border-primary-500/60 bg-primary-500/10',
           tooltip: (
             <div className="min-w-[250px] space-y-2">
-              <div className="border-b border-orange-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-orange-300">
+              <div className="border-b border-primary-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-primary-300">
                 Node Operation Stake
               </div>
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-gray-400">Amount:</span>
-                <span className="font-semibold text-orange-300">
+                <span className="font-semibold text-primary-300">
                   {formatAmount(nodeStakeSource.amount)}
                 </span>
 
@@ -1370,15 +1403,15 @@ export default function DeviceListItem({
           key: 'node-withdrawn',
           label: 'Node stake withdrew on',
           date: formatDateTime(nodeWithdrawalSource.time ?? nodeDetail.time),
-          color: 'border-amber-500/60 bg-amber-500/10',
+          color: 'border-warning-500/60 bg-warning-500/10',
           tooltip: (
             <div className="min-w-[250px] space-y-2">
-              <div className="border-b border-amber-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">
+              <div className="border-b border-warning-500/30 pb-1 text-xs font-semibold uppercase tracking-wide text-warning-300">
                 Node Stake Withdrawal
               </div>
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-gray-400">Amount:</span>
-                <span className="font-semibold text-amber-200">
+                <span className="font-semibold text-warning-200">
                   {formatAmount(nodeWithdrawalSource.amount)}
                 </span>
 
@@ -1421,7 +1454,7 @@ export default function DeviceListItem({
         key: 'pending',
         label: 'Pending',
         value: formatTokenAmount(pendingAmount),
-        accent: isDark ? 'text-amber-300' : 'text-amber-700',
+        accent: isDark ? 'text-warning-300' : 'text-warning-700',
         tooltip: REWARD_STATUS_DESCRIPTIONS.pending
       },
       {
@@ -1443,7 +1476,7 @@ export default function DeviceListItem({
   }, [rewardSummary?.nextUnlockAt]);
 
   type SectionConfig = {
-    key: 'rewards' | 'contact' | 'status';
+    key: 'rewards' | 'contact' | 'status' | 'mac';
     title: string;
     content: ReactNode;
     important?: boolean;
@@ -1543,10 +1576,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
                               aria-hidden="true"
                               className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-base ${
                                 entry.tier === 'bronze'
-                                  ? 'bg-black/40 border border-amber-800/60'
+                                  ? 'bg-black/40 border border-warning-800/60'
                                   : entry.tier === 'silver'
                                     ? 'bg-black/35 border border-gray-600/60'
-                                    : 'bg-black/40 border border-amber-700/60'
+                                    : 'bg-black/40 border border-warning-700/60'
                               }`}
                             >
                               {entry.tier === 'bronze' ? '🥉' : entry.tier === 'silver' ? '🥈' : '🥇'}
@@ -1578,10 +1611,10 @@ const collapsibleSections: SectionConfig[] = useMemo(
                             aria-hidden="true"
                             className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-base ${
                               entry.tier === 'bronze'
-                                ? 'bg-white/90 border border-amber-200'
+                                ? 'bg-white/90 border border-warning-200'
                                 : entry.tier === 'silver'
                                   ? 'bg-white/95 border border-gray-300'
-                                  : 'bg-white/95 border border-amber-200'
+                                  : 'bg-white/95 border border-warning-200'
                             }`}
                           >
                             {entry.tier === 'bronze' ? '🥉' : entry.tier === 'silver' ? '🥈' : '🥇'}
@@ -1639,7 +1672,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   </div>
                 )}
                 {byodDiscountApplied && (
-                  <div className={`text-[0.65rem] ${isDark ? 'text-amber-300' : 'text-amber-600'}`}>
+                  <div className={`text-[0.65rem] ${isDark ? 'text-warning-300' : 'text-warning-600'}`}>
                     BYOD licence detected: stake requirements shown include the 50% BYOD discount.
                   </div>
                 )}
@@ -1654,7 +1687,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   <div className={`rounded-lg border p-3 ${isDark ? 'border-gray-800/70 bg-gray-900/40' : 'border-slate-200 bg-white shadow-sm'}`}>
                     <div className={`flex items-center justify-between text-sm ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                       <span className="font-semibold">Registration stake</span>
-                      <span className={`text-xs ${hasRegistration ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-amber-300' : 'text-amber-700')}`}>
+                      <span className={`text-xs ${hasRegistration ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-warning-300' : 'text-warning-700')}`}>
                         {hasRegistration ? 'Completed' : 'Required'}
                       </span>
                     </div>
@@ -1676,7 +1709,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   <div className={`rounded-lg border p-3 ${isDark ? 'border-gray-800/70 bg-gray-900/40' : 'border-slate-200 bg-white shadow-sm'}`}>
                     <div className={`flex items-center justify-between text-sm ${isDark ? 'text-gray-200' : 'text-slate-900'}`}>
                       <span className="font-semibold">Node operation stake</span>
-                      <span className={`text-xs ${hasNode ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-amber-300' : 'text-amber-700')}`}>
+                      <span className={`text-xs ${hasNode ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : (isDark ? 'text-warning-300' : 'text-warning-700')}`}>
                         {hasNode ? 'Completed' : 'Required'}
                       </span>
                     </div>
@@ -1771,8 +1804,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
                       : 'text-emerald-700'
                     : shouldShowYellow
                       ? isDark
-                        ? 'text-yellow-300'
-                        : 'text-amber-700'
+                        ? 'text-warning-300'
+                        : 'text-warning-700'
                       : isDark
                         ? 'text-red-300'
                         : 'text-red-700'
@@ -1801,13 +1834,13 @@ const collapsibleSections: SectionConfig[] = useMemo(
               <div
                 className={`rounded border px-3 py-2 text-sm ${
                   isDark
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-100'
-                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                    ? 'border-warning-500/40 bg-warning-500/10 text-warning-100'
+                    : 'border-warning-200 bg-warning-50 text-warning-800'
                 }`}
               >
                 Legacy FRY 1.0 verification stake detected. Withdraw the legacy stake and re-stake with FRY 2.0 to keep multiplier rewards.
                 {legacyDeadlineLabel && (
-                  <div className={`mt-1 text-[0.65rem] ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>
+                  <div className={`mt-1 text-[0.65rem] ${isDark ? 'text-warning-200' : 'text-warning-700'}`}>
                     Verification benefits end after {legacyDeadlineLabel} unless you restake with FRY 2.0.
                   </div>
                 )}
@@ -1815,6 +1848,138 @@ const collapsibleSections: SectionConfig[] = useMemo(
             )}
           </div>
         )
+      },
+      {
+        key: 'mac',
+        title: 'MAC Address',
+        content: (() => {
+          const deviceMac = hardwareStatus?.device_mac ?? '';
+          const registeredMac = hardwareStatus?.miner_mac ?? '';
+          const macMatch = hardwareStatus?.mac_match;
+          const hasDeviceMac = Boolean(deviceMac);
+          const hasRegisteredMac = Boolean(registeredMac);
+          const displayInput = registeredMacInput !== '' ? registeredMacInput : (registeredMac || '');
+
+          const handleSyncToDevice = () => {
+            if (deviceMac) {
+              setRegisteredMacInput(deviceMac);
+              setMacSaveError(null);
+            }
+          };
+
+          const handleSaveMac = async () => {
+            const rawMac = displayInput.trim();
+            if (!rawMac) {
+              setMacSaveError('MAC address cannot be empty.');
+              return;
+            }
+            const validation = validateMacAddress(rawMac);
+            if (!validation.valid) {
+              setMacSaveError(describeMacIssue(validation.reason));
+              return;
+            }
+            setMacSaveLoading(true);
+            setMacSaveError(null);
+            try {
+              const response = await fetch('/api/devices/save-credentials', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  miner_key: device.miner_key,
+                  credentials: { mac_address: validation.normalized ?? rawMac },
+                  api_type: 'hardware',
+                  portal: minerPrefix,
+                }),
+              });
+              const data = await response.json();
+              if (!response.ok) {
+                setMacSaveError(data?.message || 'Failed to save MAC address.');
+                toast.error({ heading: 'MAC save failed', message: data?.message || 'Failed to save MAC address.' });
+              } else {
+                setRegisteredMacInput('');
+                toast.success({ heading: 'MAC updated', message: 'MAC address saved successfully.' });
+                // Refresh hardware status
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('refresh-hardware-status', { detail: { miner_key: device.miner_key } }));
+                }
+              }
+            } catch (err) {
+              setMacSaveError('Network error. Please try again.');
+              toast.error({ heading: 'MAC save failed', message: 'Network error. Please try again.' });
+            } finally {
+              setMacSaveLoading(false);
+            }
+          };
+
+          return (
+            <div className="space-y-3">
+              {!hasDeviceMac && !hasRegisteredMac && (
+                <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>
+                  No MAC data available. This device type may not report MAC addresses.
+                </div>
+              )}
+              {hasDeviceMac && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className={`text-xs uppercase tracking-wide ${textGray}`}>Device MAC</div>
+                  <span className={`font-mono text-sm ${isDark ? 'text-gray-200' : 'text-slate-800 font-semibold'}`}>
+                    {deviceMac}
+                  </span>
+                </div>
+              )}
+              {macMatch === true && (
+                <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${isDark ? 'border-green-500/40 bg-green-500/10 text-green-300' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+                  MAC Match ✓
+                </div>
+              )}
+              {macMatch === false && (
+                <div className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${isDark ? 'border-warning-500/40 bg-warning-500/10 text-warning-200' : 'border-warning-200 bg-warning-50 text-warning-800'}`}>
+                  MAC Mismatch — PoC rewards may be affected
+                </div>
+              )}
+              <div className="space-y-2">
+                <div className={`text-xs uppercase tracking-wide ${textGray}`}>Registered MAC</div>
+                <input
+                  type="text"
+                  value={displayInput}
+                  onChange={(e) => {
+                    setRegisteredMacInput(e.target.value);
+                    setMacSaveError(null);
+                  }}
+                  placeholder={hasDeviceMac ? 'Click Sync or enter manually' : 'Enter MAC address'}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm font-mono ${isDark ? 'border-gray-700 bg-black/60 text-gray-200 placeholder-gray-600' : 'border-slate-200 bg-white text-slate-900 placeholder-slate-400'} focus:outline-none focus:ring-2 focus:ring-red-500/40`}
+                />
+                {macSaveError && (
+                  <div className={`text-xs ${isDark ? 'text-red-300' : 'text-red-600'}`}>{macSaveError}</div>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {hasDeviceMac && (
+                    <Button
+                      size="xs"
+                      className={`${isDark ? 'bg-sky-600 text-white border-sky-500 hover:bg-sky-500' : 'bg-sky-600 text-white border-sky-600 hover:bg-sky-700'}`}
+                      onClick={handleSyncToDevice}
+                      disabled={macSaveLoading}
+                    >
+                      Sync to Device
+                    </Button>
+                  )}
+                  <Button
+                    size="xs"
+                    className={`${isDark ? 'bg-red-600 text-white border-red-500 hover:bg-red-500' : 'bg-red-600 text-white border-red-600 hover:bg-red-700'}`}
+                    onClick={handleSaveMac}
+                    disabled={macSaveLoading || !displayInput.trim()}
+                  >
+                    {macSaveLoading ? 'Saving…' : 'Save MAC'}
+                  </Button>
+                </div>
+              </div>
+              {hardwareStatus?.mac_last_changed && (
+                <div className={`text-[0.65rem] ${isDark ? 'text-gray-500' : 'text-slate-500'}`}>
+                  Last changed: {new Date(hardwareStatus.mac_last_changed).toLocaleString()}
+                </div>
+              )}
+            </div>
+          );
+        })()
       }
     ],
     [
@@ -1854,12 +2019,18 @@ const collapsibleSections: SectionConfig[] = useMemo(
       nodeTokenDetail.label,
       nodeTokenDetail.name,
       isDark,
-      modalTextMuted
+      modalTextMuted,
+      hardwareStatus,
+      registeredMacInput,
+      macSaveLoading,
+      macSaveError,
+      toast,
+      device.miner_key,
     ]
   );
 
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
-    const baseState: Record<string, boolean> = { rewards: true, contact: true, status: true };
+    const baseState: Record<string, boolean> = { rewards: true, contact: true, status: true, mac: false };
     if (typeof window === 'undefined') {
       return statusImportant ? { ...baseState, status: true } : baseState;
     }
@@ -2028,19 +2199,19 @@ const collapsibleSections: SectionConfig[] = useMemo(
         <div
           className={`rounded-lg border px-4 py-3 ${
             isDark
-              ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-200'
-              : 'border-amber-200 bg-amber-50 text-amber-800'
+              ? 'border-warning-500/40 bg-warning-500/10 text-warning-200'
+              : 'border-warning-200 bg-warning-50 text-warning-800'
           }`}
         >
-          This device is not linked to FryNetworks. Click the <b>gear icon</b> to link it.
+          This device is not linked to FryNetworks. Click the <b>gear icon</b> or go to <Link href="/device-credentials" className="underline font-semibold">Device Credentials</Link> to link it.
         </div>
       )}
       {!(!device.registered_portal_model) && hardwareWarning && (
         <div
           className={`rounded-lg border px-4 py-3 ${
             isDark
-              ? 'border-yellow-500/40 bg-yellow-500/10 text-yellow-200'
-              : 'border-amber-200 bg-amber-50 text-amber-800'
+              ? 'border-warning-500/40 bg-warning-500/10 text-warning-200'
+              : 'border-warning-200 bg-warning-50 text-warning-800'
           }`}
         >
           We could not verify a MAC address for this device. Click the <b>gear icon</b> to re-link your MAC so rewards remain active.
@@ -2095,6 +2266,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   <span className="flex h-5 w-5 items-center justify-center">
                     <StakingIcon />
                   </span>
+                  <span className="text-xs font-medium hidden sm:inline">Stake</span>
                 </button>
               </Tooltip>
             ) : null}
@@ -2110,6 +2282,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <EditIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Edit</span>
               </button>
             </Tooltip>
             <Tooltip text="Portal settings">
@@ -2124,6 +2297,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <SettingIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Settings</span>
               </button>
             </Tooltip>
             <Tooltip text="Unregister">
@@ -2138,6 +2312,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <DeleteIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Delete</span>
               </button>
             </Tooltip>
           </div>
@@ -2176,7 +2351,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
             <div>
               <div className={modalTextMuted}>Pending</div>
-              <div className={`font-semibold ${isDark ? 'text-amber-200' : 'text-amber-700'}`}>{formatTokenAmount(pendingAmount)}</div>
+              <div className={`font-semibold ${isDark ? 'text-warning-200' : 'text-warning-700'}`}>{formatTokenAmount(pendingAmount)}</div>
             </div>
             <div>
               <div className={modalTextMuted}>Claimable</div>
@@ -2195,8 +2370,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
             <div
               className={`mt-3 rounded-md border px-3 py-2 text-xs ${
                 isDark
-                  ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100'
-                  : 'border-amber-200 bg-amber-50 text-amber-800'
+                  ? 'border-warning-500/30 bg-warning-500/10 text-warning-100'
+                  : 'border-warning-200 bg-warning-50 text-warning-800'
               }`}
             >
               Rewards collect as pending for up to 30 days. Once that timer completes they unlock for a fee-free claim; claiming earlier with Instant Claim applies the 30% boost fee.
@@ -2229,8 +2404,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
         <div className="mt-3 flex flex-wrap gap-3">
           {isLegacyStake && (
             <Button
-              className={`min-w-[150px] border-amber-500 bg-transparent hover:bg-amber-500 hover:border-amber-500 ${
-                isDark ? 'text-amber-200 hover:text-black' : 'text-black'
+              className={`min-w-[150px] border-warning-500 bg-transparent hover:bg-warning-500 hover:border-warning-500 ${
+                isDark ? 'text-warning-200 hover:text-black' : 'text-black'
               }`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -2335,6 +2510,14 @@ const collapsibleSections: SectionConfig[] = useMemo(
             <div className="text-[0.65rem] uppercase tracking-widest text-gray-500">
               {product?.name ?? 'Device'}
             </div>
+            {typeof device.is_active === 'boolean' && (
+              <div className="flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${device.is_active ? 'bg-green-500' : 'bg-gray-500'}`} />
+                <span className={`text-xs font-medium ${device.is_active ? 'text-green-500' : 'text-gray-500'}`}>
+                  {device.is_active ? 'Active' : 'Inactive'}
+                </span>
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <span className={`text-lg font-semibold sm:text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
                 {device.nickname ? device.nickname : device.name}
@@ -2368,7 +2551,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 pr-1 sm:pr-2">
+          <div className="hidden md:flex items-center gap-2 sm:gap-3 pr-1 sm:pr-2">
             {(needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode) ? (
               <Tooltip text="Stake requirements">
                 <button
@@ -2382,6 +2565,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   <span className="flex h-5 w-5 items-center justify-center">
                     <StakingIcon />
                   </span>
+                  <span className="text-xs font-medium hidden sm:inline">Stake</span>
                 </button>
               </Tooltip>
             ) : null}
@@ -2397,6 +2581,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <EditIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Edit</span>
               </button>
             </Tooltip>
             <Tooltip text="Portal settings">
@@ -2411,6 +2596,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <SettingIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Settings</span>
               </button>
             </Tooltip>
             <Tooltip text="Unregister">
@@ -2425,6 +2611,7 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className="flex h-5 w-5 items-center justify-center">
                   <DeleteIcon />
                 </span>
+                <span className="text-xs font-medium hidden sm:inline">Delete</span>
               </button>
             </Tooltip>
           </div>
@@ -2454,6 +2641,63 @@ const collapsibleSections: SectionConfig[] = useMemo(
             {device.reward_wallet && <CopyAddress address={device.reward_wallet} />}
           </div>
         </div>
+        {/* Mobile action stack — full-width tappable buttons */}
+        <div className="flex md:hidden flex-col gap-2 mt-4">
+          {(needsRegistration && !hasRegistration) || (needsNodeStake && !hasNode) ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                handlePrimaryStakeRequirement();
+              }}
+              className={`inline-flex items-center justify-center gap-2 w-full min-h-[44px] rounded-lg border px-3 text-sm font-medium transition ${isDark ? 'border-white/10 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <span className="flex h-5 w-5 items-center justify-center">
+                <StakingIcon />
+              </span>
+              <span className="text-sm font-medium">Stake</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleChange(device.miner_key);
+            }}
+            className={`inline-flex items-center justify-center gap-2 w-full min-h-[44px] rounded-lg border px-3 text-sm font-medium transition ${isDark ? 'border-white/10 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+          >
+            <span className="flex h-5 w-5 items-center justify-center">
+              <EditIcon />
+            </span>
+            <span className="text-sm font-medium">Edit</span>
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleSetting(device.miner_key);
+            }}
+            className={`inline-flex items-center justify-center gap-2 w-full min-h-[44px] rounded-lg border px-3 text-sm font-medium transition ${isDark ? 'border-white/10 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+          >
+            <span className="flex h-5 w-5 items-center justify-center">
+              <SettingIcon />
+            </span>
+            <span className="text-sm font-medium">Settings</span>
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDeleteButton(device);
+            }}
+            className={`inline-flex items-center justify-center gap-2 w-full min-h-[44px] rounded-lg border px-3 text-sm font-medium transition ${isDark ? 'border-white/10 bg-white/5 text-white hover:bg-white/10' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+          >
+            <span className="flex h-5 w-5 items-center justify-center">
+              <DeleteIcon />
+            </span>
+            <span className="text-sm font-medium">Delete</span>
+          </button>
+        </div>
         {rewardWalletChecking && (
           <div
             className="mt-2 text-[0.65rem] text-gray-400"
@@ -2466,27 +2710,27 @@ const collapsibleSections: SectionConfig[] = useMemo(
           <div
             className={`mt-3 rounded-lg border p-3 text-[0.7rem] ${
               isDark
-                ? 'border-amber-400/60 bg-amber-500/10 text-amber-50'
-                : 'border-amber-200 bg-amber-50 text-amber-800'
+                ? 'border-warning-400/60 bg-warning-500/10 text-warning-50'
+                : 'border-warning-200 bg-warning-50 text-warning-800'
             }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className={isDark ? 'font-semibold text-amber-100' : 'font-semibold text-amber-800'}>
+            <div className={isDark ? 'font-semibold text-warning-100' : 'font-semibold text-warning-800'}>
               Opt into {rewardOptInLabel} for {rewardOptInReason}
             </div>
-            <p className={`mt-1 ${isDark ? 'text-amber-100/90' : 'text-amber-700'}`}>
+            <p className={`mt-1 ${isDark ? 'text-warning-100/90' : 'text-warning-700'}`}>
               Reward wallet {truncateAddress(device.reward_wallet)} must opt into ASA #{rewardAssetIdForOptIn}{' '}
               before we can send {rewardOptInReason}.
               <span className="block mt-1">{rewardOptInSteps}</span>
               {deflyUnverifiedHint && (
-                <span className={`block mt-1 ${isDark ? 'text-amber-100/80' : 'text-amber-700/80'}`}>
+                <span className={`block mt-1 ${isDark ? 'text-warning-100/80' : 'text-warning-700/80'}`}>
                   {deflyUnverifiedHint}
                 </span>
               )}
             </p>
             <div
               className={`mt-2 flex flex-wrap items-center gap-2 font-mono text-[0.65rem] ${
-                isDark ? 'text-amber-200' : 'text-amber-800'
+                isDark ? 'text-warning-200' : 'text-warning-800'
               }`}
             >
               ASA #{rewardAssetIdForOptIn}
@@ -2497,8 +2741,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 type="button"
                 className={`rounded border px-3 py-1 font-semibold uppercase tracking-wide ${
                   isDark
-                    ? 'border-amber-300/60 text-amber-100 hover:bg-amber-400/20'
-                    : 'border-amber-300 text-amber-800 hover:bg-amber-100'
+                    ? 'border-warning-300/60 text-warning-100 hover:bg-warning-400/20'
+                    : 'border-warning-300 text-warning-800 hover:bg-warning-100'
                 }`}
                 onClick={handleRewardOptInClick}
               >
@@ -2508,8 +2752,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 type="button"
                 className={`rounded border px-3 py-1 font-semibold uppercase tracking-wide ${
                   isDark
-                    ? 'border-amber-300/60 text-amber-100 hover:bg-amber-400/20'
-                    : 'border-amber-300 text-amber-800 hover:bg-amber-100'
+                    ? 'border-warning-300/60 text-warning-100 hover:bg-warning-400/20'
+                    : 'border-warning-300 text-warning-800 hover:bg-warning-100'
                 }`}
                 onClick={handleRewardOptInGuideClick}
               >
@@ -2524,9 +2768,9 @@ const collapsibleSections: SectionConfig[] = useMemo(
         >
           {isLegacyStake && (
           <Button
-            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 border-amber-500 ${
-              isDark ? 'text-amber-200 hover:text-black' : 'text-black'
-            } hover:bg-amber-500 hover:border-amber-500`}
+            className={`min-w-[110px] bg-transparent text-[0.6rem] py-1 border-warning-500 ${
+              isDark ? 'text-warning-200 hover:text-black' : 'text-black'
+            } hover:bg-warning-500 hover:border-warning-500`}
             onClick={(event) => {
               event.stopPropagation();
               handleWithdrawStake(device);
@@ -2603,8 +2847,8 @@ const collapsibleSections: SectionConfig[] = useMemo(
         </div>
         {pendingAmount > 0 && (
           <>
-            {/* Light mode: raise contrast with black text; keep warm yellow hint in dark mode. */}
-            <div className={`mt-2 text-[0.6rem] ${isDark ? 'text-yellow-200/80' : 'text-black'}`}>
+            {/* Light mode: raise contrast with black text; keep warm warning hint in dark mode. */}
+            <div className={`mt-2 text-[0.6rem] ${isDark ? 'text-warning-200/80' : 'text-black'}`}>
               Pending rewards unlock after 30 days from accrual. Wait for the unlock to claim at 0% fee, or use Instant Claim (30% fee) if you need the funds early.
             </div>
           </>
