@@ -71,6 +71,7 @@ services:
       GUARANTEE_VAULT_APP_ID: '3563123514'
       GUARANTEE_PAUSED: 'false'
       GUARANTEE_MNEMONIC: 'op://Dashboard/Guarantee Settlement Signer/GUARANTEE_MNEMONIC'
+      FRY_PROXY_KEY: 'REDACTED_ROTATE_ME'
     healthcheck:
       test:
         [

@@ -15,7 +15,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const upstreamUrl = `${UPSTREAM}?wallet=${encodeURIComponent(wallet)}`;
     const upstreamRes = await fetch(upstreamUrl, {
       signal: controller.signal,
-      headers: { Accept: 'application/json' },
+      headers: {
+          Accept: 'application/json',
+          'X-Forwarded-For': (req.headers['x-forwarded-for'] as string) ?? req.socket.remoteAddress ?? '',
+          'X-Fry-Proxy-Key': process.env.FRY_PROXY_KEY ?? '',
+        },
     });
     clearTimeout(timeout);
 
