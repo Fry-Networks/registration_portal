@@ -70,7 +70,7 @@ const minerType = {
   air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
   water: ['OLWQM', 'OHWQM'],
   radiation: ['IRM'],
-  hardware: ['ISM', 'OSM', 'BM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN', 'AEM'],
+  hardware: ['ISM', 'OSM', 'BM', 'FEM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN', 'AEM'],
   camera: ['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'],
   energy: ['EM'],
   virtual: ['VRDN', 'VSDN', 'VSVN']
@@ -85,8 +85,8 @@ type HardwareStatus = {
   detail?: string;
 };
 const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
-const NOTIFICATION_PREFIXES = new Set(['SDN', 'SVN', 'RDN', 'CN', 'AEM', 'BM', 'ISM', 'OSM', 'IDM', 'ODM']);
-const HARDWARE_MAC_PREFIXES = new Set(['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'ISM', 'OSM', 'IDM', 'ODM']);
+const NOTIFICATION_PREFIXES = new Set(['SDN', 'SVN', 'RDN', 'CN', 'AEM', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
+const HARDWARE_MAC_PREFIXES = new Set(['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
 
 // Hardware checks follow the same configuration as credentials needed setting
 // Hardware MAC check is independent of credential portal requirements —
@@ -1674,7 +1674,7 @@ export async function getServerSideProps(context: any) {
     const devices = await Promise.all(devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device)));
 
     // Active-device tracking: any poc_reward_dailies record within last 14 days means active.
-    const TRACKED_PREFIXES = ['AEM', 'BM', 'RDN', 'SDN', 'SVN', 'CN'];
+    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
     const activeMinerKeys = new Set<string>();
     const deviceMinerKeys = devices.map((d: any) => d.miner_key).filter(Boolean);
     if (deviceMinerKeys.length > 0) {
