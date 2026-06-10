@@ -1,4 +1,6 @@
 'use client';
+import { usePreseedEligible } from '../hooks/usePreseedEligible';
+import { useWalletActions } from '../lib/wallet/useWalletActions';
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
@@ -9,10 +11,9 @@ import { signIn, signOut, useSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Button } from '@tremor/react';
 
-const navigation = [
+const baseNavigation = [
   { name: 'My registrations', href: '/my_registrations' },
   { name: 'FrySwap', href: '/buy/fry' },
-  
 ];
 
 function classNames(...classes: string[]) {
@@ -21,6 +22,17 @@ function classNames(...classes: string[]) {
 
 
 export default function Navbar() {
+  const { activeAddress } = useWalletActions();
+  const preseedEligible = usePreseedEligible(activeAddress);
+  const [navigation, setNavigation] = useState(baseNavigation);
+
+  useEffect(() => {
+    const nav = [...baseNavigation];
+    if (preseedEligible) {
+      nav.splice(1, 0, { name: 'Preseed Claim', href: '/preseed-claim' });
+    }
+    setNavigation(nav);
+  }, [preseedEligible]);
   const pathname = usePathname();
   const { data: session } = useSession();
   const [countdown, setCountdown] = useState<string>("");

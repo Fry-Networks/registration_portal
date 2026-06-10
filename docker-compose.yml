@@ -97,6 +97,7 @@ services:
       - /home/helpdesk/subdomains/dashb/logs:/app/logs # Persist logs outside container
       # Mount the MongoDB CA bundle so tlsCAFile is available inside the container.
       - ${MONGO_CA_CERT_PATH}:/etc/ssl/mongo/mongo-ca.crt:ro
+      - /home/helpdesk/subdomains/dashb/data/preseed_merkle.json:/app/data/preseed_merkle.json:ro
     secrets:
       - op_service_account_token
     security_opt:
