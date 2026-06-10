@@ -1,43 +1,31 @@
-import fs from 'fs';
-import path from 'path';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-interface WalletEntry {
-  leaf_index: number;
-  proof: string;
-  entitled_tfry: number;
-  entitled_fnode: number;
-}
+const UPSTREAM = 'http://100.108.101.109:8084/api/merkle/proof';
 
-interface MerkleData {
-  root: string;
-  wallets: Record<string, WalletEntry>;
-}
-
-let cache: MerkleData | null = null;
-
-function getMerkle(): MerkleData {
-  if (!cache) {
-    const p = path.join(process.cwd(), 'data', 'preseed_merkle.json');
-    cache = JSON.parse(fs.readFileSync(p, 'utf-8'));
-  }
-  return cache!;
-}
-
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { wallet } = req.query;
   if (!wallet || typeof wallet !== 'string') {
     return res.status(400).json({ error: 'wallet param required' });
   }
-  const entry = getMerkle().wallets?.[wallet];
-  if (!entry) {
-    return res.status(200).json({ eligible: false });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const upstreamUrl = `${UPSTREAM}?wallet=${encodeURIComponent(wallet)}`;
+    const upstreamRes = await fetch(upstreamUrl, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    clearTimeout(timeout);
+
+    const body = await upstreamRes.text();
+    res.status(upstreamRes.status);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(body);
+  } catch (err) {
+    clearTimeout(timeout);
+    res.status(502).json({ error: 'proof service unavailable' });
   }
-  return res.status(200).json({
-    eligible: true,
-    leaf_index: entry.leaf_index,
-    proof: entry.proof,
-    entitled_tfry: entry.entitled_tfry,
-    entitled_fnode: entry.entitled_fnode,
-  });
 }
