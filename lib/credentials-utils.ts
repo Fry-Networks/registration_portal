@@ -25,7 +25,7 @@ export const MINER_PORTAL_KEY: Record<string, string> = (() => {
   map['IRM'] = 'radiation';
   map['AEM'] = 'aem'; // not a named collection → hardware
   // misc passthroughs (will land in hardware)
-  ['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'CN', 'RDN', 'SDN', 'SVN'].forEach(t => (map[t] = t.toLowerCase()));
+  ['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'FEM', 'CN', 'RDN', 'SDN', 'SVN'].forEach(t => (map[t] = t.toLowerCase()));
   return map;
 })();
 
