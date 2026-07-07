@@ -569,7 +569,7 @@ export default function History({
     productName?: string;
   } | null>(null);
   useEffect(() => {
-    if (typeof miner_key !== 'string' || !session?.user?.address) {
+    if (typeof miner_key !== 'string' || miner_key.length === 0 || !session?.user?.address) {
       setStakeHistoryData(null);
       return;
     }
