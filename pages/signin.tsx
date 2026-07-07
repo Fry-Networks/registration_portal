@@ -19,7 +19,6 @@ export default function SignIn() {
   const [email, setEmail] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [mnemonic, setMnemonic] = useState('');
   const {
     devConnect
   } = useDevWallet();
@@ -46,6 +45,7 @@ export default function SignIn() {
   useEffect(() => {
     checkUser();
   }, [checkUser]);
+
   async function handleWalletAuth() {
     if (!walletAddress) {
       toast.error({
@@ -130,7 +130,7 @@ export default function SignIn() {
       const signedTxnBase64 = Buffer.from(signedBytes).toString('base64');
       if (isNewUser) {
         // First-time sign-in
-        if (!email || !firstName || !lastName || !mnemonic) {
+        if (!email || !firstName || !lastName) {
           alert('Please fill in all required fields');
           setIsAuthenticating(false);
           return;
@@ -146,7 +146,6 @@ export default function SignIn() {
         email,
         first_name: firstName,
         last_name: lastName,
-        mnemonic,
         redirect: false,
         callbackUrl
       });
@@ -183,6 +182,9 @@ export default function SignIn() {
             <p className="text-sm text-ink-secondary mb-space-8">
               Connect your wallet to access the dashboard.
             </p>
+            <p className="text-xs text-green-600 mb-space-6 font-medium">
+              We will never ask for your seed phrase or private key.
+            </p>
 
             {walletAddress || devConnect ? (
               <div className="space-y-4 text-left">
@@ -215,16 +217,6 @@ export default function SignIn() {
                         placeholder="Fry"
                         value={lastName}
                         onChange={e => setLastName(e.target.value)}
-                        className="w-full bg-surface-strong border border-divider rounded-token-md px-4 py-2.5 text-ink focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-ink-secondary mb-1 block">Wallet Mnemonic</label>
-                      <input
-                        type="text"
-                        placeholder="25-word recovery phrase"
-                        value={mnemonic}
-                        onChange={e => setMnemonic(e.target.value)}
                         className="w-full bg-surface-strong border border-divider rounded-token-md px-4 py-2.5 text-ink focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition"
                       />
                     </div>

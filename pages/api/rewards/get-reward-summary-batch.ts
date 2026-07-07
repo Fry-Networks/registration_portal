@@ -23,6 +23,7 @@ const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
+const FEM_PREFIX = 'FEM';
 const MAX_BATCH_SIZE = 200;
 
 function formatDateUTC(d: Date): string {
@@ -68,7 +69,7 @@ interface SummaryResult {
 
 function computeSummary(doc: any, devicePrefix: string): SummaryResult {
   const isNodeDevice = NODE_PREFIXES.has(devicePrefix);
-  const isAemDevice = devicePrefix === AEM_PREFIX;
+  const isAemDevice = devicePrefix === AEM_PREFIX || devicePrefix === FEM_PREFIX;
   const allowedAssets = (isNodeDevice || isAemDevice) ? new Set([fNodeAssetId]) : new Set([TFryAssetId, FRY1AssetId]);
 
   const totals = {
@@ -213,15 +214,25 @@ export default async function handler(
     const devicesCol = db.collection(testMode ? 'test-devices' : 'devices');
     const devRewardsCol = db.collection('device-rewards');
 
-    // Verify all requested devices belong to this wallet
+    // Resolve user _id so devices owned via user_id (not address) still count.
+    // user_id stored as ObjectId in devices (sampled 2026-07-04); String() handles both forms.
+    const userDoc = await db.collection('registration-users').findOne(
+      { address: walletAddress },
+      { projection: { _id: 1 } }
+    );
+    const userIdString = userDoc?._id?.toString();
+
+    // Verify all requested devices belong to this wallet (address OR user_id)
     const devices = await devicesCol.find(
       { miner_key: { $in: uniqueKeys } },
-      { projection: { miner_key: 1, address: 1 } }
+      { projection: { miner_key: 1, address: 1, user_id: 1 } }
     ).toArray();
 
     const ownedKeys = new Set<string>();
     for (const device of devices) {
-      if (device.address && device.address !== walletAddress) continue;
+      const ownedByAddress = Boolean(device.address) && device.address === walletAddress;
+      const ownedByUserId = Boolean(userIdString) && String(device.user_id ?? '') === userIdString;
+      if (!ownedByAddress && !ownedByUserId) continue;
       ownedKeys.add(device.miner_key);
     }
 
@@ -270,3 +281,4 @@ export default async function handler(
     });
   }
 }
+

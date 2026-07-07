@@ -23,6 +23,7 @@ const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
+const FEM_PREFIX = 'FEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -148,7 +149,16 @@ export default async function handler(
       return res.status(404).json(CommonErrors.deviceNotFound());
     }
 
-    if (device.address && device.address !== walletAddress) {
+    // Ownership check: address match OR user_id match (canonical owner).
+    // user_id stored as ObjectId in devices (sampled 2026-07-04); String() handles both forms.
+    const userDoc = await db.collection('registration-users').findOne(
+      { address: walletAddress },
+      { projection: { _id: 1 } }
+    );
+    const userIdString = userDoc?._id?.toString();
+    const ownedByAddress = Boolean(device.address) && device.address === walletAddress;
+    const ownedByUserId = Boolean(userIdString) && String(device.user_id ?? '') === userIdString;
+    if (!ownedByAddress && !ownedByUserId) {
       res.status(401).json(CommonErrors.walletMismatch());
       return;
     }
@@ -169,7 +179,7 @@ export default async function handler(
 
     const devicePrefix = (device?.miner_key || '').split('-')[0] || '';
     const isNodeDevice = NODE_PREFIXES.has(devicePrefix);
-    const isAemDevice = devicePrefix === AEM_PREFIX;
+    const isAemDevice = devicePrefix === AEM_PREFIX || devicePrefix === FEM_PREFIX;
     const isMinerDevice = !(isNodeDevice || isAemDevice);
     const allowedAssets = isMinerDevice ? new Set([TFryAssetId, FRY1AssetId]) : new Set([fNodeAssetId]);
 

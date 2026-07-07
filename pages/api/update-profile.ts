@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const client = await clientPromise;
-  await client.db('main').collection('users').updateOne(
+  await client.db('main').collection('registration-users').updateOne(
     { address: session.user.address },
     { $set: sanitized },
     { upsert: true }

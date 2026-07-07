@@ -96,3 +96,11 @@ a:hover {
     height: 40px;
   }
 }
+
+/* Security: never expose Pera Web Wallet seed-phrase flow from dashboard sign-in surface */
+.pera-wallet-accordion-item:has(.pera-wallet-connect-modal-desktop-mode__web-wallet) {
+  display: none !important;
+}
+.pera-wallet-connect-modal-desktop-mode__web-wallet {
+  display: none !important;
+}

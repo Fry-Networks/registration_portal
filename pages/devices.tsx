@@ -70,7 +70,7 @@ const minerType = {
   air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
   water: ['OLWQM', 'OHWQM'],
   radiation: ['IRM'],
-  hardware: ['ISM', 'OSM', 'BM', 'FEM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN', 'AEM'],
+  hardware: ['ISM', 'OSM', 'BM', 'FEM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN'],
   camera: ['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'],
   energy: ['EM'],
   virtual: ['VRDN', 'VSDN', 'VSVN']
@@ -85,8 +85,8 @@ type HardwareStatus = {
   detail?: string;
 };
 const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
-const NOTIFICATION_PREFIXES = new Set(['SDN', 'SVN', 'RDN', 'CN', 'AEM', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
-const HARDWARE_MAC_PREFIXES = new Set(['AEM', 'CN', 'RDN', 'SDN', 'SVN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
+const NOTIFICATION_PREFIXES = new Set(['SDN', 'SVN', 'RDN', 'CN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
+const HARDWARE_MAC_PREFIXES = new Set(['CN', 'RDN', 'SDN', 'SVN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
 
 // Hardware checks follow the same configuration as credentials needed setting
 // Hardware MAC check is independent of credential portal requirements —
@@ -138,9 +138,6 @@ function buildPortalLink(device: Device) {
     clickable: 'true'
   };
   let portalType = device.registered_portal_model || category;
-  if (prefix === 'AEM') {
-    portalType = 'aem';
-  }
   query.type = portalType;
   return {
     pathname: '/register',
@@ -861,12 +858,12 @@ const DevicesPage = ({
       return;
     }
   };
-  const handleClaimFreeAem = async () => {
+  const handleClaimFreeFem = async () => {
     if (!session?.user?.address) return;
     setClaiming(true);
     setClaimError(null);
     try {
-      const res = await fetch('/api/events/claim-free-aem', {
+      const res = await fetch('/api/events/claim-free-fem', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -880,7 +877,7 @@ const DevicesPage = ({
       }
       const minerKey = data.minerKey;
       if (minerKey) {
-        router.push(`/register?minerKey=${encodeURIComponent(minerKey)}&type=aem`);
+        router.push(`/register?minerKey=${encodeURIComponent(minerKey)}&type=fem`);
       }
     } catch (e: any) {
       setClaimError(e.message || 'Network error');
@@ -1419,14 +1416,14 @@ const DevicesPage = ({
       </div>
       {session?.user?.address && <div className={`mt-6 mx-2 sm:mx-20 rounded-2xl border p-5 ${isDark ? 'border-success-500/30 bg-success-500/10' : 'border-success-200 bg-success-50'}`}>
           <h3 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            Need an AEM key to compete?
+            Need a FEM key to compete?
           </h3>
           <p className={`mt-1 text-sm ${isDark ? 'text-white/70' : 'text-slate-600'}`}>
-            Generate a free AEM key and register it to start competing. Your key will be created instantly and linked to your wallet.
+            Generate a free FEM key and register it to start competing. Your key will be created instantly and linked to your wallet.
           </p>
           <div className="mt-4 flex items-center gap-3">
-            <button onClick={handleClaimFreeAem} disabled={claiming} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${claiming ? 'opacity-50 cursor-not-allowed bg-gray-500 text-white' : isDark ? 'bg-success-600 hover:bg-success-500 text-white' : 'bg-success-600 hover:bg-success-700 text-white'}`}>
-              {claiming ? 'Generating...' : 'Generate Free AEM Key'}
+            <button onClick={handleClaimFreeFem} disabled={claiming} className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${claiming ? 'opacity-50 cursor-not-allowed bg-gray-500 text-white' : isDark ? 'bg-success-600 hover:bg-success-500 text-white' : 'bg-success-600 hover:bg-success-700 text-white'}`}>
+              {claiming ? 'Generating...' : 'Generate Free FEM Key'}
             </button>
             {claimError && <span className="text-sm text-error-400">{claimError}</span>}
           </div>
@@ -1627,14 +1624,28 @@ export async function getServerSideProps(context: any) {
     // }
 
     const devicesCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
+    // Resolve user _id for user_id fallback (matches my-keys.ts pattern).
+    // user_id stored as ObjectId in devices (sampled 2026-07-04); query both forms for defensive match.
+    const userDoc = await db.collection('registration-users').findOne(
+      { address: session.user.address },
+      { projection: { _id: 1 } }
+    );
+    const userIdString = userDoc?._id?.toString();
+    const userObjectId = userDoc?._id;
+    const ownershipClauses: any[] = [{ address: session.user.address }];
+    if (userObjectId) ownershipClauses.push({ user_id: userObjectId });
+    if (userIdString && userIdString !== userObjectId?.toString()) ownershipClauses.push({ user_id: userIdString });
+
     const devicesRaw = await devicesCollection.find({
-      address: session.user.address,
-      $or: [{
-        is_registered: true
-      }, {
-        virtual: true,
-        activated: true
-      }]
+      $and: [
+        { $or: ownershipClauses },
+        { $or: [{
+          is_registered: true
+        }, {
+          virtual: true,
+          activated: true
+        }] }
+      ]
     }, {
       projection: {
         address: 1,
@@ -1674,7 +1685,7 @@ export async function getServerSideProps(context: any) {
     const devices = await Promise.all(devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device)));
 
     // Active-device tracking: any poc_reward_dailies record within last 14 days means active.
-    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
+    const TRACKED_PREFIXES = ['BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
     const activeMinerKeys = new Set<string>();
     const deviceMinerKeys = devices.map((d: any) => d.miner_key).filter(Boolean);
     if (deviceMinerKeys.length > 0) {
@@ -1812,7 +1823,9 @@ export async function getServerSideProps(context: any) {
         products: JSON.parse(JSON.stringify(products.map(product => ({
           name: product.name,
           key: product.key,
-          reward: product.reward
+          reward: product.reward,
+          color: product.color,
+          display_name: product.display_name
         })))),
         rewardFallback,
         statusFallback,
