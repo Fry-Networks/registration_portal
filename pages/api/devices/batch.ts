@@ -86,10 +86,10 @@ export default async function handler(
 
 
     // Compute is_active for tracked device prefixes (14-day poc_reward_dailies lookback)
-    const TRACKED_PREFIXES = ['AEM', 'BM', 'RDN', 'SDN', 'SVN', 'CN'];
+    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
     const trackedKeys = Object.keys(devices).filter(k => TRACKED_PREFIXES.includes(k.split('-')[0]));
     if (trackedKeys.length > 0) {
-      const cutoff = new Date(Date.now() - 14 * 86400000);
+      const cutoff = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
       const activeKeys: string[] = await db.collection('poc_reward_dailies')
         .distinct('miner_key', { miner_key: { $in: trackedKeys }, date: { $gte: cutoff } });
       const activeSet = new Set(activeKeys);
