@@ -8,7 +8,7 @@ import { getDimoConfig, hashDimoId } from '../../../lib/dimo/config';
 import { generateMinerKey } from '../../../lib/minerKey';
 import { getConfigFlag } from '../../../lib/config';
 
-const MINER_PREFIX = process.env.DIMO_MINER_PREFIX || 'AEM';
+const MINER_PREFIX = process.env.DIMO_MINER_PREFIX || 'FEM';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -134,7 +134,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await devicesCollection.insertOne({
           miner_key: minerKey,
           created_at: now,
-          name: '$FRY AI Edge Miner',
+          name: '$FRY Fry Edge Miner',
           is_registered: false,
           address: security.session.user.address,
           email: resolvedEmail,
@@ -171,3 +171,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
+

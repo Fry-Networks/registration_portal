@@ -24,6 +24,7 @@ const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
+const FEM_PREFIX = 'FEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -161,7 +162,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!key) continue;
       const prefix = key.split('-')[0] || '';
       const isNode = NODE_PREFIXES.has(prefix);
-      const isAem = prefix === AEM_PREFIX;
+      const isAem = prefix === AEM_PREFIX || prefix === FEM_PREFIX;
       isMinerDeviceByKey.set(key, !(isNode || isAem));
     }
 
@@ -267,3 +268,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
+

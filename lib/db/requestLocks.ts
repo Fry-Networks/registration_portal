@@ -16,7 +16,7 @@ export type DeviceAction =
   | 'withdraw:verification_check'
   | 'fee:withdraw'
   | 'fee:verify'
-  | 'event:claim-free-aem';
+  | 'event:claim-free-fem';
 
 export interface DeviceRequestLock {
   _id?: ObjectId;

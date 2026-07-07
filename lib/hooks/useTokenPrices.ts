@@ -4,9 +4,10 @@ export type TokenPrices = {
   fry2?: number;
   fnode?: number;
   tfry?: number | null;
+  fry3?: number;
 };
 
-const PRICE_ASSETS = ['2485314946', '2485202024'];
+const PRICE_ASSETS = ['2485314946', '2485202024', '3612979527'];
 
 export function useTokenPrices(refreshMs: number = 300000): TokenPrices {
   const [prices, setPrices] = useState<TokenPrices>({});

@@ -216,7 +216,7 @@ const DimoLoginSection = ({
     <Card className={`space-y-4 text-white ${themedCardClasses}`}>
       <Flex justifyContent="between" alignItems="center">
         <div className="space-y-1">
-          <Text className="font-semibold">Click &quot;Continue with DIMO&quot; below, login then sync your subscriptions, and claim one free AEM (AI Edge Miner) key per eligible subscription.</Text>
+          <Text className="font-semibold">Click &quot;Continue with DIMO&quot; below, login then sync your subscriptions, and claim one free Fry Edge Miner (FEM) key per eligible subscription.</Text>
         </div>
         <StatusBadge connected={statusReady} />
       </Flex>
@@ -237,3 +237,4 @@ const DimoLoginSection = ({
 };
 
 export default DimoLoginSection;
+

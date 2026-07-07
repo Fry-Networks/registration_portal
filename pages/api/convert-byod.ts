@@ -97,7 +97,7 @@ export default async function handler(
     '$FRY Outdoor Decibel Miner',
     '$FRY Indoor Satellite Miner',
     '$FRY Outdoor Satellite Miner',
-    '$FRY AI Edge Miner',
+    '$FRY Fry Edge Miner',
     '$FRY Energy Miner',
     '$FRY Indoor Radiation Miner',
     '$FRY Outdoor Low-End Water Quality Miner',

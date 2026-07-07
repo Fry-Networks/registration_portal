@@ -5,6 +5,7 @@ import { getAlgodClient } from '../../lib/wallet/clients';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { useToastContext } from '../../hooks/ToastContext';
 
+// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
 const APP_ID = 3592975326;
 const BUDGET_APP_ID = 3592977322;
 const APP_ADDR = 'RZCYARBYGBWCWXZPAAGPCNOLVSCJCVTSXANIF2BSVPDE3YRK2SJMWUNC74';

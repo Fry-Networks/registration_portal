@@ -26,6 +26,7 @@ function getMerkle(): MerkleData {
   return merkleCache!;
 }
 
+// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
 const APP_ID = 3592975326;
 const ALGOD_URL = process.env.ALGOD_URL || 'https://mainnet-api.algonode.cloud';
 const MONGO_URI = process.env.MONGO_URI || '';

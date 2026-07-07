@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const security = await enforceWalletApiSecurity(req, res, {
-      endpoint: '/api/events/claim-free-aem'
+      endpoint: '/api/events/claim-free-fem'
     });
     if (!security) return;
 
@@ -26,8 +26,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const existing = await devicesCollection.findOne({
       address: userAddress,
-      miner_key: { $regex: /^AEM/ },
-      source: 'event-free-aem'
+      miner_key: { $regex: /^(AEM|FEM)/ },
+      source: { $in: ['event-free-aem', 'event-free-fem'] }
     });
 
     if (existing) {
@@ -42,16 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       req,
       res,
       {
-        miner_key: `event-free-aem:${userAddress}`,
+        miner_key: `event-free-fem:${userAddress}`,
         address: userAddress,
-        action: 'event:claim-free-aem',
+        action: 'event:claim-free-fem',
         metadata: { eventId: '6a171bccca0587d3198ce5b0' }
       },
       async () => {
-        let minerKey = generateMinerKey('AEM');
+        let minerKey = generateMinerKey('FEM');
         let attempts = 0;
         while (attempts < 5 && (await devicesCollection.findOne({ miner_key: minerKey }))) {
-          minerKey = generateMinerKey('AEM');
+          minerKey = generateMinerKey('FEM');
           attempts += 1;
         }
 
@@ -70,10 +70,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await devicesCollection.insertOne({
           miner_key: minerKey,
           created_at: now,
-          name: '$FRY AI Edge Miner',
+          name: '$FRY Fry Edge Miner',
           is_registered: false,
           address: userAddress,
-          source: 'event-free-aem'
+          source: 'event-free-fem'
         });
 
         return {
@@ -85,14 +85,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     );
   } catch (error) {
-    return handleApiError(res, '/api/events/claim-free-aem', error, {
+    return handleApiError(res, '/api/events/claim-free-fem', error, {
       response: createApiError(
         ErrorCodes.INTERNAL_ERROR,
-        'Unable to issue your free AEM key',
+        'Unable to issue your free FEM key',
         'Please retry in a moment.'
       ),
-      issueType: 'EVENT_FREE_AEM_CLAIM_ERROR',
-      part: 'events.claim-free-aem.handler'
+      issueType: 'EVENT_FREE_FEM_CLAIM_ERROR',
+      part: 'events.claim-free-fem.handler'
     });
   }
 }

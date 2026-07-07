@@ -4,9 +4,9 @@ const CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /**
  * Generates a miner key using a secure random source and the standard prefix + 32-char body format.
- * Prefix should be the product key (e.g., AEM, OLWQM).
+ * Prefix defaults to FEM for all new issuances.
  */
-export const generateMinerKey = (prefix: string, bodyLength = 32): string => {
+export const generateMinerKey = (prefix = 'FEM', bodyLength = 32): string => {
   if (!prefix || prefix.trim().length === 0) {
     throw new Error('Missing miner key prefix');
   }
@@ -19,3 +19,4 @@ export const generateMinerKey = (prefix: string, bodyLength = 32): string => {
 
   return `${prefix}-${body}`;
 };
+

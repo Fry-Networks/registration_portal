@@ -80,3 +80,17 @@ export const disconnectAllWallets = async (manager: WalletManager): Promise<void
     }
   }
 };
+
+export const subscribeToManagerReadyFallback = (manager: WalletManager): (() => void) => {
+  const timeout = setTimeout(() => {
+    manager.store.setState((state) => {
+      if (state.managerStatus !== 'ready') {
+        console.warn('[wallet] Forcing managerStatus to ready after timeout');
+        return { ...state, managerStatus: 'ready' };
+      }
+      return state;
+    });
+  }, 10000);
+
+  return () => clearTimeout(timeout);
+};

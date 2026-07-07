@@ -22,7 +22,7 @@ import type { MySession } from './api/auth/[...nextauth]';
 import { useClientErrorLogger } from '../lib/hooks/useClientErrorLogger';
 import { useToastContext } from '../hooks/ToastContext';
 import { useWallet } from '@txnlab/use-wallet-react';
-import { createWalletManager, disconnectAllWallets, resumeWalletSessions } from '../lib/wallet/manager';
+import { createWalletManager, disconnectAllWallets, subscribeToManagerReadyFallback } from '../lib/wallet/manager';
 import { installHistoryReplaceThrottle } from '../lib/historyThrottle';
 import PeraInAppBrowserBlocker from '../components/PeraInAppBrowserBlocker';
 import PageErrorBoundary from '../components/PageErrorBoundary';
@@ -59,6 +59,7 @@ const devMode =
 
 export default function MyApp({ Component, pageProps }: MyAppProps) {
   const [walletManager, setWalletManager] = useState<WalletManager | null>(null);
+  const [walletInitError, setWalletInitError] = useState<Error | null>(null);
   const router = useRouter();
 
   const notificationsEnabled = router.pathname === '/devices' || router.pathname === '/history' || router.pathname === '/dimo';
@@ -66,30 +67,48 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
 
   useEffect(() => {
     let mounted = true;
-    const manager = createWalletManager();
-    setWalletManager(manager);
+    try {
+      const manager = createWalletManager();
+      setWalletManager(manager);
 
-    (async () => {
-      await resumeWalletSessions(manager);
-      if (!mounted) {
-        await disconnectAllWallets(manager);
-      }
-    })();
+      // Monkey-patch resumeSessions with timeout so WalletProvider's internal call is protected
+      const originalResume = manager.resumeSessions.bind(manager);
+      manager.resumeSessions = async () => {
+        try {
+          await Promise.race([
+            originalResume(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('resumeSessions timeout')), 8000)
+            )
+          ]);
+        } catch (e) {
+          console.warn('[wallet] resumeSessions timed out or failed, forcing ready', e);
+        }
+        // Force ready regardless of timeout or success
+        manager.store.setState((state) => ({ ...state, managerStatus: 'ready' }));
+      };
 
-    (async () => {
-      try {
-        await getClientToken();
-      } catch (error) {
-        console.error('[ClientToken] Failed to warm token cache', error);
-      }
-    })();
+      const unsubscribeReadyFallback = subscribeToManagerReadyFallback(manager);
 
-    Modal.setAppElement?.('#__next');
+      (async () => {
+        try {
+          await getClientToken();
+        } catch (error) {
+          console.error('[ClientToken] Failed to warm token cache', error);
+        }
+      })();
 
-    return () => {
-      mounted = false;
-      void disconnectAllWallets(manager);
-    };
+      Modal.setAppElement?.('#__next');
+
+      return () => {
+        mounted = false;
+        unsubscribeReadyFallback();
+        void disconnectAllWallets(manager);
+      };
+    } catch (err) {
+      console.error('[WalletManager] Initialization failed', err);
+      setWalletInitError(err instanceof Error ? err : new Error(String(err)));
+    }
   }, []);
 
   useEffect(() => {
@@ -97,20 +116,64 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
   }, []);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!walletManager && !walletInitError) {
+        setWalletInitError(new Error('Wallet initialization timed out after 10 seconds'));
+      }
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [walletManager, walletInitError]);
+
+  useEffect(() => {
     if (!showAnnouncementBanner) {
       document.documentElement.style.setProperty('--announcement-banner-height', '0px');
     }
   }, [showAnnouncementBanner]);
 
-  if (!walletManager) {
-    return <div>Loading wallet manager...</div>;
+  if (!walletManager && !walletInitError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!walletManager && walletInitError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface p-4">
+        <div className="bg-surface-elevated border border-divider rounded-xl p-8 max-w-md w-full text-center space-y-4">
+          <h1 className="text-xl font-semibold text-heading">Wallet connection unavailable</h1>
+          <p className="text-sm text-muted">
+            Wallet initialization failed. This is usually caused by corrupted session data stored in your browser.
+          </p>
+          <div className="space-y-2 pt-2">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('pera-wallet-session');
+                localStorage.removeItem('defly-wallet-session');
+                window.location.reload();
+              }}
+              className="w-full px-4 py-2 rounded-lg border border-divider text-muted hover:bg-surface-hover transition-colors"
+            >
+              Clear wallet data &amp; retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <ThemeProvider attribute="class" enableSystem defaultTheme="dark">
       <SeasonalThemeProvider>
         <ModalProvider>
-          <WalletProvider manager={walletManager}>
+          <WalletProvider manager={walletManager!}>
             <SessionProvider session={pageProps.session}>
               <FingerprintProvider>
                 <DevWalletProvider>

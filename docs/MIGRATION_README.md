@@ -92,7 +92,7 @@ The following miner key prefixes will be migrated:
 - **BM** - Bandwidth Miner
 - **IDM/ODM** - Indoor/Outdoor Decibel Miner
 - **ISM/OSM** - Indoor/Outdoor Satellite Miner
-- **AEM** - AI Edge Miner
+- **AEM** - Fry Edge Miner
 - **RDN** - Reward Decentralization Node
 - **SDN** - Storage Decentralization Node
 - **SVN** - Storage Validator Node

@@ -1,3 +1,4 @@
+import { useRewardMode } from '../lib/hooks/useRewardMode';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Tooltip from './Tooltip';
@@ -20,6 +21,7 @@ interface FloatingTotalsWidgetProps {
   estimatedTfry: number;
   legacyFryClaimedSnapshot?: number;
   isError?: boolean;
+  rewardMode?: string; // 'FRY2' (default) or 'FRY3'
 
 
 
@@ -32,10 +34,20 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
   estimatedFnode,
   estimatedTfry,
   legacyFryClaimedSnapshot,
+  rewardMode = 'FRY2',
   isError = false
 }) => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
+  const getTokenDisplay = (mode: string) => {
+    if (mode === 'FRY3') {
+      return { fryName: 'FRY', fryAsaId: '3612979527' };
+    }
+    // Default to FRY2
+    return { fryName: 'FRY 2.0', fryAsaId: '2485314946' };
+  };
+  const tokenDisplay = getTokenDisplay(rewardMode || 'FRY2');
+
   const ACCRUING_LABEL = 'Accruing (weekly preview)';
   const [isScrolled, setIsScrolled] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -533,7 +545,7 @@ const FloatingTotalsWidget: React.FC<FloatingTotalsWidgetProps> = ({
                 {/* Prices */}
                 <div className={`text-xs mb-3 text-center space-y-1 ${isDark ? 'text-gray-300' : 'text-slate-700'}`}>
                   <div>
-                    FRY 2.0 (2485314946): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
+                    {tokenDisplay.fryName} ({tokenDisplay.fryAsaId}): {fmtUSD(prices.fry2)} • fNode (2485202024): {fmtUSD(prices.fnode)}
                   </div>
                   <div className={`text-[0.6rem] ${isDark ? 'text-warning-200/90' : 'text-warning-700'}`}>
                     tFry (2681521901) is earned-only, not tradeable. Each tFry converts 1:1 into its product&rsquo;s token once that monetization tier goes live.

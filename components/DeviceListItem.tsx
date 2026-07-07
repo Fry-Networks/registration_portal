@@ -339,6 +339,13 @@ export default function DeviceListItem({
     };
     type Badge = { label: string; className: string; severity: 'red' | 'warning' | 'green' | 'default'; info?: string };
     const badges: Array<Badge> = [];
+    if (product) {
+      badges.push({
+        label: product.display_name ?? product.name ?? minerPrefix,
+        className: `${product.color ?? 'bg-gray-500'} text-white border border-white/20`,
+        severity: 'default'
+      });
+    }
     const portalHelp =
       'Open the gear icon (Portal settings) and complete the Fry portal link so rewards keep flowing.';
     if (!device.registered_portal_model) {
