@@ -107,7 +107,7 @@ export default function NewRegistrationPage() {
               </label>
               <input
                 type="text"
-                placeholder="e.g. AEM-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                placeholder="e.g. FEM-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                 value={minerKey}
                 onChange={(e) => setMinerKey(e.target.value)}
                 className={`w-full bg-surface-strong border rounded-token-md px-4 py-3 text-ink font-mono text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition ${isValid ? 'border-divider' : minerKey ? 'border-error-500' : 'border-divider'}`}
@@ -179,3 +179,4 @@ const getIsByod = async (miner_key: string, address: string) => {
   const data = await response.json();
   return data;
 }
+

@@ -80,12 +80,12 @@ export default function EventDetailPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
-  const handleClaimFreeAem = async () => {
+  const handleClaimFreeFem = async () => {
     if (!activeAccount?.address) return;
     setClaiming(true);
     setClaimError(null);
     try {
-      const res = await fetch('/api/events/claim-free-aem', {
+      const res = await fetch('/api/events/claim-free-fem', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -99,7 +99,7 @@ export default function EventDetailPage() {
       }
       const minerKey = data.minerKey;
       if (minerKey) {
-        router.push(`/register?minerKey=${encodeURIComponent(minerKey)}&type=aem`);
+        router.push(`/register?minerKey=${encodeURIComponent(minerKey)}&type=fem`);
       }
     } catch (e: any) {
       setClaimError(e.message || 'Network error');
@@ -186,7 +186,7 @@ export default function EventDetailPage() {
             <div className="bg-surface-elevated border border-primary-500/20 rounded-token-xl p-4 text-center min-w-[140px]">
               <p className="text-3xl font-display font-bold text-primary-500">#{myRank}</p>
               <p className="text-xs text-ink-secondary mt-1 font-body">Your rank</p>
-              {myScore !== null && <p className="text-sm font-semibold text-ink mt-1 font-body">{myScore} AEMs</p>}
+              {myScore !== null && <p className="text-sm font-semibold text-ink mt-1 font-body">{myScore} FEMs</p>}
               {myTier && <p className="text-xs text-accent-500 mt-1 font-body">{myTier.description}</p>}
             </div>
           )}
@@ -214,22 +214,22 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* Free AEM Key CTA */}
+        {/* Free FEM Key CTA */}
         {activeAccount && (
           <div className="mt-space-8 bg-accent-500/5 border border-accent-500/20 rounded-token-xl p-space-5">
             <h3 className="text-lg font-display font-semibold text-ink">
-              Need an AEM key to compete?
+              Need a FEM key to compete?
             </h3>
             <p className="mt-1 text-sm text-ink-secondary font-body">
-              Generate a free AEM key and register it to start competing. Your key will be created instantly and linked to your wallet.
+              Generate a free FEM key and register it to start competing. Your key will be created instantly and linked to your wallet.
             </p>
             <div className="mt-4 flex items-center gap-3">
               <button
-                onClick={handleClaimFreeAem}
+                onClick={handleClaimFreeFem}
                 disabled={claiming}
                 className={`rounded-token-md px-4 py-2 text-sm font-semibold transition ${claiming ? 'opacity-50 cursor-not-allowed bg-surface-strong text-ink-muted' : 'bg-accent-500 hover:bg-accent-600 text-white'}`}
               >
-                {claiming ? 'Generating...' : 'Generate Free AEM Key'}
+                {claiming ? 'Generating...' : 'Generate Free FEM Key'}
               </button>
               {claimError && <span className="text-sm text-error-500 font-body">{claimError}</span>}
             </div>
@@ -395,3 +395,4 @@ export default function EventDetailPage() {
     </PageShell>
   );
 }
+

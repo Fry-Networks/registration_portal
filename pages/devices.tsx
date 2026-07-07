@@ -318,7 +318,11 @@ export function isProductStakeAvailable(product: Product) {
 }
 export function findProductByMinerKey(miner_key: string, products: Product[]) {
   const miner_type = miner_key.split('-')[0];
-  return products.find(product => product.key === miner_type);
+  // Prefer the canonical baseline FEM product (source:'baseline', no wix_id) so resolution is
+  // deterministic across the 41 Wix-derived key=FEM docs; fall back to first-match so removing
+  // the baseline doc auto-reverts behavior without a code change.
+  return products.find(product => product.key === miner_type && (product as any).source === 'baseline')
+    || products.find(product => product.key === miner_type);
 }
 type QuickActionCardProps = {
   title: string;
@@ -1765,7 +1769,7 @@ export async function getServerSideProps(context: any) {
     const minerKeys: string[] = devices?.map((d: any) => d.miner_key) || [];
     if (minerKeys.length > 0) {
       for (const d of devices as any[]) {
-        const product = products.find((p: any) => p.key === d.miner_key.split('-')[0]);
+        const product = findProductByMinerKey(d.miner_key, products as any);
         const status = computeDeviceStatus({
           address: d.address,
           byod: d.byod,

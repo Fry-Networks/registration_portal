@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import algosdk from 'algosdk';
 
+// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
 const APP_ID = 3592975326;
-const ALGOD_URL = process.env.ALGOD_URL || 'http://100.69.195.100:4190';
+const ALGOD_URL = process.env.ALGOD_URL || 'http://100.69.195.100:8190';
 
 interface ClaimableResponse {
   boxFound: boolean;
@@ -40,7 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
-    const algod = new algosdk.Algodv2('', ALGOD_URL, '');
+    const algod = new algosdk.Algodv2(process.env.ALGOD_TOKEN || '', ALGOD_URL);
     const decoded = algosdk.decodeAddress(wallet);
     const boxName = new Uint8Array([0x77, ...decoded.publicKey]);
     const boxRes = await algod.getApplicationBoxByName(APP_ID, boxName).do();

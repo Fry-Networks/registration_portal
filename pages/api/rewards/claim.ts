@@ -30,6 +30,7 @@ const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
+const FEM_PREFIX = 'FEM';
 
 type DeviceClaimTarget = {
   source: 'weekly' | 'daily';
@@ -341,7 +342,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const minerPrefix = device.miner_key.split('-')[0];
       const isNodeDevice = NODE_PREFIXES.has(minerPrefix);
-      const isAemDevice = minerPrefix === AEM_PREFIX;
+      const isAemDevice = minerPrefix === AEM_PREFIX || minerPrefix === FEM_PREFIX;
       // Pre-compute totals for preview (and to store alongside journal records).
       const totalsDisplay = summary.map((entry) => ({
         asset_id: entry.asset_id,
@@ -522,3 +523,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   });
 }
+

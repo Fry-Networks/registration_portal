@@ -38,13 +38,20 @@ const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 export default function FryConversionModal({
   modalName,
   address,
-  onClose
+  onClose,
+  rewardMode = 'FRY2'
 }: {
   modalName: string;
   address: string | undefined;
   onClose: () => void;
+  rewardMode?: string;
 }) {
   const { activeAddress, signAndSubmit } = useWalletActions();
+  const getTokenDisplayForMode = (mode: string) => {
+    return mode === 'FRY3' ? 'FRY' : 'FRY 2.0';
+  };
+  const fryTokenName = getTokenDisplayForMode(rewardMode || 'FRY2');
+
   const { modals, closeModal } = useModal();
   const [account, setAccount] = useState<FryConversion | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -193,7 +200,7 @@ export default function FryConversionModal({
     const normalized = String(assetId ?? '');
     if (!normalized) return null;
     if (normalized === FRY_2.id) {
-      return { assetId: FRY_2.id, label: 'FRY 2.0', src: fry2OptInQr };
+      return { assetId: FRY_2.id, label: fryTokenName, src: fry2OptInQr };
     }
     if (normalized === fNODE.id) {
       return { assetId: fNODE.id, label: 'fNODE', src: fNodeOptInQr };
@@ -589,7 +596,7 @@ export default function FryConversionModal({
               onValueChange={(val) => setSelectedTokenType(val)}
               className="ml-1 mb-1 max-w-4 conversion-select"
             >
-              <SelectItem value="2485314946">FRY 2.0</SelectItem>
+              <SelectItem value="2485314946">{fryTokenName}</SelectItem>
               <SelectItem value="2485202024">fNODE</SelectItem>
             </Select>
             {isDark && (

@@ -1,4 +1,5 @@
 /**
+export const FRY3_ASA_ID = 3612979527;
  * Guarantee feature configuration.
  *
  * IMPORTANT: All values read via getter functions, not module-level constants.
@@ -19,7 +20,7 @@ export function getApprovedSources(): number[] {
 }
 
 export function getAllowedTargetAssets(): number[] {
-  return (process.env.GUARANTEE_ALLOWED_TARGET_ASSETS || '2485314946,2485202024,2485198745').split(',').map(Number);
+  return (process.env.GUARANTEE_ALLOWED_TARGET_ASSETS || '2485314946,3612979527,2485202024,2485198745').split(',').map(Number);
 }
 
 export function getMinLpUsd(): number {

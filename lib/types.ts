@@ -160,6 +160,8 @@ export interface Product extends mongoose.Document {
       node: string;
     };
   };
+  color?: string;
+  display_name?: string;
   created_at: Date;
 }
 

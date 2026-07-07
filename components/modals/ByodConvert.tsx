@@ -40,7 +40,7 @@ const ByodConvertModal: React.FC<ByodConvertModalProps> = ({
   // Allowlist from docs/products.md but excluding Water/Energy/Radiation until enabled for BYOD.
   const allowedProductNames = useMemo(
     () => new Set<string>([
-      '$FRY AI Edge Miner',
+      '$FRY Fry Edge Miner',
       '$FRY Bandwidth Miner',
       '$FRY Indoor Decibel Miner',
       '$FRY Outdoor Decibel Miner',

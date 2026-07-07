@@ -236,7 +236,8 @@ export const PORTAL_DISPLAY_NAMES: Record<string, string> = {
   radiation: 'Radiation Portal',
   water: 'Water Portal',
   node: 'Node Portal',
-  aem: 'AI Edge Miner Portal'
+  aem: 'Fry Edge Miner Portal',
+  fem: 'Fry Edge Miner Portal'
 };
 export const FIELD_LABELS: Record<string, string> = {
   imei: 'IMEI',
@@ -447,9 +448,10 @@ export const portalKeyFromMiner = (mk?: string) => {
   if (['OLWQM', 'OHWQM'].includes(minerType)) return 'water';
   if (minerType === 'EM') return 'energy';
   if (minerType === 'IRM') return 'radiation';
-  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM'].includes(minerType)) return 'hardware';
+  if (['IDM', 'ODM', 'ISM', 'OSM', 'BM', 'FEM'].includes(minerType)) return 'hardware';
   if (['CN', 'RDN', 'SDN', 'SVN'].includes(minerType)) return 'node';
   if (minerType === 'AEM') return 'aem';
+  if (minerType === 'FEM') return 'fem';
   return '';
 };
 export default function RegisterPage({
@@ -727,7 +729,7 @@ export default function RegisterPage({
         if (res.ok) {
           const data = await res.json();
           setDevice(data.device as Device);
-          if (data?.device?.is_registered) {
+          if (data?.device?.is_registered && !isEditingExisting) {
             setRegistrationCompleted(true);
           }
         } else {
@@ -802,7 +804,9 @@ export default function RegisterPage({
 
   const findProduct = useCallback((minerKey: string) => {
     const key = minerKey.split('-')[0];
-    const specificProduct = productsSafe.find(product => product.key === key);
+    // Prefer the canonical baseline product; fall back to first-match (auto-reverts if baseline removed).
+    const specificProduct = productsSafe.find(product => product.key === key && (product as any).source === 'baseline')
+      || productsSafe.find(product => product.key === key);
     return specificProduct;
   }, [productsSafe]);
 
@@ -844,7 +848,7 @@ export default function RegisterPage({
     const key = effectivePortalKey || queryType || '';
     const normalized = String(key).toLowerCase();
     const options = PORTAL_SUBTYPES[normalized] ?? [];
-    if (['node', 'aem', 'hardware'].includes(normalized)) {
+    if (['node', 'aem', 'fem', 'hardware'].includes(normalized)) {
       return options.filter(option => option.id !== 'mac');
     }
     return options;

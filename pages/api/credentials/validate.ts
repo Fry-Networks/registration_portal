@@ -174,7 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // If this is a aem/hardware/node check, delegate to the dedicated endpoint
   const normalizedApiType = String(apiType).toLowerCase();
-  if (normalizedApiType === 'aem' || normalizedApiType === 'hardware' || normalizedApiType === 'node') {
+  if (['aem', 'fem', 'hardware', 'node'].includes(normalizedApiType)) {
     return delegateToEndpoint('hardware/mac', req, res, {
       minerKey: miner_key,
       walletAddress,
@@ -323,3 +323,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
+

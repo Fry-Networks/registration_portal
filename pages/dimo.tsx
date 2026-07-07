@@ -352,8 +352,8 @@ export default function DimoPerksPage() {
       <div className="mx-auto max-w-7xl px-4 py-space-8">
         <div className={heroOffsetClass}>
           <HeroBanner
-            title="DIMO Airdrop · Fry AI Edge Miner"
-            subtitle="Link your DIMO account, sync your subscriptions, and claim your free AEM miner key."
+            title="DIMO Airdrop · Fry Edge Miner"
+            subtitle="Link your DIMO account, sync your subscriptions, and claim your free Fry Edge Miner key."
             backgroundImage={bgImg}
             showPrices={false}
             mode={isDark ? 'dark' : 'light'}
@@ -432,7 +432,7 @@ export default function DimoPerksPage() {
               Connect Your DIMO Account
             </h3>
             <p className="text-ink-secondary mt-2 font-body">
-              Link your DIMO account to claim your free AEM miner key.
+              Link your DIMO account to claim your free Fry Edge Miner key.
             </p>
             <button
               onClick={scrollToDimoLogin}
@@ -601,3 +601,4 @@ export const getServerSideProps: GetServerSideProps = async () => {
     props: {}
   };
 };
+

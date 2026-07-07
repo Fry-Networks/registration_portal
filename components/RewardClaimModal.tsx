@@ -5,6 +5,7 @@ import { getAlgodClient } from '../lib/wallet/clients';
 import { startConfirmationWatcher } from '../lib/confirmWatcher';
 import { useToastContext } from '../hooks/ToastContext';
 
+// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
 const APP_ID = 3592975326;
 const BUDGET_APP_ID = 3592977322;
 const TFRY_ID = 2681521901;
@@ -71,6 +72,43 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
     return group.map(ts => algosdk.encodeUnsignedTransaction(ts.txn));
   }
 
+  async function buildClaimMaturedGroup(): Promise<Uint8Array[]> {
+    if (!activeAddress) throw new Error('Wallet not connected');
+
+    const algod = getAlgodClient();
+    const sp = await algod.getTransactionParams().do();
+
+    const method = algosdk.ABIMethod.fromSignature('claim_matured_only(asset,asset)void');
+
+    const atc = new algosdk.AtomicTransactionComposer();
+    const emptySigner = algosdk.makeEmptyTransactionSigner();
+
+    atc.addTransaction({
+      txn: algosdk.makeApplicationNoOpTxnFromObject({
+        sender: activeAddress,
+        appIndex: BUDGET_APP_ID,
+        suggestedParams: { ...sp, flatFee: true, fee: 1000 },
+      }),
+      signer: emptySigner,
+    });
+
+    const boxName = new Uint8Array([0x77, ...algosdk.decodeAddress(activeAddress).publicKey]);
+
+    atc.addMethodCall({
+      appID: APP_ID,
+      method,
+      sender: activeAddress,
+      suggestedParams: { ...sp, flatFee: true, fee: 5000 },
+      signer: emptySigner,
+      methodArgs: [BigInt(TFRY_ID), BigInt(FNODE_ID)],
+      boxes: [{ appIndex: APP_ID, name: boxName }],
+      appForeignAssets: [TFRY_ID, FNODE_ID],
+    });
+
+    const group = atc.buildGroup();
+    return group.map(ts => algosdk.encodeUnsignedTransaction(ts.txn));
+  }
+
   async function handleClaim() {
     try {
       setIsLoading(true);
@@ -85,6 +123,35 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
         await startConfirmationWatcher(result[0], async () => {
           setSuccess(true);
           toastSuccess({ heading: 'Success', message: 'Rewards claimed!' });
+          setTimeout(() => {
+            onSuccess();
+            onClose();
+          }, 1500);
+        });
+      }
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Claim failed';
+      setError(errorMsg);
+      toastError({ heading: 'Claim Failed', message: `Error: ${errorMsg}` });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleClaimMatured() {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const encodedTxns = await buildClaimMaturedGroup();
+      const result = await signAndSubmit(encodedTxns);
+
+      info({ heading: 'Submission', message: 'Matured claim submitted! Waiting for confirmation...' });
+
+      if (result && result.length > 0) {
+        await startConfirmationWatcher(result[0], async () => {
+          setSuccess(true);
+          toastSuccess({ heading: 'Success', message: 'Matured rewards claimed!' });
           setTimeout(() => {
             onSuccess();
             onClose();
@@ -137,22 +204,35 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <button
-                onClick={handleClaim}
-                disabled={isLoading}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
-              >
-                {isLoading ? 'Submitting...' : 'Claim'}
-              </button>
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={handleClaim}
+                  disabled={isLoading}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
+                >
+                  {isLoading ? 'Submitting...' : 'Claim All'}
+                </button>
+                <button
+                  onClick={handleClaimMatured}
+                  disabled={isLoading || !data?.matured_tfry && !data?.matured_fnode}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
+                >
+                  {isLoading ? 'Submitting...' : 'Claim Matured'}
+                </button>
+              </div>
               <button
                 onClick={onClose}
                 disabled={isLoading}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded font-semibold disabled:opacity-50"
+                className="w-full bg-gray-300 text-gray-700 py-2 px-4 rounded font-semibold disabled:opacity-50"
               >
                 Cancel
               </button>
             </div>
+
+            <p className="text-xs text-gray-400 mt-3">
+              &ldquo;Claim All&rdquo; claims all rewards (matured + recent at 30% fee). &ldquo;Claim Matured&rdquo; claims only fee-free rewards.
+            </p>
           </>
         )}
       </div>
