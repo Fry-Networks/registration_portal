@@ -132,7 +132,7 @@ export default function IndexPage() {
               <h2 className="font-display text-lg font-semibold text-ink mb-4">Recent Activity</h2>
               <div className="max-h-[400px] overflow-y-auto">
                 {[
-                  { icon: 'claim', text: 'Claimed 12.5 FRY from your AEM Miner', time: '2h ago' },
+                  { icon: 'claim', text: 'Claimed 12.5 FRY from your Fry Edge Miner', time: '2h ago' },
                   { icon: 'register', text: 'Registered new device', time: '5h ago' },
                   { icon: 'stake', text: 'Staked 500 FRY for verification boost', time: '1d ago' },
                   { icon: 'reward', text: 'Weekly reward unlocked: 34.2 tFRY', time: '2d ago' },
@@ -140,7 +140,7 @@ export default function IndexPage() {
                   { icon: 'register', text: 'Registered new device', time: '4d ago' },
                   { icon: 'boost', text: 'Boosted rewards for your CN Node', time: '5d ago' },
                   { icon: 'reward', text: 'Weekly reward unlocked: 21.5 tFRY', time: '6d ago' },
-                  { icon: 'claim', text: 'Claimed 45.0 tFRY from your ISM Miner', time: '1w ago' },
+                  { icon: 'claim', text: 'Claimed 45.0 tFRY from your Fry Edge Miner', time: '1w ago' },
                   { icon: 'stake', text: 'Registration stake withdrawn from your RDN Node', time: '1w ago' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-3 py-3 border-b border-divider last:border-0">
@@ -326,3 +326,4 @@ export default function IndexPage() {
     </PageShell>
   );
 }
+

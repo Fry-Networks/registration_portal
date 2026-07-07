@@ -53,6 +53,7 @@ function computeNextFrydayUnlock(now: Date): Date {
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE && process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
 const AEM_PREFIX = 'AEM';
+const FEM_PREFIX = 'FEM';
 const PAGE_SIZE = 10;
 const dayMs = 24 * 60 * 60 * 1000;
 const sixMonthsMs = 180 * dayMs;
@@ -192,7 +193,7 @@ export default function History({
     if (!minerKey) return false;
     const prefix = minerKey.split('-')[0] || '';
     if (!prefix) return false;
-    if (NODE_PREFIXES.has(prefix) || prefix === AEM_PREFIX) return false;
+    if (NODE_PREFIXES.has(prefix) || prefix === AEM_PREFIX || prefix === FEM_PREFIX) return false;
     return true;
   }, [minerKey]);
   const {
@@ -1318,6 +1319,7 @@ function MinerSelect() {
           miner_key: string;
           nickname?: string | null;
           productName?: string | null;
+          status?: string | null;
         }>;
         const normalized = items.map(item => {
           if (typeof item === 'string') return {
@@ -1328,7 +1330,9 @@ function MinerSelect() {
           if (!mk) return null;
           const nickname = item.nickname || null;
           const productLabel = item.productName || null;
-          const label = nickname && nickname.length > 0 ? `${nickname} (${mk})` : productLabel ? `${productLabel} (${mk})` : mk;
+          const status = item.status || null;
+          const baseLabel = nickname && nickname.length > 0 ? `${nickname} (${mk})` : productLabel ? `${productLabel} (${mk})` : mk;
+          const label = status ? `${baseLabel} (${status})` : baseLabel;
           return {
             miner_key: mk,
             label

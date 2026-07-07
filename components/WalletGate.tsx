@@ -16,6 +16,46 @@ export default function WalletGate({ children }: WalletGateProps) {
     }
   }, []);
 
+  // Security: never expose Pera Web Wallet seed-phrase flow from dashboard sign-in surface.
+  // Pera renders its modal inside nested shadow roots, so global CSS cannot reach it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const styleId = 'fry-hide-pera-web-wallet';
+    function collectShadowRoots(root: Document | ShadowRoot): ShadowRoot[] {
+      const out: ShadowRoot[] = [];
+      const walker = (r: Document | ShadowRoot) => {
+        const elements = Array.from(r.querySelectorAll('*'));
+        for (const el of elements) {
+          const shadow = (el as any).shadowRoot;
+          if (shadow) {
+            out.push(shadow);
+            walker(shadow);
+          }
+        }
+      };
+      walker(root);
+      return out;
+    }
+    const injectHideStyle = () => {
+      for (const root of collectShadowRoots(document)) {
+        if (root.getElementById(styleId)) continue;
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+          .pera-wallet-accordion-item--web-wallet,
+          .pera-wallet-connect-modal-desktop-mode__web-wallet {
+            display: none !important;
+          }
+        `;
+        root.appendChild(style);
+      }
+    };
+    injectHideStyle();
+    const observer = new MutationObserver(injectHideStyle);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   if (activeAccount) {
     return <>{children}</>;
   }
@@ -29,6 +69,9 @@ export default function WalletGate({ children }: WalletGateProps) {
           </h2>
           <p className="mt-space-2 text-display-sm text-ink-secondary">
             Connect your wallet to access the dashboard and manage your devices.
+          </p>
+          <p className="mt-space-2 text-xs text-green-600 font-medium">
+            We will never ask for your seed phrase or private key.
           </p>
         </div>
 

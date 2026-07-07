@@ -60,7 +60,7 @@ export default async function handler(
 
     // 1. Find user doc to get _id for user_id fallback
     const userDoc = await mainDb
-      .collection('users')
+      .collection('registration-users')
       .findOne({ address: session.user.address }, { projection: { _id: 1 } });
 
     const userId = userDoc?._id?.toString();
@@ -98,7 +98,7 @@ export default async function handler(
     if (userIds.size > 0) {
       const objectIds = Array.from(userIds).map((id) => new ObjectId(id));
       const userDocs = await mainDb
-        .collection('users')
+        .collection('registration-users')
         .find({ _id: { $in: objectIds } })
         .project({ byod: 1 })
         .toArray();

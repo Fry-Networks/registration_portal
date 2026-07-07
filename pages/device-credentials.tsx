@@ -19,6 +19,7 @@ interface DeviceListItem {
   miner_key: string;
   nickname: string | null;
   productName: string | null;
+  status?: string | null;
 }
 
 const PORTAL_LABELS: Record<string, string> = {
@@ -158,7 +159,7 @@ export default function DeviceCredentialsPage() {
                       <tr key={device.miner_key} className="hover:bg-surface-strong/50 transition">
                         <td className="px-4 py-3">
                           <div className="font-mono text-sm font-medium text-ink">
-                            {device.nickname || truncateKey(device.miner_key)}
+                            {device.nickname || truncateKey(device.miner_key)}{device.status ? ` (${device.status})` : ''}
                           </div>
                           <div className="text-xs text-ink-muted mt-0.5">{device.miner_key}</div>
                         </td>
@@ -202,7 +203,7 @@ export default function DeviceCredentialsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-mono text-sm font-medium text-ink truncate">
-                        {device.nickname || truncateKey(device.miner_key)}
+                        {device.nickname || truncateKey(device.miner_key)}{device.status ? ` (${device.status})` : ''}
                       </div>
                       <div className="text-xs text-ink-muted mt-0.5">{device.miner_key}</div>
                     </div>
