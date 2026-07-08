@@ -15,6 +15,7 @@ import HeroBanner from '../components/HeroBanner';
 import bgImg from '../assets/background.png';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider';
 import { useToastContext } from '../hooks/ToastContext';
+import Link from 'next/link';
 const DimoLoginSection = dynamic(() => import('../components/DimoLoginSection'), {
   ssr: false
 });
@@ -347,6 +348,20 @@ export default function DimoPerksPage() {
   const subCardClass = 'group relative overflow-hidden border border-primary-500/40 bg-[#0b0b0f] bg-[radial-gradient(circle_at_top,_rgba(248,113,113,0.12),_transparent_60%)] p-4 sm:p-5 shadow-[0_24px_40px_-24px_rgba(248,113,113,0.55)] hover:border-primary-400/60 hover:-translate-y-0.5 transition-all duration-300';
   const subCardClassLight = 'group relative overflow-hidden border border-red-200 bg-surface-elevated p-4 sm:p-5 shadow-[0_18px_30px_rgba(15,23,42,0.12)] hover:border-primary-300 hover:-translate-y-0.5 transition-all duration-300 text-ink';
   const heroOffsetClass = holidayKey === 'christmas' ? 'mt-10 sm:mt-14' : 'mt-2';
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="DIMO" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell title="DIMO" breadcrumb={true}>
       <div className="mx-auto max-w-7xl px-4 py-space-8">

@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useWallet } from '@txnlab/use-wallet-react';
+import Link from 'next/link';
 import { KeyIcon, ClipboardCopyIcon, CheckIcon, TrashIcon } from '@heroicons/react/outline';
 import PageShell from '../components/PageShell';
 
@@ -80,6 +82,7 @@ function MaskedValue({ value }: { value: string }) {
 
 export default function MyKeysPage() {
   const { data: session, status } = useSession();
+  const { activeAccount } = useWallet();
   const [data, setData] = useState<MyKeysData>({ devices: [], byodLicenses: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +131,20 @@ export default function MyKeysPage() {
           <p>Error: {error}</p>
         </div>
       </div>
+    );
+  }
+
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="My Keys" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
     );
   }
 

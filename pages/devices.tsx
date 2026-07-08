@@ -1386,6 +1386,10 @@ const DevicesPage = ({
           <strong>Security check triggered.</strong>{' '}
           {securityMessage ?? 'Please reconnect with your device wallet to continue.'}
         </div>}
+      {sessionStatus === 'unauthenticated' && <div className="mx-2 sm:mx-20 mt-4 rounded-lg border border-error-300 bg-error-50 px-4 py-3 text-sm text-error-900">
+          <strong>Signed out.</strong>{' '}Your dashboard session has expired — your devices and rewards are hidden until you sign in again.{' '}
+          <Link href="/signin" className="underline font-medium">Sign in</Link>
+        </div>}
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
       {session?.user?.address && (totals || totalsError) && <FloatingTotalsWidget totals={totals} countdown={countdown} claimCountdown={claimCountdown} estimatedFnode={estimatedFnode} estimatedTfry={estimatedTfry} legacyFryClaimedSnapshot={totals?.legacyFryClaimedSnapshot} isError={!!batchError || totalsError} />}
       {/* Phase 3: Virtual device activation banner */}

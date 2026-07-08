@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { useRouter } from 'next/router';
 import { Button, Title } from '@tremor/react';
 import { KeyIcon, ArrowLeftIcon } from '@heroicons/react/outline';
@@ -37,6 +38,7 @@ function truncateKey(key: string): string {
 
 export default function DeviceCredentialsPage() {
   const { data: session, status } = useSession();
+  const { activeAccount } = useWallet();
   const router = useRouter();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme !== 'light';
@@ -98,6 +100,20 @@ export default function DeviceCredentialsPage() {
   };
 
   const needingSet = new Set(devicesNeedingCreds.map((d) => d.miner_key));
+
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="Device Credentials" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell title="Device Credentials" breadcrumb={true}>
