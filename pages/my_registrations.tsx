@@ -495,8 +495,13 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
         ) : (
           <div className="min-h-[40vh] flex items-center justify-center">
             <div className="text-center">
-              <h2 className="text-xl font-display font-semibold text-ink">Please connect your wallet and authenticate</h2>
-              <p className="text-sm text-ink-secondary mt-2 font-body">You need to sign in to view your registrations.</p>
+              <h2 className="text-xl font-display font-semibold text-ink">{activeAccount ? 'Session expired — please sign in again' : 'Please connect your wallet and authenticate'}</h2>
+              <p className="text-sm text-ink-secondary mt-2 font-body">{activeAccount ? 'Your wallet is connected, but your dashboard session has expired. Sign in again to view your registrations.' : 'You need to sign in to view your registrations.'}</p>
+              {activeAccount && (
+                <button onClick={() => router.push('/signin')} className="mt-4 px-4 py-2 rounded-token-md bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 transition">
+                  Sign in
+                </button>
+              )}
             </div>
           </div>
         )}

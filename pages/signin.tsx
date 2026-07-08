@@ -81,11 +81,18 @@ export default function SignIn() {
         }
         return null;
       };
+      const SIGN_TIMEOUT_MS = 30_000;
       const collectSignature = async (includeMessage: boolean): Promise<Uint8Array | null> => {
         try {
-          const payload = includeMessage ? await signTransactions([unsignedTxn], {
+          const signPromise = includeMessage ? signTransactions([unsignedTxn], {
             message: 'Sign in to the Fry Dashboard'
-          } as any) : await signTransactions([unsignedTxn]);
+          } as any) : signTransactions([unsignedTxn]);
+          const payload = await Promise.race([
+            signPromise,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('Wallet signing timed out after 30s')), SIGN_TIMEOUT_MS)
+            )
+          ]);
           if (!payload?.length) {
             return null;
           }

@@ -1,4 +1,5 @@
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useWalletActions } from '../lib/wallet/useWalletActions';
 import { getAssetBalance } from '../lib/algorand/balances';
@@ -73,7 +74,15 @@ export default function PreseedClaimPage() {
   }
 
   if (!session) {
-    return <div className="p-8">Please connect your wallet to claim preseed rewards.</div>;
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center p-8">
+        <div className="text-center">
+          <p className="font-semibold mb-2">Session expired</p>
+          <p className="text-sm text-gray-500 mb-4">Your wallet is connected, but your session has expired.</p>
+          <Link href="/signin" className="text-blue-500 hover:underline">Sign in again →</Link>
+        </div>
+      </div>
+    );
   }
 
   if (!claimStatus?.eligible) {

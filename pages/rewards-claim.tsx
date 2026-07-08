@@ -3,6 +3,8 @@ import { useWalletActions } from "../lib/wallet/useWalletActions";
 import { getAssetBalance } from "../lib/algorand/balances";
 import WalletGate from "../components/WalletGate";
 import RewardClaimModal from "../components/RewardClaimModal";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
 
 const TFRY_ID = 2681521901;
 const FNODE_ID = 2485202024;
@@ -20,6 +22,7 @@ interface ClaimableResponse {
 
 export default function RewardsClaimPage() {
   const { activeAddress } = useWalletActions();
+  const { data: session } = useSession();
   const [data, setData] = useState<ClaimableResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -71,6 +74,18 @@ export default function RewardsClaimPage() {
     setLoading(true);
     fetchClaimable();
   };
+
+  if (activeAddress && !session) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center p-8">
+        <div className="text-center">
+          <p className="font-semibold mb-2">Session expired</p>
+          <p className="text-sm text-gray-500 mb-4">Your wallet is connected, but your session has expired.</p>
+          <Link href="/signin" className="text-blue-500 hover:underline">Sign in again →</Link>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

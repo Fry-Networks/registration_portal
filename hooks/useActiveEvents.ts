@@ -30,6 +30,11 @@ export default function useActiveEvents(): UseActiveEventsResult {
           headers: { 'Accept': 'application/json' }
         });
         if (!resp.ok) {
+          // Auth-required: silently return empty when unauthenticated (401/403)
+          if (resp.status === 401 || resp.status === 403) {
+            if (!cancelled) { setEvents([]); setError(null); }
+            return;
+          }
           throw new Error(`Failed to load active events: ${resp.status}`);
         }
         const data = await resp.json();

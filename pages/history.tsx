@@ -5,6 +5,7 @@ import type { GetServerSidePropsContext } from 'next';
 import bgImg from '../assets/background.png';
 import HeroBanner from '../components/HeroBanner';
 import { signOut, useSession } from 'next-auth/react';
+import { useWallet } from '@txnlab/use-wallet-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './api/auth/[...nextauth]';
 import clientPromise from '../lib/mongoclient';
@@ -151,6 +152,7 @@ export default function History({
   const {
     data: session
   } = useSession();
+  const { activeAccount } = useWallet();
   const toast = useToastContext();
   const [stakeHistoryData, setStakeHistoryData] = useState<StakeHistoryMap | null>(null);
   const [activeStakes, setActiveStakes] = useState<{
@@ -916,6 +918,20 @@ export default function History({
       handleLoadAll();
     }
   }, [dateFrom, dateTo, isAllDataLoaded, isLoadingAll, handleLoadAll]);
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="Reward History" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell title="Transaction History" breadcrumb={true}>
       <div className="space-y-8">

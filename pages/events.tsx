@@ -75,6 +75,20 @@ export default function EventsPage() {
     );
   }
 
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="Events & Competitions" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
+
   const allEvents = [...active, ...recent];
   const q = searchQuery.trim().toLowerCase();
   const filtered = allEvents.filter((e) => {

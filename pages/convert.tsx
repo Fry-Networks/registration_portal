@@ -7,6 +7,7 @@ import FryConversionModal from '../components/modals/FryConversion';
 import PostSnapshotConversionModal from '../components/modals/PostSnapshotConversion';
 import Fry1CheckModal from '../components/modals/Fry1CheckModal';
 import { SwitchHorizontalIcon } from '@heroicons/react/outline';
+import Link from 'next/link';
 
 export default function ConvertPage() {
   const { activeAccount } = useWallet();
@@ -24,6 +25,20 @@ export default function ConvertPage() {
     setShowPostSnapshotConversion(true);
     openModal('postSnapshotConversion');
   };
+
+  if (activeAccount && !session) {
+    return (
+      <PageShell title="Token Conversion" breadcrumb={true}>
+        <div className="min-h-[50vh] flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-ink font-body font-semibold mb-2">Session expired</p>
+            <p className="text-ink-secondary font-body text-sm mb-4">Your wallet is connected, but your dashboard session has expired.</p>
+            <Link href="/signin" className="text-primary-500 hover:text-primary-400 font-medium">Sign in again →</Link>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell title="Token Conversion" breadcrumb={true}>
