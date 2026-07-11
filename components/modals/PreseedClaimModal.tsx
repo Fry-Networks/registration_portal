@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import algosdk from 'algosdk';
 import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { getAlgodClient } from '../../lib/wallet/clients';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { useToastContext } from '../../hooks/ToastContext';
+import { V2_APP_ID, readV2Box, readV2TokenRegistry } from '../../lib/rewards/v2Box';
 
-// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
+// V1 FryMinerRewardPool (live). V2 is App 3633170823 (N-token, deployed 2026-07-10).
 const APP_ID = 3592975326;
 const BUDGET_APP_ID = 3592977322;
 const APP_ADDR = 'RZCYARBYGBWCWXZPAAGPCNOLVSCJCVTSXANIF2BSVPDE3YRK2SJMWUNC74';
@@ -36,6 +37,33 @@ export default function PreseedClaimModal({ proofData, onClose }: PreseedClaimMo
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [v2Exists, setV2Exists] = useState(false);
+  const [checkingV2, setCheckingV2] = useState(true);
+
+  useEffect(() => {
+    const checkV2 = async () => {
+      setCheckingV2(true);
+      try {
+        if (!activeAddress) {
+          setV2Exists(false);
+          return;
+        }
+        const algod = getAlgodClient();
+        const registry = await readV2TokenRegistry(algod);
+        if (registry.length > 0) {
+          const boxState = await readV2Box(algod, activeAddress, registry.length);
+          setV2Exists(!!boxState);
+        }
+      } catch (err) {
+        console.error('Error checking V2:', err);
+        setV2Exists(false);
+      } finally {
+        setCheckingV2(false);
+      }
+    };
+
+    checkV2();
+  }, [activeAddress]);
 
   async function buildPreseedClaimGroup(): Promise<Uint8Array[]> {
     if (!activeAddress) throw new Error('Wallet not connected');
@@ -138,26 +166,48 @@ export default function PreseedClaimModal({ proofData, onClose }: PreseedClaimMo
 
         {!success && (
           <>
-            <p className="text-gray-600 mb-6">
-              Ready to claim {(proofData.entitled_tfry / 1e6).toFixed(2)} tFRY and {(proofData.entitled_fnode / 1e6).toFixed(2)} fNODE
-            </p>
+            {checkingV2 ? (
+              <p className="text-gray-500">Checking V2 status...</p>
+            ) : v2Exists ? (
+              <div className="bg-blue-50 border border-blue-200 rounded p-4 text-blue-800 mb-6">
+                <p className="font-semibold mb-2">✓ This wallet is on V2</p>
+                <p className="text-sm">
+                  Your rewards have been migrated to the V2 pool. Please use the V2 claim section to claim your rewards directly.
+                </p>
+              </div>
+            ) : (
+              <p className="text-gray-600 mb-6">
+                Ready to claim {(proofData.entitled_tfry / 1e6).toFixed(2)} tFRY and {(proofData.entitled_fnode / 1e6).toFixed(2)} fNODE
+              </p>
+            )}
 
-            <div className="flex gap-4">
-              <button
-                onClick={handleClaim}
-                disabled={isLoading}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
-              >
-                {isLoading ? 'Submitting...' : 'Claim'}
-              </button>
+            {!v2Exists && (
+              <div className="flex gap-4">
+                <button
+                  onClick={handleClaim}
+                  disabled={isLoading}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
+                >
+                  {isLoading ? 'Submitting...' : 'Claim'}
+                </button>
+                <button
+                  onClick={onClose}
+                  disabled={isLoading}
+                  className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded font-semibold disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {v2Exists && (
               <button
                 onClick={onClose}
-                disabled={isLoading}
-                className="flex-1 bg-gray-300 text-gray-700 py-2 px-4 rounded font-semibold disabled:opacity-50"
+                className="w-full bg-gray-300 text-gray-700 py-2 px-4 rounded font-semibold"
               >
-                Cancel
+                Close
               </button>
-            </div>
+            )}
           </>
         )}
       </div>
