@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import algosdk from 'algosdk';
 import { useWalletActions } from '../lib/wallet/useWalletActions';
 import { getAlgodClient } from '../lib/wallet/clients';
 import { startConfirmationWatcher } from '../lib/confirmWatcher';
 import { useToastContext } from '../hooks/ToastContext';
+import {
+  V2_APP_ID,
+  V2_APP_ADDR,
+  V2_FEE_ADDRESS,
+  v2BoxName,
+  readV2Box,
+  readV2TokenRegistry,
+  type TokenInfo,
+} from '../lib/rewards/v2Box';
 
-// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
+// V1 FryMinerRewardPool (live). V2 is App 3633170823 (N-token, deployed 2026-07-10).
 const APP_ID = 3592975326;
 const BUDGET_APP_ID = 3592977322;
 const TFRY_ID = 2681521901;
@@ -21,6 +30,17 @@ interface ClaimableResponse {
   epoch: number;
 }
 
+interface V2TokenClaimable {
+  index: number;
+  asaId: number;
+  name: string;
+  entitled: number;
+  matured: number;
+  claimed: number;
+  claimable: number;
+  underfunded: boolean;
+}
+
 interface RewardClaimModalProps {
   wallet: string;
   onClose: () => void;
@@ -34,6 +54,61 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [v2Tokens, setV2Tokens] = useState<V2TokenClaimable[]>([]);
+  const [v2Registry, setV2Registry] = useState<TokenInfo[]>([]);
+
+  useEffect(() => {
+    const loadV2Data = async () => {
+      try {
+        const algod = getAlgodClient();
+        const registry = await readV2TokenRegistry(algod);
+        setV2Registry(registry);
+
+        if (registry.length > 0 && activeAddress) {
+          const boxState = await readV2Box(algod, activeAddress, registry.length);
+          if (boxState) {
+            const tokens: V2TokenClaimable[] = [];
+            for (const token of registry) {
+              const state = boxState.tokens[token.index];
+              if (!state) continue;
+
+              const claimable = Number(state.entitled - state.claimed);
+              let underfunded = false;
+              if (claimable > 0) {
+                try {
+                  const acctInfo = await algod.accountAssetInformation(V2_APP_ADDR, token.asaId).do();
+                  const balance = acctInfo['asset-holding'].amount ?? 0;
+                  if (balance < claimable) {
+                    underfunded = true;
+                  }
+                } catch {
+                  underfunded = true;
+                }
+              }
+
+              tokens.push({
+                index: token.index,
+                asaId: token.asaId,
+                name: token.name,
+                entitled: Number(state.entitled),
+                matured: Number(state.matured),
+                claimed: Number(state.claimed),
+                claimable,
+                underfunded,
+              });
+            }
+            setV2Tokens(tokens);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading V2 data:', err);
+      }
+    };
+
+    if (activeAddress) {
+      loadV2Data();
+    }
+  }, [activeAddress]);
 
   async function buildClaimGroup(): Promise<Uint8Array[]> {
     if (!activeAddress) throw new Error('Wallet not connected');
@@ -109,6 +184,40 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
     return group.map(ts => algosdk.encodeUnsignedTransaction(ts.txn));
   }
 
+  async function buildV2ClaimGroup(tokenIndex: number, amount: bigint, asaId: number): Promise<Uint8Array[]> {
+    if (!activeAddress) throw new Error('Wallet not connected');
+
+    const algod = getAlgodClient();
+    const sp = await algod.getTransactionParams().do();
+
+    const method = algosdk.ABIMethod.fromSignature('claim(pay,uint64,uint64)void');
+
+    const atc = new algosdk.AtomicTransactionComposer();
+    const emptySigner = algosdk.makeEmptyTransactionSigner();
+
+    const pay = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+      sender: activeAddress,
+      receiver: V2_APP_ADDR,
+      amount: 3000,
+      suggestedParams: { ...sp, flatFee: true, fee: 1000 },
+    });
+
+    atc.addMethodCall({
+      appID: V2_APP_ID,
+      method,
+      sender: activeAddress,
+      suggestedParams: { ...sp, flatFee: true, fee: 3000 },
+      signer: emptySigner,
+      methodArgs: [{ txn: pay, signer: emptySigner }, BigInt(tokenIndex), amount],
+      boxes: [{ appIndex: V2_APP_ID, name: v2BoxName(activeAddress) }],
+      appForeignAssets: [asaId],
+      appAccounts: [V2_FEE_ADDRESS],
+    });
+
+    const group = atc.buildGroup();
+    return group.map(ts => algosdk.encodeUnsignedTransaction(ts.txn));
+  }
+
   async function handleClaim() {
     try {
       setIsLoading(true);
@@ -152,6 +261,35 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
         await startConfirmationWatcher(result[0], async () => {
           setSuccess(true);
           toastSuccess({ heading: 'Success', message: 'Matured rewards claimed!' });
+          setTimeout(() => {
+            onSuccess();
+            onClose();
+          }, 1500);
+        });
+      }
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Claim failed';
+      setError(errorMsg);
+      toastError({ heading: 'Claim Failed', message: `Error: ${errorMsg}` });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleV2Claim(token: V2TokenClaimable) {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const encodedTxns = await buildV2ClaimGroup(token.index, BigInt(token.claimable), token.asaId);
+      const result = await signAndSubmit(encodedTxns);
+
+      info({ heading: 'Submission', message: `${token.name} claim submitted! Waiting for confirmation...` });
+
+      if (result && result.length > 0) {
+        await startConfirmationWatcher(result[0], async () => {
+          setSuccess(true);
+          toastSuccess({ heading: 'Success', message: `${token.name} rewards claimed!` });
           setTimeout(() => {
             onSuccess();
             onClose();
@@ -234,6 +372,38 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
               &ldquo;Claim All&rdquo; claims all rewards (matured + recent at 30% fee). &ldquo;Claim Matured&rdquo; claims only fee-free rewards.
             </p>
           </>
+        )}
+
+        {!success && v2Tokens.length > 0 && (
+          <div className="border-t pt-6 mt-6">
+            <h3 className="text-lg font-bold mb-4">V2 Rewards</h3>
+
+            {v2Tokens.some(t => t.underfunded) && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-yellow-800 text-sm mb-4">
+                ⚠️ V2 pool is being funded — some claims temporarily unavailable
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {v2Tokens.map(token => (
+                <div key={token.index} className="border rounded p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold">{token.name}</span>
+                    <span className="text-sm text-gray-600">
+                      {(token.claimable / 1e6).toFixed(2)} claimable
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleV2Claim(token)}
+                    disabled={isLoading || token.claimable === 0 || token.underfunded}
+                    className="w-full bg-purple-600 text-white py-2 px-4 rounded font-semibold disabled:opacity-50"
+                  >
+                    {isLoading ? 'Submitting...' : `Claim ${token.name}`}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
