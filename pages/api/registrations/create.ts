@@ -115,15 +115,22 @@ export default async function handler(
       res.status(404).json(CommonErrors.deviceNotFound());
       return;
     }
-    if (exists.is_registered) {
-      res.status(400).json(
-        createApiError(
-          ErrorCodes.ALREADY_REGISTERED,
-          'Device already registered',
-          'No further action is required.'
-        )
-      );
-      return;
+    // F4 idempotent bind: auth already guarantees sessionAddress===address (the user's wallet).
+    // Allow (re)bind when the device is unclaimed, already bound to THIS wallet, or was a premature
+    // device-wallet binding (address===device_algo_address). Refuse only a DIFFERENT real user wallet.
+    {
+      const existingAddr = (exists.address || '').trim();
+      const isDeviceWallet = !!(existingAddr && exists.device_algo_address && existingAddr === exists.device_algo_address);
+      if (exists.is_registered && existingAddr && existingAddr !== address && !isDeviceWallet) {
+        res.status(409).json(
+          createApiError(
+            ErrorCodes.ALREADY_REGISTERED,
+            'Device linked to a different wallet',
+            'This device is already linked to another wallet. Contact support if this is an error.'
+          )
+        );
+        return;
+      }
     }
     const updateResult = await collection.updateOne(
       { miner_key },
