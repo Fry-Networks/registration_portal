@@ -161,7 +161,7 @@ export default function IndexPage() {
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Claimable</div>
               <div className={`mt-3 text-sm font-medium group-hover:underline ${claimableTotal > 0 ? 'text-accent-500' : 'text-ink-secondary'}`}>
-                {claimableTotal > 0 ? 'Paid weekly · details →' : 'Nothing pending'}
+                {claimableTotal > 0 ? 'Claimable · details →' : 'Nothing pending'}
               </div>
             </Link>
 
@@ -227,7 +227,7 @@ export default function IndexPage() {
               {[
                 { href: '/register', label: 'Register New Device', desc: 'Onboard a miner or node', icon: 'plus' },
                 { href: '/devices', label: 'My Devices', desc: 'Manage your fleet', icon: 'grid' },
-                { href: '/history', label: 'Reward History', desc: 'Weekly payouts and history', icon: 'coin' },
+                { href: '/history', label: 'Reward History', desc: 'Claims and reward history', icon: 'coin' },
                 { href: '/help/credentials', label: 'Device Credentials', desc: 'Portal linking guide', icon: 'key' },
               ].map((action) => (
                 <Link
@@ -355,7 +355,7 @@ export default function IndexPage() {
                 <span className="text-sm text-ink-secondary">
                   {deviceCount === 0
                     ? 'Register your first device to start earning rewards.'
-                    : `${claimableTotal} in rewards will be paid automatically at the next weekly payout.`}
+                    : `${claimableTotal} in rewards are ready to claim from your devices.`}
                 </span>
                 <Link
                   href={deviceCount === 0 ? '/register' : '/history'}
