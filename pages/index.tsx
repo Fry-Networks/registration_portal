@@ -13,6 +13,43 @@ import { useEffect, useState } from 'react';
 
 const devMode = process.env.NEXT_PUBLIC_DEV_MODE && process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
+type ActivityEvent = {
+  type: 'reward_unlocked' | 'reward_claimed' | 'registered';
+  miner_key: string;
+  nickname: string | null;
+  amount?: number;
+  asset?: string;
+  at: string;
+};
+
+const timeAgo = (iso: string): string => {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  const w = Math.floor(d / 7);
+  if (w < 52) return `${w}w ago`;
+  return `${Math.floor(w / 52)}y ago`;
+};
+
+const describeEvent = (ev: ActivityEvent): { icon: string; text: string } => {
+  const deviceLabel = ev.nickname || ev.miner_key;
+  switch (ev.type) {
+    case 'reward_claimed':
+      return { icon: 'claim', text: `Reward paid: ${ev.amount} ${ev.asset} · ${deviceLabel}` };
+    case 'reward_unlocked':
+      return { icon: 'reward', text: `Weekly reward unlocked: ${ev.amount} ${ev.asset} · ${deviceLabel}` };
+    case 'registered':
+    default:
+      return { icon: 'register', text: `Registered ${deviceLabel}` };
+  }
+};
+
 export default function IndexPage() {
   const { devConnect } = useDevWallet();
   const { activeAccount } = useWallet();
@@ -34,21 +71,26 @@ export default function IndexPage() {
 
   // ---- Operational dashboard data ----
   const [deviceCount, setDeviceCount] = useState(0);
+  const [onlineCount, setOnlineCount] = useState(0);
   const [devicesLoading, setDevicesLoading] = useState(false);
 
   const [claimableTotal, setClaimableTotal] = useState(0);
   const [rewardsLoading, setRewardsLoading] = useState(false);
 
+  const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     let active = true;
     setDevicesLoading(true);
-    fetch('/api/devices/list', { method: 'POST' })
+    // Real device + online counts (lease-first activity; B2)
+    fetch('/api/devices/status-summary', { method: 'POST', credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
       .then(json => {
         if (!active) return;
-        const items = json?.miner_keys || [];
-        setDeviceCount(Array.isArray(items) ? items.length : 0);
+        setDeviceCount(typeof json?.total === 'number' ? json.total : 0);
+        setOnlineCount(typeof json?.online === 'number' ? json.online : 0);
       })
       .catch(() => {})
       .finally(() => {
@@ -70,6 +112,22 @@ export default function IndexPage() {
       })
       .catch(() => {})
       .finally(() => { if (active) setRewardsLoading(false); });
+    return () => { active = false; };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let active = true;
+    setActivityLoading(true);
+    // Real per-wallet activity (replaces the former placeholder feed)
+    fetch('/api/activity/recent', { method: 'POST', credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(json => {
+        if (!active) return;
+        setActivityEvents(Array.isArray(json?.events) ? json.events : []);
+      })
+      .catch(() => {})
+      .finally(() => { if (active) setActivityLoading(false); });
     return () => { active = false; };
   }, [isAuthenticated]);
 
@@ -103,7 +161,7 @@ export default function IndexPage() {
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Claimable</div>
               <div className={`mt-3 text-sm font-medium group-hover:underline ${claimableTotal > 0 ? 'text-accent-500' : 'text-ink-secondary'}`}>
-                {claimableTotal > 0 ? 'Claim →' : 'Nothing to claim'}
+                {claimableTotal > 0 ? 'Paid weekly · details →' : 'Nothing pending'}
               </div>
             </Link>
 
@@ -118,55 +176,49 @@ export default function IndexPage() {
             {/* Network Status */}
             <div className="bg-surface-elevated border border-divider rounded-token-lg p-space-5 hover:shadow-token-md transition border-l-4 border-success-500">
               <div className="text-4xl font-display text-ink">
-                {devicesLoading ? '...' : deviceCount}
+                {devicesLoading ? '...' : onlineCount}
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Network Status</div>
-              <div className="mt-3 text-sm text-success-500">Online</div>
+              <div className={`mt-3 text-sm ${onlineCount > 0 ? 'text-success-500' : 'text-ink-secondary'}`}>
+                {devicesLoading ? '...' : `${onlineCount} of ${deviceCount} online`}
+              </div>
             </div>
           </div>
 
           {/* Middle — 2-column: Recent Activity + Quick Actions */}
           <div className="flex flex-col lg:flex-row gap-space-6">
-            {/* Recent Activity */}
+            {/* Recent Activity (real per-wallet events) */}
             <div className="lg:w-3/5 bg-surface-elevated border border-divider rounded-token-lg p-space-5">
               <h2 className="font-display text-lg font-semibold text-ink mb-4">Recent Activity</h2>
               <div className="max-h-[400px] overflow-y-auto">
-                {[
-                  { icon: 'claim', text: 'Claimed 12.5 FRY from your Fry Edge Miner', time: '2h ago' },
-                  { icon: 'register', text: 'Registered new device', time: '5h ago' },
-                  { icon: 'stake', text: 'Staked 500 FRY for verification boost', time: '1d ago' },
-                  { icon: 'reward', text: 'Weekly reward unlocked: 34.2 tFRY', time: '2d ago' },
-                  { icon: 'claim', text: 'Claimed 8.0 fNODE from your SDN Node', time: '3d ago' },
-                  { icon: 'register', text: 'Registered new device', time: '4d ago' },
-                  { icon: 'boost', text: 'Boosted rewards for your CN Node', time: '5d ago' },
-                  { icon: 'reward', text: 'Weekly reward unlocked: 21.5 tFRY', time: '6d ago' },
-                  { icon: 'claim', text: 'Claimed 45.0 tFRY from your Fry Edge Miner', time: '1w ago' },
-                  { icon: 'stake', text: 'Registration stake withdrawn from your RDN Node', time: '1w ago' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 py-3 border-b border-divider last:border-0">
-                    <div className="w-5 h-5 shrink-0 text-primary-500">
-                      {item.icon === 'claim' && (
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      )}
-                      {item.icon === 'register' && (
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-                      )}
-                      {item.icon === 'stake' && (
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                      )}
-                      {item.icon === 'reward' && (
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                      )}
-                      {item.icon === 'boost' && (
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                      )}
+                {activityLoading && (
+                  <div className="py-6 text-sm text-ink-secondary">Loading activity…</div>
+                )}
+                {!activityLoading && activityEvents.length === 0 && (
+                  <div className="py-6 text-sm text-ink-secondary">No recent activity yet.</div>
+                )}
+                {!activityLoading && activityEvents.map((ev, i) => {
+                  const { icon, text } = describeEvent(ev);
+                  return (
+                    <div key={`${ev.miner_key}-${ev.at}-${i}`} className="flex items-center gap-3 py-3 border-b border-divider last:border-0">
+                      <div className="w-5 h-5 shrink-0 text-primary-500">
+                        {icon === 'claim' && (
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        )}
+                        {icon === 'register' && (
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                        )}
+                        {icon === 'reward' && (
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-ink truncate">{text}</p>
+                      </div>
+                      <span className="text-xs text-ink-secondary shrink-0">{timeAgo(ev.at)}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-ink truncate">{item.text}</p>
-                    </div>
-                    <span className="text-xs text-ink-secondary shrink-0">{item.time}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -175,7 +227,7 @@ export default function IndexPage() {
               {[
                 { href: '/register', label: 'Register New Device', desc: 'Onboard a miner or node', icon: 'plus' },
                 { href: '/devices', label: 'My Devices', desc: 'Manage your fleet', icon: 'grid' },
-                { href: '/history', label: 'Claim Rewards', desc: 'View history and claim', icon: 'coin' },
+                { href: '/history', label: 'Reward History', desc: 'Weekly payouts and history', icon: 'coin' },
                 { href: '/help/credentials', label: 'Device Credentials', desc: 'Portal linking guide', icon: 'key' },
               ].map((action) => (
                 <Link
@@ -214,7 +266,7 @@ export default function IndexPage() {
                 {
                   href: 'https://fry.farm',
                   label: 'fry.farm',
-                  desc: 'Trade \u0026 earn on Fry DeFi',
+                  desc: 'Trade & earn on Fry DeFi',
                   tint: 'primary',
                   icon: (
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
@@ -225,7 +277,7 @@ export default function IndexPage() {
                 {
                   href: 'https://fry.market',
                   label: 'fry.market',
-                  desc: 'Browse \u0026 mint NFTs',
+                  desc: 'Browse & mint NFTs',
                   tint: 'accent',
                   icon: (
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
@@ -286,7 +338,7 @@ export default function IndexPage() {
             </div>
           </div>
 
-          {/* Bottom — Conditional Action Required banner */}
+          {/* Bottom — Conditional info banner */}
           {(claimableTotal > 0 || deviceCount === 0) && (
             <div className="bg-error-500/10 border-l-4 border-error-500 rounded-token-md p-space-4">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -296,18 +348,20 @@ export default function IndexPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                   </div>
-                  <span className="text-sm font-semibold text-error-500">Action Required</span>
+                  <span className="text-sm font-semibold text-error-500">
+                    {deviceCount === 0 ? 'Action Required' : 'Heads Up'}
+                  </span>
                 </div>
                 <span className="text-sm text-ink-secondary">
                   {deviceCount === 0
                     ? 'Register your first device to start earning rewards.'
-                    : `You have ${claimableTotal} claimable rewards waiting.`}
+                    : `${claimableTotal} in rewards will be paid automatically at the next weekly payout.`}
                 </span>
                 <Link
                   href={deviceCount === 0 ? '/register' : '/history'}
                   className="sm:ml-auto text-sm font-semibold text-primary-500 hover:underline shrink-0"
                 >
-                  {deviceCount === 0 ? 'Register Device →' : 'Take Action →'}
+                  {deviceCount === 0 ? 'Register Device →' : 'View history →'}
                 </Link>
               </div>
             </div>
@@ -326,4 +380,3 @@ export default function IndexPage() {
     </PageShell>
   );
 }
-

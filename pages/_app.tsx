@@ -174,7 +174,7 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       <SeasonalThemeProvider>
         <ModalProvider>
           <WalletProvider manager={walletManager!}>
-            <SessionProvider session={pageProps.session}>
+            <SessionProvider session={pageProps.session} refetchInterval={5 * 60} refetchOnWindowFocus>
               <FingerprintProvider>
                 <DevWalletProvider>
                   <ToastProvider>

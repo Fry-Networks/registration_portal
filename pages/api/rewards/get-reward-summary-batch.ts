@@ -1,3 +1,4 @@
+import { computeClaimableTotals } from '../../../lib/rewards/effective';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -74,7 +75,7 @@ function computeSummary(doc: any, devicePrefix: string): SummaryResult {
 
   const totals = {
     pending: round2(doc?.total_pending ?? 0),
-    claimable: round2(doc?.total_claimable ?? 0),
+    claimable: computeClaimableTotals(doc).claimable,
     claimed: round2(doc?.total_claimed ?? 0),
     accruing: 0
   };

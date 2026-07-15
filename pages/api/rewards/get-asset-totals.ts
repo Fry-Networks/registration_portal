@@ -1,3 +1,4 @@
+import { computeClaimableTotals } from '../../../lib/rewards/effective';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -201,7 +202,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const bucket = isMinerDevice ? tfry : fnode;
 
       bucket.pending = round2(bucket.pending + Number(doc?.total_pending ?? 0));
-      bucket.claimable = round2(bucket.claimable + Number(doc?.total_claimable ?? 0));
+      bucket.claimable = round2(bucket.claimable + computeClaimableTotals(doc).claimable);
       bucket.claimed = round2(bucket.claimed + Number(doc?.total_claimed ?? 0));
 
       if (isMinerDevice) {

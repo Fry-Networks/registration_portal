@@ -83,7 +83,30 @@ export function NotificationProvider({
   const [notificationsBySource, setNotificationsBySource] = useState<
     Record<NotificationSource, Notification[]>
   >(createDefaultSources);
-  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  // B17: device-notification dismissals persist per browser so cleared
+  // notifications stay cleared across reloads and sign-ins.
+  const DISMISSED_STORAGE_KEY = 'fry.dashboard.dismissedNotifications.v1';
+  const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem(DISMISSED_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(
+        DISMISSED_STORAGE_KEY,
+        JSON.stringify(dismissedIds.slice(-200))
+      );
+    } catch {
+      // storage unavailable (private mode) — dismissals stay session-only
+    }
+  }, [dismissedIds]);
   const [bannerDismissedIds, setBannerDismissedIds] = useState<string[]>([]);
   const [acknowledgedAnnouncementIds, setAcknowledgedAnnouncementIds] = useState<string[]>([]);
 
@@ -244,7 +267,7 @@ export function NotificationProvider({
   useEffect(() => {
     if (!shouldOperate) {
       setNotificationsBySource(createDefaultSources());
-      setDismissedIds([]);
+      // dismissedIds intentionally kept — persisted per browser (B17)
       setBannerDismissedIds([]);
       setAcknowledgedAnnouncementIds([]);
       return;

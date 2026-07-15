@@ -41,6 +41,9 @@ interface V2TokenClaimable {
   underfunded: boolean;
 }
 
+// V2 pool go-live permanently cancelled (2026-07) — never load or offer V2 claims.
+const V2_CLAIMS_ENABLED = false;
+
 interface RewardClaimModalProps {
   wallet: string;
   onClose: () => void;
@@ -105,7 +108,7 @@ export default function RewardClaimModal({ wallet, onClose, onSuccess, initialDa
       }
     };
 
-    if (activeAddress) {
+    if (activeAddress && V2_CLAIMS_ENABLED) {
       loadV2Data();
     }
   }, [activeAddress]);
