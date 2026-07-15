@@ -10,7 +10,7 @@ services:
         NEXT_PUBLIC_DIMO_CLIENT_ID: ${NEXT_PUBLIC_DIMO_CLIENT_ID:-'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'}
         NEXT_PUBLIC_DIMO_REDIRECT_URI: ${NEXT_PUBLIC_DIMO_REDIRECT_URI:-'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'}
         NEXT_PUBLIC_DIMO_ENV: ${NEXT_PUBLIC_DIMO_ENV:-'production'}
-        NEXT_PUBLIC_CREDENTIALS_NEEDED: 'ALL'
+        NEXT_PUBLIC_CREDENTIALS_NEEDED: 'AEM'
     init: true
     restart: unless-stopped
     networks:
@@ -37,6 +37,8 @@ services:
       LEGACY_VERIFICATION_FORCE_UTC: ${LEGACY_VERIFICATION_FORCE_UTC:-'2025-12-05T00:00:00.000Z'}
       NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC: ${NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC:-'2025-12-05T00:00:00.000Z'}
       BUG_REPORT_RATE_LIMIT_HOURS: 1
+      ALGOD_URL: "http://100.69.195.100:8190"
+      ALGOD_TOKEN: "REDACTED_ROTATE_ME"
       DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'
       DIMO_CLIENT_SECRET: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_SECRET'
       DIMO_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'
@@ -52,7 +54,7 @@ services:
       DIMO_REQUIRE_ANNUAL_POST_ANNOUNCE: 'true'
       DIMO_ALLOW_POST_GRACE: 'false'
       DIMO_SNAPSHOT_TTL_MINUTES: 10
-      DIMO_MINER_PREFIX: 'AEM'
+      DIMO_MINER_PREFIX: 'FEM'
       # Force Christmas theme on by default during the holiday window; users can still toggle it off client-side.
       NEXT_PUBLIC_FORCE_SEASONAL_THEME: ${NEXT_PUBLIC_FORCE_SEASONAL_THEME:-christmas} # christmas|valentines|easter|july4|thanksgiving|off|none
       NEXT_PUBLIC_DISABLE_SEASONAL_AUTO: ${NEXT_PUBLIC_DISABLE_SEASONAL_AUTO:-'false'}
