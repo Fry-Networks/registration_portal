@@ -20,8 +20,8 @@ type HeroBannerProps = {
 };
 
 const formatPrice = (value?: number): string => {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return '$0.000000';
+  if (typeof value !== 'number' || Number.isNaN(value) || value === 0) {
+    return '—'; // no market price yet (B16 — was $0.000000)
   }
   if (value >= 1) {
     return `$${value.toFixed(2)}`;
