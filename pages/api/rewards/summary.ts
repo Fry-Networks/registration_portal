@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
+import { computeClaimableTotals } from '../../../lib/rewards/effective';
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -30,12 +31,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const minerKeys = devices.map((d: any) => d.miner_key);
+    // Truthful claimable: computed from row statuses with corrected amounts and
+    // held rows excluded — mirrors exactly what the weekly publisher will pay.
+    // (total_claimable is a stale precomputed field that predates the F3-y
+    // correction pass and includes held rows.)
     const rewardDocs = await db.collection('device-rewards')
-      .find({ miner_key: { $in: minerKeys } }, { projection: { total_claimable: 1 } })
+      .find(
+        { miner_key: { $in: minerKeys } },
+        {
+          projection: {
+            'weekly_rewards.status': 1,
+            'weekly_rewards.amount': 1,
+            'weekly_rewards.corrected_amount': 1,
+            'weekly_rewards.payout_hold': 1,
+            'weekly_rewards.ghost_device': 1,
+            'weekly_rewards.evidence_unavailable': 1,
+            'daily_rewards.status': 1,
+            'daily_rewards.amount': 1
+          }
+        }
+      )
       .toArray();
 
     const claimable = round2(
-      rewardDocs.reduce((sum: number, doc: any) => sum + (doc.total_claimable ?? 0), 0)
+      rewardDocs.reduce((sum: number, doc: any) => sum + computeClaimableTotals(doc).claimable, 0)
     );
 
     return res.status(200).json({ success: true, summary: { claimable } });

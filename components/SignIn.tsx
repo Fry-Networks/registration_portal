@@ -22,6 +22,20 @@ const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
 
+// B12: never leave the user on an infinite "Authenticating..." spinner — cap
+// every wallet signature request at a hard timeout, then surface a retry path.
+const SIGN_IN_TIMEOUT_MS = 45_000;
+class SignInTimeoutError extends Error {}
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new SignInTimeoutError('SIGN_IN_TIMEOUT')), ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
 export default function SignIn({ signed }: SignInProps) {
   const router = useRouter();
   const { devConnect, devAccount, algodClient: devAlgodClient } = useDevWallet();
@@ -129,6 +143,7 @@ export default function SignIn({ signed }: SignInProps) {
       }
 
       setIsAuthenticating(true);
+      let signTimedOut = false;
       try {
         const nonce = Math.floor(Math.random() * 1000000).toString();
         const message = `Sign this message to prove you own the wallet: ${nonce}`;
@@ -164,13 +179,16 @@ export default function SignIn({ signed }: SignInProps) {
         ): Promise<Uint8Array | null> => {
           try {
             const payload = includeMessage
-              ? await signTransactions(
-                  [unsignedTxn],
-                  {
-                    message: 'Sign in to Fry Dashboard'
-                  } as any
+              ? await withTimeout(
+                  signTransactions(
+                    [unsignedTxn],
+                    {
+                      message: 'Sign in to Fry Dashboard'
+                    } as any
+                  ),
+                  SIGN_IN_TIMEOUT_MS
                 )
-              : await signTransactions([unsignedTxn]);
+              : await withTimeout(signTransactions([unsignedTxn]), SIGN_IN_TIMEOUT_MS);
 
             if (!payload?.length) {
               return null;
@@ -183,6 +201,15 @@ export default function SignIn({ signed }: SignInProps) {
             }
             return null;
           } catch (error) {
+            if (error instanceof SignInTimeoutError) {
+              signTimedOut = true;
+              toast.error({
+                heading: 'Wallet request timed out',
+                message:
+                  'No response from your wallet within 45 seconds. Open your wallet app (Pera / Defly / GoPlausible), approve or dismiss the pending request, then press Sign In to retry.'
+              });
+              return null;
+            }
             if (error instanceof WalletRequestInFlightError) {
               toast.info({
                 heading: 'Wallet Request In Progress',
@@ -203,7 +230,8 @@ export default function SignIn({ signed }: SignInProps) {
         let signedBytes = await collectSignature(false);
 
         // If the wallet returns nothing (common on WalletConnect mobile), retry once with a metadata message.
-        if (!signedBytes) {
+        // Skip the automatic retry after a timeout — the user retries manually via the Sign In button.
+        if (!signedBytes && !signTimedOut) {
           toast.info({
             heading: 'Wallet Request Pending',
             message:
@@ -213,8 +241,9 @@ export default function SignIn({ signed }: SignInProps) {
         }
 
         if (!signedBytes) {
-          // Skip the generic failure toast if another wallet request is already active.
-          if (!isWalletRequestActive()) {
+          // Skip the generic failure toast if another wallet request is already active
+          // or the timeout toast was just shown.
+          if (!signTimedOut && !isWalletRequestActive()) {
             toast.error({
               heading: 'Signature Required',
               message:
@@ -340,8 +369,8 @@ export default function SignIn({ signed }: SignInProps) {
     <></>
   ) : (
     // Allow the onboarding form to scroll on smaller devices so the Sign In button stays reachable.
-    <div 
-      className="w-full max-w-xl mx-auto px-4" 
+    <div
+      className="w-full max-w-xl mx-auto px-4"
       style={{ maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' }}
     >
       <Flex flexDirection="col" className="w-full">

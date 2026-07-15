@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ElementType } f
 import { UserIcon, UserAddIcon, UserRemoveIcon, ArrowRightIcon, SwitchHorizontalIcon, KeyIcon, PlusCircleIcon, ChevronDownIcon } from '@heroicons/react/outline';
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
-import { signOut, useSession } from 'next-auth/react';
+import { getSession, signOut, useSession } from 'next-auth/react';
+import { computeActiveSet } from '../lib/deviceActivity';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './api/auth/[...nextauth]';
 import { SWRConfig } from 'swr';
@@ -439,6 +440,29 @@ const DevicesPage = ({
     ready: fingerprintReady,
     refresh: refreshFingerprint
   } = useFingerprintReady();
+
+  // B11: show the signed-out banner only when TRULY unauthenticated — grace
+  // period + one silent getSession() recheck to absorb refresh flicker.
+  const [confirmedSignedOut, setConfirmedSignedOut] = useState(false);
+  useEffect(() => {
+    if (sessionStatus !== 'unauthenticated') {
+      setConfirmedSignedOut(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const fresh = await getSession();
+        if (!cancelled) setConfirmedSignedOut(!fresh);
+      } catch {
+        if (!cancelled) setConfirmedSignedOut(true);
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [sessionStatus]);
 
   // Enhanced sort: supports sortField and sortDirection
   const [sortField, setSortField] = useState<'nickname' | 'miner_key' | 'created_at'>('nickname');
@@ -1386,7 +1410,7 @@ const DevicesPage = ({
           <strong>Security check triggered.</strong>{' '}
           {securityMessage ?? 'Please reconnect with your device wallet to continue.'}
         </div>}
-      {sessionStatus === 'unauthenticated' && <div className="mx-2 sm:mx-20 mt-4 rounded-lg border border-error-300 bg-error-50 px-4 py-3 text-sm text-error-900">
+      {confirmedSignedOut && <div className="mx-2 sm:mx-20 mt-4 rounded-lg border border-error-300 bg-error-50 px-4 py-3 text-sm text-error-900">
           <strong>Signed out.</strong>{' '}Your dashboard session has expired — your devices and rewards are hidden until you sign in again.{' '}
           <Link href="/signin" className="underline font-medium">Sign in</Link>
         </div>}
@@ -1692,22 +1716,10 @@ export async function getServerSideProps(context: any) {
     }));
     const devices = await Promise.all(devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device)));
 
-    // Active-device tracking: any poc_reward_dailies record within last 14 days means active.
-    const TRACKED_PREFIXES = ['BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
-    const activeMinerKeys = new Set<string>();
+    // Active-device tracking: lease-first truthful activity (B2).
+    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
     const deviceMinerKeys = devices.map((d: any) => d.miner_key).filter(Boolean);
-    if (deviceMinerKeys.length > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - 14);
-      const cutoffStr = cutoff.toISOString().slice(0, 10);
-      const pocDocs = await db.collection('poc_reward_dailies').find(
-        { miner_key: { $in: deviceMinerKeys }, date: { $gte: cutoffStr } },
-        { projection: { miner_key: 1 } }
-      ).toArray();
-      for (const doc of pocDocs) {
-        if (doc.miner_key) activeMinerKeys.add(doc.miner_key);
-      }
-    }
+    const activeMinerKeys = await computeActiveSet(client, deviceMinerKeys);
 
     // Phase 3: Fetch pending virtual devices for this user (by email match)
     const sessionEmail = session.user.email?.trim().toLowerCase();

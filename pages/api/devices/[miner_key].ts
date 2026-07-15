@@ -1,3 +1,4 @@
+import { computeActiveSet, TRACKED_PREFIXES } from "../../../lib/deviceActivity";
 import { NextApiRequest, NextApiResponse } from 'next';
 import { Buffer } from 'buffer';
 import { getServerSession } from 'next-auth';
@@ -76,13 +77,11 @@ export default async function handler(
 
     await enrichLegacyStakeData(collection, miner_key, hydratedDevice);
 
-    // Compute is_active for tracked device prefixes (14-day poc_reward_dailies lookback)
-    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
+    // Compute is_active for tracked device prefixes (lease-first truthful activity; B2)
     const prefix = miner_key.split('-')[0];
     if (TRACKED_PREFIXES.includes(prefix)) {
-      const cutoff = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
-      const found = await db.collection('poc_reward_dailies').findOne({ miner_key, date: { $gte: cutoff } });
-      (hydratedDevice as any).is_active = !!found;
+      const activeSet = await computeActiveSet(client, [miner_key]);
+      (hydratedDevice as any).is_active = activeSet.has(miner_key);
     }
 
     if (address) {

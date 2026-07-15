@@ -441,7 +441,7 @@ export default function History({
   const isClaimingAllRef = useRef(false);
 
   const handleClaimAll = () => {
-    const queue = [...itemsWeekly, ...itemsDaily].filter((r: any) => r.status === 'claimable');
+    const queue = [...itemsWeekly, ...itemsDaily].filter((r: any) => r.status === 'claimable' && !r.onHold);
     if (queue.length === 0) return;
     isClaimingAllRef.current = true;
     claimQueueRef.current = queue.slice(1) as any;
@@ -969,6 +969,18 @@ export default function History({
           </div>
         )}
 
+        {/* F3: rewards are pushed automatically by the weekly on-chain publisher */}
+        <div className="rounded-token-md border border-success-500/30 bg-success-500/10 px-4 py-3 text-sm text-ink">
+          <strong className="text-success-500">Automatic weekly payouts:</strong>{' '}
+          Claimable rewards are paid straight to your wallet every week — next payout{' '}
+          {(() => {
+            const d = new Date();
+            const diff = (1 - d.getDay() + 7) % 7 || 7;
+            d.setDate(d.getDate() + diff);
+            return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          })()}
+          . The Claim button remains for legacy reward boxes only.
+        </div>
         {summary && (
           <div className="border-b border-divider pb-4">
             <div className="flex flex-wrap gap-2">

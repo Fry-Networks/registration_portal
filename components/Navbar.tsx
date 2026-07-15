@@ -430,12 +430,6 @@ export default function Navbar() {
   }, [showNotifications]);
 
   useEffect(() => {
-    if (notifications.length === 0) {
-      setShowNotifications(false);
-    }
-  }, [notifications.length]);
-
-  useEffect(() => {
     if (devMode) {
       if (devConnect && devAccount) {
         const addr = devAccount.addr.toString();
@@ -511,6 +505,7 @@ export default function Navbar() {
         { href: '/dimo', label: 'DIMO' },
         { href: '/buy/fry', label: 'Buy Tokens' },
         { href: '/convert', label: 'Token Conversion' },
+        { href: '/genesis', label: 'Genesis Pass' },
       ]
     },
     {
@@ -668,9 +663,6 @@ export default function Navbar() {
               <button
                 type="button"
                 onClick={() => {
-                  if (notifications.length === 0) {
-                    return;
-                  }
                   setShowNotifications(prev => !prev);
                 }}
                 aria-expanded={showNotifications}
@@ -681,7 +673,6 @@ export default function Navbar() {
                     : 'No new notifications'
                 }
                 className={`flex h-10 w-10 items-center justify-center rounded-token-md border border-divider bg-surface-strong text-ink-secondary transition hover:text-ink hover:border-primary-500/40 relative disabled:cursor-not-allowed disabled:opacity-60`}
-                disabled={notifications.length === 0}
               >
                 <BellIcon className="h-5 w-5" aria-hidden="true" />
                 {notifications.length > 0 && (
@@ -690,7 +681,7 @@ export default function Navbar() {
                   </span>
                 )}
               </button>
-              {showNotifications && notifications.length > 0 && (
+              {showNotifications && (
                 <div
                   className={`overflow-hidden rounded-token-xl border shadow-2xl z-[240] ${
                     isDark
@@ -699,11 +690,17 @@ export default function Navbar() {
                   } fixed left-2 right-2 top-[calc(var(--navbar-height,64px)+12px)] sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-[26rem] sm:max-w-[26rem] w-[calc(100vw-1rem)] max-h-[70vh]`}
                 >
                   <div className="max-h-[70vh] overflow-y-auto px-5 py-5 scrollbar-thin scrollbar-thumb-primary-500/40 scrollbar-track-transparent">
-                    <NotificationCenter
-                      notifications={notifications}
-                      onDismiss={dismiss}
-                      isDark={isDark}
-                    />
+                    {notifications.length > 0 ? (
+                      <NotificationCenter
+                        notifications={notifications}
+                        onDismiss={dismiss}
+                        isDark={isDark}
+                      />
+                    ) : (
+                      <div className="py-6 text-center text-sm text-ink-secondary">
+                        No new notifications
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
