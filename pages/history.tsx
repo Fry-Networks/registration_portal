@@ -969,17 +969,10 @@ export default function History({
           </div>
         )}
 
-        {/* F3: rewards are pushed automatically by the weekly on-chain publisher */}
+        {/* Claim model: rewards are claimable on-demand from the dashboard */}
         <div className="rounded-token-md border border-success-500/30 bg-success-500/10 px-4 py-3 text-sm text-ink">
-          <strong className="text-success-500">Automatic weekly payouts:</strong>{' '}
-          Claimable rewards are paid straight to your wallet every week — next payout{' '}
-          {(() => {
-            const d = new Date();
-            const diff = (1 - d.getDay() + 7) % 7 || 7;
-            d.setDate(d.getDate() + diff);
-            return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-          })()}
-          . The Claim button remains for legacy reward boxes only.
+          <strong className="text-success-500">Claimable rewards:</strong>{' '}
+          Rewards are claimable from your dashboard once earned — use the Claim button on each device to receive them in your wallet.
         </div>
         {summary && (
           <div className="border-b border-divider pb-4">

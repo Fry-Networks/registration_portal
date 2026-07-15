@@ -13,6 +13,7 @@ import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { createApiError, ErrorCodes } from '../../../lib/api-errors';
+import { effectiveAmount, isHeld } from '../../../lib/rewards/effective';
 // Modern wallet infrastructure imports for consistent network handling
 import { getAlgodClient } from '../../../lib/wallet/clients';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
@@ -204,13 +205,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const rewardsDoc = await rewardsCollection.findOne({ miner_key });
       const algodClient = getAlgodClient();
       const rewardsVaultAddress = getRewardsVaultAddress();
-      const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable');
-      const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable');
+      const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
+      const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
 
       const records: DeviceClaimTarget[] = [];
       if (typeof no === 'number') {
         const weeklyTargets = weeklyClaimables.filter((wr: any) => wr.reward_number === no);
         const dailyTargets = weeklyTargets.length ? [] : dailyClaimables.filter((dr: any) => dr.reward_number === no);
+        // F3-y hold enforcement: a specifically-requested reward under review is refused explicitly (never sent).
+        if (!weeklyTargets.length && !dailyTargets.length) {
+          const heldRequested =
+            (rewardsDoc?.weekly_rewards || []).some((wr: any) => wr.reward_number === no && wr.status === 'claimable' && isHeld(wr)) ||
+            (rewardsDoc?.daily_rewards || []).some((dr: any) => dr.reward_number === no && dr.status === 'claimable' && isHeld(dr));
+          if (heldRequested) {
+            throw {
+              status: 403,
+              response: createApiError('REWARD_ON_HOLD', 'These rewards are under review and cannot be claimed yet.', 'This reward is being verified and will become claimable once review completes.')
+            };
+          }
+        }
         if (!weeklyTargets.length && !dailyTargets.length) {
           throw {
             status: 404,
@@ -218,10 +231,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           };
         }
         weeklyTargets.forEach((wr: any) =>
-          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: effectiveAmount(wr) })
         );
         dailyTargets.forEach((dr: any) =>
-          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: effectiveAmount(dr) })
         );
       } else {
         if (!weeklyClaimables.length && !dailyClaimables.length) {
@@ -231,10 +244,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           };
         }
         weeklyClaimables.forEach((wr: any) =>
-          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: wr.amount })
+          records.push({ source: 'weekly', reward_number: wr.reward_number, asset_id: wr.asset_id, amount: effectiveAmount(wr) })
         );
         dailyClaimables.forEach((dr: any) =>
-          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: dr.amount })
+          records.push({ source: 'daily', reward_number: dr.reward_number, asset_id: dr.asset_id, amount: effectiveAmount(dr) })
         );
       }
 
@@ -463,6 +476,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
         );
         if (updateDaily.modifiedCount) modifiedAny = true;
+      }
+
+      // add-only: record the effective amount actually claimed, per row (F3-y truthful accounting)
+      for (const r of records) {
+        const arr = r.source === 'weekly' ? 'weekly_rewards' : 'daily_rewards';
+        await rewardsCollection.updateOne(
+          { miner_key },
+          { $set: { [`${arr}.$[elem].claimed_amount`]: r.amount } },
+          { arrayFilters: [{ 'elem.reward_number': r.reward_number, 'elem.status': 'claimed', 'elem.tx_id': txId }] }
+        );
       }
 
       const currentClaimable = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimable));
