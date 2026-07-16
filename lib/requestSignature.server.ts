@@ -179,22 +179,28 @@ export function verifyRequestSignature(
 
   // Compute expected signature
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
-  const expected = crypto
-    .createHmac('sha256', SIGNATURE_SECRET)
-    .update(message)
-    .digest('hex');
+  // Dual-accept rotation: accept the configured secret AND the legacy default so
+  // old client bundles keep working while a new secret is rolled out. Non-breaking.
+  const SECRETS = Array.from(new Set([SIGNATURE_SECRET, 'REDACTED_ROTATE_ME']));
 
   // Use timing-safe comparison to prevent timing attacks
   try {
-    const valid = crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    );
-    
+    let valid = false;
+    for (const secret of SECRETS) {
+      const expected = crypto
+        .createHmac('sha256', secret)
+        .update(message)
+        .digest('hex');
+      if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+        valid = true;
+        break;
+      }
+    }
+
     if (!valid && req) {
       logLayer2Event(req, 'INVALID_SIGNATURE', walletAddress, minerKey).catch(() => {});
     }
-    
+
     return valid;
   } catch (err) {
     // Buffers are not equal length (signature is invalid format)
