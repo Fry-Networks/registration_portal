@@ -21,7 +21,8 @@ import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
   loadMnemonicAccountPair,
-  signAndSubmitCustodialTransactions
+  signAndSubmitCustodialTransactions,
+  buildUserPaysClaimGroup
 } from '../../../lib/algorand/admin';
 import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
@@ -395,6 +396,66 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           journal: {
             status: 'pending' as const,
             metadata: { totals: totalsDisplay, mode: 'preview' }
+          }
+        };
+      }
+
+      // User-pays-gas dark-launch. Default OFF: the LIVE path stays custodial (below).
+      // ON only when the global flag is "true" OR the claiming wallet is in the test allowlist.
+      const _userPaysGlobal = process.env.REWARD_USER_PAYS_GAS === 'true';
+      const _userPaysAllow = (process.env.REWARD_USER_PAYS_GAS_TEST_WALLETS || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const userPays = _userPaysGlobal || _userPaysAllow.includes(session.user.address);
+
+      if (userPays) {
+        // Build a user-signed atomic group [user->vault ALGO payment, vault->user ASA...].
+        // The vault signs only its own legs here; the user leg is returned unsigned for the
+        // wallet to sign, then /confirm reassembles + submits. No claimed-write happens yet.
+        const gasPaymentMicroAlgo = Number(process.env.USER_GAS_PAYMENT_MICROALGO ?? 10000) || 10000;
+        const assetLegs = summary.map((entry) => ({
+          assetId: entry.asset_id,
+          rewardAmount: Number(entry.totalMicro)
+        }));
+        const group = await buildUserPaysClaimGroup({
+          mnemonicEnv: 'REWARD_MNEMONIC',
+          rekeyEnv: 'REWARD_REKEY',
+          label: 'reward claim',
+          algod: algodClient,
+          claimingAddress: session.user.address,
+          assetLegs,
+          gasPaymentMicroAlgo
+        });
+
+        await db.collection('reward_pending_claims').insertOne({
+          groupId: group.groupId,
+          miner_key,
+          claimingAddress: session.user.address,
+          assetLegs,
+          gasPaymentMicroAlgo,
+          signedServerLegsB64: group.signedServerLegsB64,
+          records,
+          totalsDisplay,
+          totalAmount: totalAmountNumeric,
+          status: 'pending',
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 300000)
+        });
+
+        return {
+          response: {
+            success: true,
+            preview: false,
+            mode: 'user_pays',
+            groupId: group.groupId,
+            unsignedUserLeg: group.unsignedUserLegB64,
+            expected: group.expected,
+            totals: totalsDisplay
+          } as unknown as ClaimResponse,
+          journal: {
+            status: 'pending' as const,
+            metadata: { totals: totalsDisplay, mode: 'user_pays', groupId: group.groupId }
           }
         };
       }

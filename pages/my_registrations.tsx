@@ -97,13 +97,13 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
         if (b.nickname) {
           return a.nickname.localeCompare(b.nickname);
         } else {
-          return a.nickname.localeCompare(b.name);
+          return a.nickname.localeCompare(b.name ?? '');
         }
       } else {
         if (b.nickname) {
-          return a.name.localeCompare(b.nickname);
+          return (a.name ?? '').localeCompare(b.nickname);
         } else {
-          return a.name.localeCompare(b.name);
+          return (a.name ?? '').localeCompare(b.name ?? '');
         }
       }
     });

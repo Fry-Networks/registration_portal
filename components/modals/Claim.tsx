@@ -40,7 +40,7 @@ export default function ClaimModal({
   no?: number;
   handleClaim: (ret: boolean, message: string, context?: ClaimContext) => Promise<void>;
 }) {
-  const { activeAddress, signAndSubmit } = useWalletActions();
+  const { activeAddress, signAndSubmit, signTransactions } = useWalletActions();
   const { modals, closeModal } = useModal();
   const [isProcessing, setIsProcessing] = useState(false);
   const [stage, setStage] = useState<'idle'|'paying-fee'|'submitting'|'submitted'|'error'>('idle');
@@ -447,6 +447,71 @@ export default function ClaimModal({
       });
 
       const result = await response.json();
+
+      // User-pays-gas branch (dormant unless the server returns mode:"user_pays" — flag/allowlist only).
+      // Sign the returned user-payment leg in the wallet, then POST it to /confirm which reassembles
+      // the atomic group with the server-signed vault leg(s) and submits. Buffer-free base64 (browser-safe).
+      if (response.ok && result && result.mode === 'user_pays') {
+        const b64ToBytes = (b: string) => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+        const bytesToB64 = (u: Uint8Array) => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+        try {
+          setStatusText('Approve the gas payment in your wallet…');
+          const signed = await signTransactions([b64ToBytes(result.unsignedUserLeg as string)]);
+          setStage('submitted');
+          setStatusText('Submitting your claim…');
+          const confirmBody = { groupId: result.groupId, signedUserLegB64: bytesToB64(signed[0]) };
+          const cTs = Math.floor(Date.now() / 1000);
+          const cSig = await generateRequestSignatureAsync('POST', '/api/rewards/confirm', confirmBody, cTs);
+          const confirmResp = await fetch('/api/rewards/confirm', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-client-token': clientToken,
+              'x-request-signature': cSig,
+              'x-request-timestamp': cTs.toString()
+            },
+            body: JSON.stringify(confirmBody)
+          });
+          const confirmJson = await confirmResp.json().catch(() => ({}));
+          if (!confirmResp.ok || !confirmJson.ok) {
+            const msg = confirmJson?.message || 'Claim confirmation failed';
+            toast.error({ heading: 'Claim Error', message: msg });
+            setStage('error');
+            setStatusText('Claim failed: ' + msg);
+            setIsProcessing(false);
+            return;
+          }
+          const upTxId = confirmJson.txId as string;
+          const rewardNumbers = typeof no === 'number' ? [no] : undefined;
+          setTxIdState(upTxId);
+          toast.success({
+            heading: 'Claim Confirmed',
+            content: (
+              <div>
+                <div>
+                  TxId: <a className="underline break-all" href={`https://explorer.perawallet.app/tx/${upTxId}`} target="_blank" rel="noreferrer">Claim Successful: {upTxId}</a>
+                </div>
+              </div>
+            )
+          });
+          await handleClaim(true, `Claim confirmed. TxId: ${upTxId}`, { minerKey: miner_key, rewardNumbers, txId: upTxId });
+          setIsProcessing(false);
+          setStage('idle');
+          setTxIdState(null);
+          setSecondsLeft(null);
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          closeModal(modalName);
+          return;
+        } catch (e: any) {
+          const msg = e?.message || 'Wallet signing was cancelled or failed';
+          toast.error({ heading: 'Claim Error', message: msg });
+          setStage('error');
+          setStatusText('Claim failed: ' + msg);
+          setIsProcessing(false);
+          return;
+        }
+      }
+
       if (!response.ok) {
         const code = result?.code as string | undefined;
         // Provide targeted messaging for opt-in failures so users know how to unblock the claim.
