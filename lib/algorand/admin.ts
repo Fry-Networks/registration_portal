@@ -126,6 +126,7 @@ export interface UserPaysClaimGroupResult {
   groupId: string;
   unsignedUserLegB64: string; // leg0: user -> vault ALGO payment (user signs client-side)
   signedServerLegsB64: string[]; // legs 1..N: vault -> user ASA transfers (already server-signed)
+  unsignedServerLegsB64: string[]; // legs 1..N unsigned; client presents the full group to the wallet (ARC-1)
   expected: {
     receiver: string; // vault address the user payment must go to
     amountMicroAlgo: number;
@@ -180,6 +181,7 @@ export const buildUserPaysClaimGroup = async ({
     groupId: Buffer.from(leg0.group as Uint8Array).toString('base64'),
     unsignedUserLegB64: Buffer.from(algosdk.encodeUnsignedTransaction(leg0)).toString('base64'),
     signedServerLegsB64,
+    unsignedServerLegsB64: vaultLegs.map((t) => Buffer.from(algosdk.encodeUnsignedTransaction(t)).toString('base64')),
     expected: {
       receiver: vaultAddress,
       amountMicroAlgo: gasPaymentMicroAlgo,

@@ -450,6 +450,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             mode: 'user_pays',
             groupId: group.groupId,
             unsignedUserLeg: group.unsignedUserLegB64,
+            unsignedServerLegs: group.unsignedServerLegsB64,
             expected: group.expected,
             totals: totalsDisplay
           } as unknown as ClaimResponse,
