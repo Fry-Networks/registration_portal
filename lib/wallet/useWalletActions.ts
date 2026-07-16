@@ -21,7 +21,7 @@ export const useWalletActions = (): WalletActionContext => {
     return {
       signTransactions: (encodedTransactions: Uint8Array[], opts?: Record<string, unknown>) => {
         // Adapter for @txnlab/use-wallet-react signTransactions
-        return signTransactions(encodedTransactions);
+        return signTransactions(encodedTransactions, (opts?.indexesToSign as number[] | undefined));
       }
     };
   }, [signTransactions]);

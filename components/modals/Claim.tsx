@@ -456,7 +456,7 @@ export default function ClaimModal({
         const bytesToB64 = (u: Uint8Array) => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
         try {
           setStatusText('Approve the gas payment in your wallet…');
-          const signed = await signTransactions([b64ToBytes(result.unsignedUserLeg as string)]);
+          const signed = await signTransactions([b64ToBytes(result.unsignedUserLeg as string), ...(((result.unsignedServerLegs as string[]) || []).map(b64ToBytes))], { indexesToSign: [0] });
           setStage('submitted');
           setStatusText('Submitting your claim…');
           const confirmBody = { groupId: result.groupId, signedUserLegB64: bytesToB64(signed[0]) };
