@@ -485,10 +485,10 @@ const DevicesPage = ({
         } else if (bHasNickname) {
           result = 1;
         } else {
-          result = a.name.localeCompare(b.name);
+          result = (a.name ?? '').localeCompare(b.name ?? '');
         }
       } else if (sortField === 'miner_key') {
-        result = a.miner_key.localeCompare(b.miner_key);
+        result = (a.miner_key ?? '').localeCompare(b.miner_key ?? '');
       } else if (sortField === 'created_at') {
         // Fallback to string comparison if created_at is not a Date
         result = String(a.created_at).localeCompare(String(b.created_at));
