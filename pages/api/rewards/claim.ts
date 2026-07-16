@@ -14,6 +14,7 @@ import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprin
 import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { effectiveAmount, isHeld } from '../../../lib/rewards/effective';
+import { loadEvidence, hasEvidenceInWindow } from '../../../lib/rewards/pocEvidence';
 // Modern wallet infrastructure imports for consistent network handling
 import { getAlgodClient } from '../../../lib/wallet/clients';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
@@ -205,8 +206,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const rewardsDoc = await rewardsCollection.findOne({ miner_key });
       const algodClient = getAlgodClient();
       const rewardsVaultAddress = getRewardsVaultAddress();
-      const weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
-      const dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
+      let weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
+      let dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
+      // A-gate (forward PoC guard): rows WITH corrected_by (f3y/f3z) are already evidence-verdicted → trust.
+      // Rows WITHOUT corrected_by (new post-F3-z) must have live PoC evidence in their epoch window, else held.
+      const _ev = await loadEvidence(client, miner_key);
+      const _aGateDenied = new Set<number>();
+      const _aGateOk = (r: any, start: any, end: any): boolean => {
+        if (r.corrected_by) return true;
+        const ok = hasEvidenceInWindow(_ev, new Date(start), new Date(end));
+        if (!ok) {
+          _aGateDenied.add(r.reward_number);
+          loggers.apiError('/api/rewards/claim', new Error('A-gate: no PoC evidence'), { miner_key, address: session.user.address, issueType: 'REWARD_NO_POC_EVIDENCE', part: 'claim.aGate', metadata: { reward_number: r.reward_number, asset_id: r.asset_id, window: [start, end] } });
+        }
+        return ok;
+      };
+      weeklyClaimables = weeklyClaimables.filter((r: any) => _aGateOk(r, r.week_start, r.week_end));
+      dailyClaimables = dailyClaimables.filter((r: any) => _aGateOk(r, r.date, r.date));
 
       const records: DeviceClaimTarget[] = [];
       if (typeof no === 'number') {
@@ -217,7 +233,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           const heldRequested =
             (rewardsDoc?.weekly_rewards || []).some((wr: any) => wr.reward_number === no && wr.status === 'claimable' && isHeld(wr)) ||
             (rewardsDoc?.daily_rewards || []).some((dr: any) => dr.reward_number === no && dr.status === 'claimable' && isHeld(dr));
-          if (heldRequested) {
+          if (heldRequested || _aGateDenied.has(no)) {
             throw {
               status: 403,
               response: createApiError('REWARD_ON_HOLD', 'These rewards are under review and cannot be claimed yet.', 'This reward is being verified and will become claimable once review completes.')
