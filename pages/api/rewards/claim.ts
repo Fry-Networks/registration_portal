@@ -210,10 +210,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
       // A-gate (forward PoC guard): rows WITH corrected_by (f3y/f3z) are already evidence-verdicted → trust.
       // Rows WITHOUT corrected_by (new post-F3-z) must have live PoC evidence in their epoch window, else held.
-      const _ev = await loadEvidence(client, miner_key);
+      // Virtual-mining product: activated virtual devices have no hardware → PoC-exempt by design (dbRewards reward.ts:1594).
+      const _deviceExempt = (device as any).virtual === true && (device as any).activated === true;
+      const _ev = _deviceExempt ? { dates: new Set<string>(), leases: [] as Array<[Date, Date]> } : await loadEvidence(client, miner_key);
       const _aGateDenied = new Set<number>();
       const _aGateOk = (r: any, start: any, end: any): boolean => {
-        if (r.corrected_by) return true;
+        if (_deviceExempt || r.corrected_by) return true;
         const ok = hasEvidenceInWindow(_ev, new Date(start), new Date(end));
         if (!ok) {
           _aGateDenied.add(r.reward_number);
