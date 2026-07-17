@@ -9,7 +9,11 @@
   "dependencies": {
     "@x402-avm/core": "^2.6.1",
     "@x402-avm/avm": "^2.6.1",
+    "@x402-avm/express": "^2.6.1",
     "@x402-avm/extensions": "^2.6.1",
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "algosdk": "^3.6.0"
   }
 }
