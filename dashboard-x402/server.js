@@ -15,6 +15,10 @@ const PAY_TO = process.env.PAY_TO || "E2F2LT2INE75DBOYHQXTCTOP2PAP5MHAXQRXTTCCXF
 const PUBLIC_X402_BASE = process.env.PUBLIC_X402_BASE || "https://dashboard.frynetworks.com/x402";
 const DASHBOARD_URL = (process.env.DASHBOARD_URL || "http://127.0.0.1:3007").replace(/\/+$/, "");
 const INTERNAL_SECRET = process.env.X402_INTERNAL_SECRET || "";
+// GoPlausible facilitator's Algorand mainnet fee sponsor — REQUIRED in the payment
+// requirements so the payer's group carries a valid fee (else verify simulation fails
+// "txgroup with 0.0A fees"). Matches the fry.farm/frymarket 402 extra.feePayer.
+const FEE_PAYER = process.env.FEE_PAYER || "ZMFK2OI7ZBD2U27ISERZC4S6LKM6WMFJPZQ4MYNJDZ2VNBNMBA67RA22AA";
 
 const ADDR_RE = /^[A-Z2-7]{58}$/;
 const facilitator = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
@@ -28,7 +32,7 @@ const ENDPOINTS = {
 };
 
 function requirementsFor(key) {
-  return { scheme: "exact", network: ALGORAND_MAINNET_CAIP2, amount: ENDPOINTS[key].atomic, asset: String(USDC_MAINNET_ASA_ID), payTo: PAY_TO, maxTimeoutSeconds: 300, extra: { name: "USDC", decimals: 6, asset: String(USDC_MAINNET_ASA_ID) } };
+  return { scheme: "exact", network: ALGORAND_MAINNET_CAIP2, amount: ENDPOINTS[key].atomic, asset: String(USDC_MAINNET_ASA_ID), payTo: PAY_TO, maxTimeoutSeconds: 300, extra: { name: "USDC", decimals: 6, asset: String(USDC_MAINNET_ASA_ID), feePayer: FEE_PAYER } };
 }
 function paymentRequiredFor(key) {
   const e = ENDPOINTS[key];
