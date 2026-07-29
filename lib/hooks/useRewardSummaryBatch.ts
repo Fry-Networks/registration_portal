@@ -40,7 +40,22 @@ const createBatchFetcher = (refreshFingerprint: () => Promise<boolean>) => async
   const res = await fetchWithFingerprintRetry(makeRequest, refreshFingerprint, {
     refreshClientToken: refreshClientTokenOnce
   });
-  if (!res.ok) throw new Error('Failed to fetch batch summary');
+  if (!res.ok) {
+    // Carry the status/code so callers can tell a recoverable failure (fingerprint refresh,
+    // limiter, network reset) from one that warrants the per-device fallback.
+    let code: string | undefined;
+    try {
+      const payload = await res.clone().json();
+      code = typeof payload?.code === 'string' ? payload.code : undefined;
+    } catch {
+      code = undefined;
+    }
+    const error = Object.assign(new Error('Failed to fetch batch summary'), {
+      status: res.status,
+      code
+    });
+    throw error;
+  }
   const json = await res.json();
   return json?.summaries ?? {};
 };
