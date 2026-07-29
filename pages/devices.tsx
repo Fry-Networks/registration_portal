@@ -49,6 +49,7 @@ import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
+import { isSecurityBlockCode, shouldFallBackPerDevice } from '../lib/api/securityCodes';
 import { useTheme } from 'next-themes';
 import VirtualActivationBanner, { PendingVirtualDevice } from '../components/VirtualActivationBanner';
 import CredentialsBanner from '../components/CredentialsBanner';
@@ -1045,7 +1046,7 @@ const DevicesPage = ({
           } catch {
             errorCode = undefined;
           }
-          if (active && errorCode && (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH')) {
+          if (active && isSecurityBlockCode(errorCode)) {
             setTotals(null);
             setTotalsError(true);
             stopPolling();
@@ -1510,7 +1511,7 @@ const DevicesPage = ({
                   <div className="text-xs text-warning-400 mt-2">Product configuration missing for this device type. Contact admin to configure.</div>
                 </div>;
             }
-            return <DeviceListItem key={device.miner_key} initialDevice={device} batchRewardSummary={batchSummaries?.[device.miner_key]} batchDeviceInfo={batchDeviceInfos?.[device.miner_key]} batchOptInStatus={batchTokenBalances?.[device.miner_key]} batchRewardError={!!batchError} batchDeviceError={!!deviceInfoError} batchTokenError={!!tokenBalanceError} product={product!} tokenMetadata={tokenMetadata} stakeable={isProductStakeAvailable(product!)} initialStatus={statusFallback[device.miner_key]} hardwareStatus={hardwareStatus[device.miner_key]} handleStakeRequirement={handleStakeRequirement} handleDeleteButton={handleDeleteButton} handleChange={handleChange} handleSetting={handleSetting} handleBoostButton={handleBoostButton} handleClaimButton={handleClaimButton} handleWithdrawStake={handleWithdrawStake} handleWithdrawAllButton={handleWithdrawAllButton}
+            return <DeviceListItem key={device.miner_key} initialDevice={device} batchRewardSummary={batchSummaries?.[device.miner_key]} batchDeviceInfo={batchDeviceInfos?.[device.miner_key]} batchOptInStatus={batchTokenBalances?.[device.miner_key]} batchRewardError={shouldFallBackPerDevice(batchError)} batchDeviceError={!!deviceInfoError} batchTokenError={!!tokenBalanceError} product={product!} tokenMetadata={tokenMetadata} stakeable={isProductStakeAvailable(product!)} initialStatus={statusFallback[device.miner_key]} hardwareStatus={hardwareStatus[device.miner_key]} handleStakeRequirement={handleStakeRequirement} handleDeleteButton={handleDeleteButton} handleChange={handleChange} handleSetting={handleSetting} handleBoostButton={handleBoostButton} handleClaimButton={handleClaimButton} handleWithdrawStake={handleWithdrawStake} handleWithdrawAllButton={handleWithdrawAllButton}
             // handleAlgoWithdrawButton={handleAlgoWithdrawButton}
             />;
           }) : (
