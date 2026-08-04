@@ -501,7 +501,6 @@ export default function Navbar() {
       label: 'Rewards',
       links: [
         { href: '/history', label: 'Reward History' },
-        { href: '/rewards-claim', label: 'Claim Rewards' },
         { href: '/dimo', label: 'DIMO' },
         { href: '/buy/fry', label: 'Buy Tokens' },
         { href: '/convert', label: 'Token Conversion' },

@@ -239,7 +239,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
                     </thead>
                     <tbody className="divide-y divide-divider">
                       {filteredDevices.map((device) => {
-                        const allGood = device.verified && device.position && device.is_registered && device.reward_wallet;
+                        const allGood = (typeof device.miner_key === 'string' && device.miner_key.startsWith('FEM-')) ? Boolean(device.is_registered && device.reward_wallet) : Boolean(device.verified && device.position && device.is_registered && device.reward_wallet);
                         return (
                           <tr key={device._id} className="hover:bg-surface-strong/50 transition">
                             <td className="px-4 py-3">
@@ -351,7 +351,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
                       ? device.verificationDisabledReason ??
                         'Complete the required staking steps before verification.'
                       : undefined;
-                    const allGood = device.verified && device.position && device.is_registered && device.reward_wallet;
+                    const allGood = (typeof device.miner_key === 'string' && device.miner_key.startsWith('FEM-')) ? Boolean(device.is_registered && device.reward_wallet) : Boolean(device.verified && device.position && device.is_registered && device.reward_wallet);
 
                     return (
                       <div key={device._id} className="bg-surface-elevated border border-divider rounded-token-lg p-space-5 relative">

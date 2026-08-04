@@ -11,6 +11,7 @@ import { useToastContext } from '../hooks/ToastContext';
 import { useWalletActions } from '../lib/wallet/useWalletActions';
 import { buildPaymentTxn } from '../lib/wallet/transactions';
 import { WalletRequestInFlightError, isWalletRequestActive } from '../lib/wallet/requestCoordinator.client';
+import { shouldForceSignOut } from '../lib/wallet/sessionGuard';
 import { useTheme } from 'next-themes';
 // PoC wallet removed; no need to derive wallet from mnemonic
 
@@ -39,7 +40,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 export default function SignIn({ signed }: SignInProps) {
   const router = useRouter();
   const { devConnect, devAccount, algodClient: devAlgodClient } = useDevWallet();
-  const { activeAccount, wallets } = useWallet();
+  const { activeAccount, wallets, isReady: isWalletReady } = useWallet();
   const { activeAddress: walletAddress, signTransactions } = useWalletActions();
   const activeWallet = wallets.find((wallet) => wallet.isActive);
   const { data: session, status } = useSession();
@@ -358,12 +359,18 @@ export default function SignIn({ signed }: SignInProps) {
 
 
   useEffect(() => {
-    if (status !== 'authenticated' || !session?.user?.address) return;
-    if (!connectedWalletAddress || session.user.address !== connectedWalletAddress) {
+    if (
+      shouldForceSignOut({
+        status,
+        sessionAddress: session?.user?.address ?? null,
+        connectedAddress: connectedWalletAddress,
+        walletReady: devMode ? true : isWalletReady
+      })
+    ) {
       setIsAuthenticating(false);
       void signOut({ redirect: false });
     }
-  }, [status, session?.user?.address, connectedWalletAddress]);
+  }, [status, session?.user?.address, connectedWalletAddress, isWalletReady]);
 
   return !devConnect && !walletAddress ? (
     <></>

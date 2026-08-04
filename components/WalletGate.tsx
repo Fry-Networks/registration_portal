@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useWallet } from '@txnlab/use-wallet-react';
+import { useRouter } from 'next/router';
 import Link from 'next/link';
 
 interface WalletGateProps {
@@ -8,6 +9,9 @@ interface WalletGateProps {
 
 export default function WalletGate({ children }: WalletGateProps) {
   const { activeAccount, wallets } = useWallet();
+  const router = useRouter();
+  const PUBLIC_ROUTES = ['/genesis'];
+  const isPublic = PUBLIC_ROUTES.includes(router.pathname);
   const [redirectUrl, setRedirectUrl] = useState<string>('/');
 
   useEffect(() => {
@@ -56,7 +60,7 @@ export default function WalletGate({ children }: WalletGateProps) {
     return () => observer.disconnect();
   }, []);
 
-  if (activeAccount) {
+  if (activeAccount || isPublic) {
     return <>{children}</>;
   }
 

@@ -73,7 +73,13 @@ export default async function handler(
     const client = await clientPromise;
     const db = client.db('main');
     const collection = db.collection(testMode ? 'test-devices' : 'devices');
-    const exists = await collection.findOne({ miner_key });
+    let exists = await collection.findOne({ miner_key });
+    if (!exists && /^FEM-[A-Za-z0-9]{32}$/.test(miner_key)) {
+      // FEM 0.2.x clients generated lowercase-hex keys while the app displayed
+      // them uppercased; accept a case-insensitive match and bind the STORED key.
+      exists = await collection.findOne({ miner_key: { $regex: `^${miner_key}$`, $options: 'i' } });
+    }
+    const boundKey = exists ? exists.miner_key : miner_key;
 
     if (!exists) {
       res.status(404).json(CommonErrors.deviceNotFound());
@@ -97,7 +103,7 @@ export default async function handler(
     }
 
     const updateResult = await collection.updateOne(
-      { miner_key },
+      { miner_key: boundKey },
       {
         $set: {
           is_registered: true,

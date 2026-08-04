@@ -26,8 +26,10 @@ function getMerkle(): MerkleData {
   return merkleCache!;
 }
 
-// V1 FryMinerRewardPool (live). FRY3 flip: change to 3622586363 (V2) + rebuild.
+// V1 FryMinerRewardPool (live). V2 is App 3633170823 (N-token, deployed 2026-07-10).
 const APP_ID = 3592975326;
+const V2_APP_ID = 3633170823; // V2 N-token; not yet read by claim flow. Follow-up PR wires V2 box + claim.
+const V2_TOKEN_INDEX = { tFRY: 0, fNODE: 1, FRY3: 2 } as const;
 const ALGOD_URL = process.env.ALGOD_URL || 'https://mainnet-api.algonode.cloud';
 const MONGO_URI = process.env.MONGO_URI || '';
 

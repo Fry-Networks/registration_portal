@@ -215,15 +215,7 @@ export default async function handler(
     const devicesCol = db.collection(testMode ? 'test-devices' : 'devices');
     const devRewardsCol = db.collection('device-rewards');
 
-    // Resolve user _id so devices owned via user_id (not address) still count.
-    // user_id stored as ObjectId in devices (sampled 2026-07-04); String() handles both forms.
-    const userDoc = await db.collection('registration-users').findOne(
-      { address: walletAddress },
-      { projection: { _id: 1 } }
-    );
-    const userIdString = userDoc?._id?.toString();
-
-    // Verify all requested devices belong to this wallet (address OR user_id)
+    // Verify all requested devices belong to this wallet (by address)
     const devices = await devicesCol.find(
       { miner_key: { $in: uniqueKeys } },
       { projection: { miner_key: 1, address: 1, user_id: 1 } }
@@ -232,8 +224,7 @@ export default async function handler(
     const ownedKeys = new Set<string>();
     for (const device of devices) {
       const ownedByAddress = Boolean(device.address) && device.address === walletAddress;
-      const ownedByUserId = Boolean(userIdString) && String(device.user_id ?? '') === userIdString;
-      if (!ownedByAddress && !ownedByUserId) continue;
+      if (!ownedByAddress) continue;
       ownedKeys.add(device.miner_key);
     }
 

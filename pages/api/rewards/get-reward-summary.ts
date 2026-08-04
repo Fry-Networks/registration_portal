@@ -150,16 +150,9 @@ export default async function handler(
       return res.status(404).json(CommonErrors.deviceNotFound());
     }
 
-    // Ownership check: address match OR user_id match (canonical owner).
-    // user_id stored as ObjectId in devices (sampled 2026-07-04); String() handles both forms.
-    const userDoc = await db.collection('registration-users').findOne(
-      { address: walletAddress },
-      { projection: { _id: 1 } }
-    );
-    const userIdString = userDoc?._id?.toString();
+    // Ownership check: the device address must match the caller's wallet.
     const ownedByAddress = Boolean(device.address) && device.address === walletAddress;
-    const ownedByUserId = Boolean(userIdString) && String(device.user_id ?? '') === userIdString;
-    if (!ownedByAddress && !ownedByUserId) {
+    if (!ownedByAddress) {
       res.status(401).json(CommonErrors.walletMismatch());
       return;
     }

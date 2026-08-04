@@ -241,7 +241,9 @@ export default function DeviceListItem({
   };
   const closeDetails = () => setExpanded(false);
 
-  const deviceStatusOkay = device?.verified === true && alertShow === false;
+  const femVerificationExempt = typeof device?.miner_key === 'string' && device.miner_key.startsWith('FEM-') && Boolean(device?.is_registered && device?.reward_wallet);
+  const femBadgeVerified = femVerificationExempt && Boolean(device?.staked?.time);
+  const deviceStatusOkay = (device?.verified === true || femBadgeVerified) && alertShow === false;
 
   const router = useRouter();
   const isStaked = useCallback(() => {
@@ -250,6 +252,9 @@ export default function DeviceListItem({
     }
 
     if (!device.verified) {
+      if (femVerificationExempt && Boolean(device?.staked?.time)) {
+        return true;
+      }
       return false;
     }
 
@@ -373,7 +378,7 @@ export default function DeviceListItem({
     }
 
     badges.push(
-      device.verified
+      (device.verified || femBadgeVerified)
         ? { label: 'Verified', className: palette.green, severity: 'green' }
         : { label: 'Unverified', className: palette.warning, severity: 'warning' }
     );
@@ -411,6 +416,7 @@ export default function DeviceListItem({
   }, [
     device.registered_portal_model,
     device.verified,
+    femBadgeVerified,
     isLegacyStake,
     issueMessages,
     minerPrefix,
@@ -428,7 +434,7 @@ export default function DeviceListItem({
   const portalMissing = linkRequiredForPrefix && !device.registered_portal_model;
   const stakingPrereqsMissing = verificationBlocked;
   const shouldShowRed = stakingPrereqsMissing || portalMissing || hardwareWarning || hasDeviceStatusIssues;
-  const shouldShowYellow = !shouldShowRed && !device.verified;
+  const shouldShowYellow = !shouldShowRed && !device.verified && !femBadgeVerified;
   const verificationReason = verificationBlocked
     ? `Complete ${
         needsRegistration && !hasRegistration && needsNodeStake && !hasNode
@@ -455,7 +461,7 @@ export default function DeviceListItem({
   }, [handleRequirementClick, needsNodeStake, needsRegistration, hasNode, hasRegistration]);
 
   const { borderClass, hoverRingClass } = useMemo(() => {
-    if (stakeable === false && !device.verified) {
+    if (stakeable === false && !device.verified && !femVerificationExempt) {
       return {
         borderClass: 'border-gray-500',
         hoverRingClass: 'hover:ring-2 hover:ring-gray-400/70 hover:ring-offset-0',
@@ -825,7 +831,7 @@ export default function DeviceListItem({
       {
         key: 'base',
         tier: 'bronze' as const,
-        label: 'Unverified',
+        label: 'No stake',
         description: 'Base daily rate without multiplier',
         value: baseDailyReward,
         accent: {
@@ -1818,9 +1824,20 @@ const collapsibleSections: SectionConfig[] = useMemo(
                         : 'text-red-700'
                 }`}
               >
-                {device.verified ? 'Verified' : 'Unverified'}
+                {(device.verified || femBadgeVerified) ? 'Verified' : 'Unverified'}
               </span>
             </div>
+            {femVerificationExempt && !femBadgeVerified && (
+              <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-slate-600'}`}>
+                <Link
+                  href="/my_registrations"
+                  className="underline underline-offset-2 hover:opacity-80"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Stake to verify &rarr;
+                </Link>
+              </div>
+            )}
             {Object.keys(deviceStatus).length > 0 && (
               <div className="space-y-2">
                 {Object.entries(deviceStatus).map(([key, value]) => (
@@ -2130,6 +2147,9 @@ const collapsibleSections: SectionConfig[] = useMemo(
   const renderVerificationActionButton = useCallback(
     (variant: 'default' | 'compact' = 'default') => {
       if (!isProductStakeAvailable(product) && !device.verified) {
+        return null;
+      }
+      if (femVerificationExempt && !device.verified && !device?.staked?.time) {
         return null;
       }
 

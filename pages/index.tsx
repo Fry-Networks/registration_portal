@@ -171,6 +171,9 @@ export default function IndexPage() {
                 {claimableTotal > 0 ? '1' : '0'}
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Pending Actions</div>
+              <div className={`mt-3 text-sm ${claimableTotal > 0 ? 'text-warning-500' : 'text-ink-secondary'}`}>
+                {claimableTotal > 0 ? 'Rewards ready to claim' : 'Nothing to do'}
+              </div>
             </div>
 
             {/* Network Status */}

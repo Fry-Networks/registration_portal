@@ -15,6 +15,7 @@ import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { effectiveAmount, isHeld } from '../../../lib/rewards/effective';
 import { loadEvidence, hasEvidenceInWindow } from '../../../lib/rewards/pocEvidence';
+import { reserveRows, releaseRows, releaseStaleReservations } from '../../../lib/rewards/reservation';
 // Modern wallet infrastructure imports for consistent network handling
 import { getAlgodClient } from '../../../lib/wallet/clients';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
@@ -204,9 +205,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         };
       }
 
-      const rewardsDoc = await rewardsCollection.findOne({ miner_key });
+      let rewardsDoc = await rewardsCollection.findOne({ miner_key });
       const algodClient = getAlgodClient();
       const rewardsVaultAddress = getRewardsVaultAddress();
+      // Hand back rows whose claim never completed, so an abandoned claim cannot strand rewards.
+      await releaseStaleReservations(rewardsCollection, db.collection('reward_pending_claims'), miner_key);
+      rewardsDoc = await rewardsCollection.findOne({ miner_key });
       let weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
       let dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
       // A-gate (forward PoC guard): rows WITH corrected_by (f3y/f3z) are already evidence-verdicted → trust.
@@ -372,6 +376,63 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await ensureWalletAssetOptIn(rewardWallet, assetId, 'claiming rewards');
       }
 
+      // ===== FFG instant-claim fee (config-driven, per request) =====
+      // CANON: fee = floor(claim*fee_bps/10000) [30%]; holderCut = floor(fee*num/den) [~10% of claim];
+      // user receives claim - effectiveFee. On skip/disabled the claim is FEE-FREE (user gets full claim).
+      // The holderCut leg (HXWY->U5TA) is the ONLY fee leg; treasury remainder never moves.
+      // Reward rows are always consumed at the FULL claim amount below (unchanged) — never at payout.
+      const FFG_SINK_DEFAULT = 'U5TA6XANQ7G3XTKTBP5VEUXHSHZO2GWMZN75OU3BIHTQ5D7LDXZA7ATXSI';
+      let ffgCfg: any = null;
+      try {
+        ffgCfg = await db.collection('fry_fee_genesis').findOne({ _id: 'config' } as any);
+      } catch (e) {
+        loggers.apiError('/api/rewards/claim', toError(e), { miner_key, issueType: 'FFG_CONFIG_LOAD_FAILED', part: 'ffg-fee' });
+      }
+      const ffgEnabled = ffgCfg?.fee_enabled === true;
+      const ffgBps = Number(ffgCfg?.fee_bps ?? 3000);
+      const ffgNum = Number(ffgCfg?.holder_share_num ?? 1);
+      const ffgDen = Number(ffgCfg?.holder_share_den ?? 3);
+      const ffgPrefix = String(ffgCfg?.fee_note_prefix ?? 'ffg-fee:');
+      const ffgSink = (Array.isArray(ffgCfg?.fee_sink_addresses) && ffgCfg.fee_sink_addresses[0]) || FFG_SINK_DEFAULT;
+
+      // Read-only: is the fee sink opted into this asset? Never sends a txn; fail-closed (skip fee) so a
+      // claim can NEVER be blocked by the fee path.
+      const ffgSinkOptedIn = async (assetId: number): Promise<boolean> => {
+        try {
+          const info: any = await withRetry(
+            () => algodClient.accountAssetInformation(ffgSink, assetId).do(),
+            { maxAttempts: 2 }
+          ).catch((err: any) => {
+            const sc = err?.response?.status ?? err?.status;
+            if (sc === 404) return null;
+            throw err;
+          });
+          if (!info) return false;
+          const amt = info['asset-holding']?.amount ?? info.assetHolding?.amount;
+          return amt !== undefined && amt !== null;
+        } catch {
+          return false;
+        }
+      };
+
+      type FfgPlan = { claim: number; fee: number; holderCut: number; payout: number; feeActive: boolean; feeSkipped: boolean };
+      const ffgPlan = new Map<number, FfgPlan>();
+      for (const entry of summary) {
+        const claim = Number(entry.totalMicro);
+        const fee = ffgEnabled ? Math.floor((claim * ffgBps) / 10000) : 0;
+        const holderCut = fee > 0 ? Math.floor((fee * ffgNum) / ffgDen) : 0;
+        let feeActive = ffgEnabled && holderCut > 0;
+        if (feeActive) feeActive = await ffgSinkOptedIn(entry.asset_id);
+        const feeSkipped = ffgEnabled && holderCut > 0 && !feeActive;
+        const effectiveFee = feeActive ? fee : 0;
+        const effHolderCut = feeActive ? holderCut : 0;
+        const payout = claim - effectiveFee;
+        if (feeSkipped) {
+          console.log(`FFG_FEE_SKIPPED asa=${entry.asset_id} reason=sink_not_opted holderCut=${holderCut}`);
+        }
+        ffgPlan.set(entry.asset_id, { claim, fee: effectiveFee, holderCut: effHolderCut, payout, feeActive, feeSkipped });
+      }
+
       const minerPrefix = device.miner_key.split('-')[0];
       const isNodeDevice = NODE_PREFIXES.has(minerPrefix);
       const isAemDevice = minerPrefix === AEM_PREFIX || minerPrefix === FEM_PREFIX;
@@ -414,10 +475,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // The vault signs only its own legs here; the user leg is returned unsigned for the
         // wallet to sign, then /confirm reassembles + submits. No claimed-write happens yet.
         const gasPaymentMicroAlgo = Number(process.env.USER_GAS_PAYMENT_MICROALGO ?? 10000) || 10000;
-        const assetLegs = summary.map((entry) => ({
-          assetId: entry.asset_id,
-          rewardAmount: Number(entry.totalMicro)
-        }));
+        // FFG: vault reward leg is reduced to payout; the holder-cut fee leg (vault -> U5TA) rides the
+        // same group when the fee is active. leg0's pooled fee covers the extra txn (handled in builder).
+        const assetLegs = summary.map((entry) => {
+          const _plan = ffgPlan.get(entry.asset_id) as FfgPlan;
+          return { assetId: entry.asset_id, rewardAmount: _plan.payout };
+        });
+        const ffgFeeLegs = summary
+          .map((entry) => {
+            const _plan = ffgPlan.get(entry.asset_id) as FfgPlan;
+            if (!_plan.feeActive || _plan.holderCut <= 0) return null;
+            return {
+              assetId: entry.asset_id,
+              amount: _plan.holderCut,
+              receiver: ffgSink,
+              noteB64: Buffer.from(`${ffgPrefix}v1`).toString('base64')
+            };
+          })
+          .filter((x): x is { assetId: number; amount: number; receiver: string; noteB64: string } => x !== null);
         const group = await buildUserPaysClaimGroup({
           mnemonicEnv: 'REWARD_MNEMONIC',
           rekeyEnv: 'REWARD_REKEY',
@@ -425,23 +500,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           algod: algodClient,
           claimingAddress: session.user.address,
           assetLegs,
-          gasPaymentMicroAlgo
+          gasPaymentMicroAlgo,
+          feeLegs: ffgFeeLegs
         });
 
-        await db.collection('reward_pending_claims').insertOne({
-          groupId: group.groupId,
-          miner_key,
-          claimingAddress: session.user.address,
-          assetLegs,
-          gasPaymentMicroAlgo,
-          signedServerLegsB64: group.signedServerLegsB64,
-          records,
-          totalsDisplay,
-          totalAmount: totalAmountNumeric,
-          status: 'pending',
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 300000)
-        });
+        // Reserve the reward rows in the same request that mints the envelope. Leaving them
+        // `claimable` until a successful /confirm is what let one entitlement be paid nine
+        // times: any claim that skipped confirm re-selected the same rows and minted again.
+        const reservedCount = await reserveRows(rewardsCollection, miner_key, records, group.groupId);
+        if (!reservedCount) {
+          // Matches this file's convention: errors are thrown and unwrapped by the action lock.
+          throw {
+            status: 409,
+            response: createApiError(
+              'REWARD_ALREADY_CLAIMING',
+              'These rewards are already being claimed.',
+              'Finish or cancel the claim in progress, then try again.'
+            )
+          };
+        }
+
+        try {
+          await db.collection('reward_pending_claims').insertOne({
+            groupId: group.groupId,
+            miner_key,
+            claimingAddress: session.user.address,
+            assetLegs,
+            gasPaymentMicroAlgo,
+            signedServerLegsB64: group.signedServerLegsB64,
+            records,
+            totalsDisplay,
+            totalAmount: totalAmountNumeric,
+            status: 'pending',
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 300000)
+          });
+        } catch (insertError) {
+          // Never strand a reservation behind a failed mint.
+          await releaseRows(rewardsCollection, miner_key, records, group.groupId);
+          throw insertError;
+        }
 
         return {
           response: {
@@ -471,12 +569,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const unsignedTxns: Transaction[] = [];
 
-      // Build individual ASA transfer transactions for each reward asset with modern transaction builder
+      // Build individual ASA transfer transactions for each reward asset with modern transaction builder.
+      // FFG: the reward leg is reduced to the payout (claim - effectiveFee); the holderCut leg (-> U5TA)
+      // is appended in the SAME group when the fee is active. When the fee is skipped/disabled, payout ==
+      // claim so the user receives the full reward and no fee leg exists.
       for (const entry of summary) {
+        const _plan = ffgPlan.get(entry.asset_id) as FfgPlan;
         const noteInfo = {
           miner_key: `${miner_key.split('-')[0]}-${miner_key.split('-')[1].slice(0, 6)}`,
           asset_id: entry.asset_id,
-          amount: Number(entry.totalMicro) / Math.pow(10, entry.decimals),
+          amount: _plan.payout / Math.pow(10, entry.decimals),
           operation: 'reward_claim',
           timestamp: new Date().toISOString()
         };
@@ -494,13 +596,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sender: account.addr.toString(),
           receiver: device.reward_wallet,
           assetId: entry.asset_id,
-          amount: testMode ? 0 : Number(entry.totalMicro),
+          amount: testMode ? 0 : _plan.payout,
           note,
           useRawAmount: true, // Amount is already in microunits, don't apply decimal conversion
           decimals: entry.decimals // Pass decimals for validation but useRawAmount=true skips conversion
         });
 
         unsignedTxns.push(decodeUnsignedTransaction(encodedTxn));
+
+        // FFG holder-cut leg (HXWY -> U5TA), same atomic group. Only when the fee is active and > 0.
+        if (!testMode && _plan.feeActive && _plan.holderCut > 0) {
+          const feeNote = new TextEncoder().encode(`${ffgPrefix}v1`);
+          const feeEncodedTxn = await buildAssetTransferTxn({
+            sender: account.addr.toString(),
+            receiver: ffgSink,
+            assetId: entry.asset_id,
+            amount: _plan.holderCut,
+            note: feeNote,
+            useRawAmount: true,
+            decimals: entry.decimals
+          });
+          unsignedTxns.push(decodeUnsignedTransaction(feeEncodedTxn));
+        }
       }
 
       // Broadcast all reward transfers via the centralized custodial pipeline.
@@ -538,7 +655,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               'weekly_rewards.$[elem].claimed_at': new Date()
             }
           },
-          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
+          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
         );
         if (updateWeekly.modifiedCount) modifiedAny = true;
       }
@@ -553,7 +670,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               'daily_rewards.$[elem].claimed_at': new Date()
             }
           },
-          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
+          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
         );
         if (updateDaily.modifiedCount) modifiedAny = true;
       }
@@ -566,6 +683,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { $set: { [`${arr}.$[elem].claimed_amount`]: r.amount } },
           { arrayFilters: [{ 'elem.reward_number': r.reward_number, 'elem.status': 'claimed', 'elem.tx_id': txId }] }
         );
+      }
+
+      // FFG per-claim audit (additive): records the fee taken per asset this claim. Pending-reward
+      // consumption remains at the FULL claim amount (claimed rows + total_claimed below) — never payout.
+      try {
+        const ffgLog = Array.from(ffgPlan.entries()).map(([asset_id, p]) => ({
+          asset_id,
+          claim: p.claim,
+          fee: p.fee,
+          holderCut: p.holderCut,
+          payout: p.payout,
+          fee_skipped: p.feeSkipped
+        }));
+        await db.collection('ffg_claim_log').insertOne({
+          miner_key,
+          address: session.user.address,
+          txId,
+          at: new Date(),
+          fee_enabled: ffgEnabled,
+          entries: ffgLog
+        });
+      } catch (e) {
+        console.warn('[claim] ffg_claim_log insert failed (non-blocking)', e);
       }
 
       const currentClaimable = quantizeForStorage(parseCurrencyValue(rewardsDoc?.total_claimable));

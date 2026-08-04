@@ -1657,21 +1657,9 @@ export async function getServerSideProps(context: any) {
     // }
 
     const devicesCollection = db.collection<Device>(testMode ? 'test-devices' : 'devices');
-    // Resolve user _id for user_id fallback (matches my-keys.ts pattern).
-    // user_id stored as ObjectId in devices (sampled 2026-07-04); query both forms for defensive match.
-    const userDoc = await db.collection('registration-users').findOne(
-      { address: session.user.address },
-      { projection: { _id: 1 } }
-    );
-    const userIdString = userDoc?._id?.toString();
-    const userObjectId = userDoc?._id;
-    const ownershipClauses: any[] = [{ address: session.user.address }];
-    if (userObjectId) ownershipClauses.push({ user_id: userObjectId });
-    if (userIdString && userIdString !== userObjectId?.toString()) ownershipClauses.push({ user_id: userIdString });
-
     const devicesRaw = await devicesCollection.find({
       $and: [
-        { $or: ownershipClauses },
+        { address: session.user.address },
         { $or: [{
           is_registered: true
         }, {

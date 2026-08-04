@@ -20,21 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (p?.key && p?.name) productMap.set(String(p.key), String(p.name));
     });
 
-    // Resolve user _id for user_id fallback (matches my-keys.ts pattern).
-    // user_id stored as ObjectId in devices collection (sampled 2026-07-04).
-    // Defensive: query with both ObjectId and string forms to cover both storage types.
-    const userDoc = await db.collection('registration-users').findOne(
-      { address: session.user.address },
-      { projection: { _id: 1 } }
-    );
-    const userIdString = userDoc?._id?.toString();
-    const userObjectId = userDoc?._id;
-
-    // Ownership clauses: address match OR user_id match (ObjectId + string defensive).
-    const ownershipClauses: any[] = [{ address: session.user.address }];
-    if (userObjectId) ownershipClauses.push({ user_id: userObjectId });
-    if (userIdString && userIdString !== userObjectId?.toString()) ownershipClauses.push({ user_id: userIdString });
-    const query = { $or: ownershipClauses };
+    const query = { address: session.user.address };
 
     // Explicit inclusion projection — NEVER project connectivity_wallet (mnemonic secret).
     const cursor = db.collection(testMode ? 'test-devices' : 'devices')

@@ -42,7 +42,7 @@ services:
       # Request-signature HMAC dual-accept rotation (server accepts this AND the legacy default).
       REQUEST_SIGNATURE_SECRET: 'op://Dashboard/Dash Secrets/REQUEST_SIGNATURE_SECRET'
       # User-pays-gas dark-launch. Default OFF: live claim path stays custodial. Flip to 'true' on wake.
-      REWARD_USER_PAYS_GAS: 'false'
+      REWARD_USER_PAYS_GAS: 'true'
       REWARD_USER_PAYS_GAS_TEST_WALLETS: ''
       USER_GAS_PAYMENT_MICROALGO: '10000'
       DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'

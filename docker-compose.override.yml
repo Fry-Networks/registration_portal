@@ -2,3 +2,26 @@ services:
   fry-dashboard-users:
     environment:
       GUARANTEE_REKEY: 'op://Dashboard/Guarantee Settlement Signer/GUARANTEE_MNEMONIC'
+      X402_INTERNAL_SECRET: ${X402_INTERNAL_SECRET}
+  dashboard-x402:
+    build:
+      context: ./dashboard-x402
+    container_name: dashboard-x402
+    init: true
+    restart: unless-stopped
+    networks:
+      - frynet
+    environment:
+      PORT: "3402"
+      BIND: "0.0.0.0"
+      FACILITATOR_URL: "https://facilitator.goplausible.xyz"
+      PAY_TO: "E2F2LT2INE75DBOYHQXTCTOP2PAP5MHAXQRXTTCCXFKHQTVG36DJONBQZE"
+      PUBLIC_X402_BASE: "https://dashboard.frynetworks.com/x402"
+      DASHBOARD_URL: "http://fry-dashboard-users:3007"
+      X402_INTERNAL_SECRET: ${X402_INTERNAL_SECRET}
+    ports:
+      - '127.0.0.1:3402:3402'
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
