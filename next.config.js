@@ -29,6 +29,13 @@ const nextConfig = {
   // Next.js 15 configurations
   transpilePackages: ['@tremor/react'],
   turbopack: {},
+  // /rewards-claim drove an on-chain pool-contract call; rewards are paid from the hot
+  // wallet on manual claim, so the page could only ever fail. Retired to /history.
+  async redirects() {
+    return [
+      { source: '/rewards-claim', destination: '/history', permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

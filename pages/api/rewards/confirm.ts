@@ -147,14 +147,14 @@ export default async function handler(
         await rewardsCollection.updateOne(
           { miner_key: minerKey },
           { $set: { 'weekly_rewards.$[elem].status': 'claimed', 'weekly_rewards.$[elem].tx_id': txid, 'weekly_rewards.$[elem].claimed_at': claimedAt } },
-          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': 'claimable' }] }
+          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
         );
       }
       if (dailyNos.length) {
         await rewardsCollection.updateOne(
           { miner_key: minerKey },
           { $set: { 'daily_rewards.$[elem].status': 'claimed', 'daily_rewards.$[elem].tx_id': txid, 'daily_rewards.$[elem].claimed_at': claimedAt } },
-          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': 'claimable' }] }
+          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
         );
       }
       for (const r of records) {

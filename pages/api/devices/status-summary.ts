@@ -18,22 +18,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const client = await clientPromise;
     const db = client.db('main');
 
-    // Ownership clauses mirror /api/devices/list: address match OR user_id match.
-    const userDoc = await db.collection('registration-users').findOne(
-      { address: session.user.address },
-      { projection: { _id: 1 } }
-    );
-    const userIdString = userDoc?._id?.toString();
-    const userObjectId = userDoc?._id;
-    const ownershipClauses: any[] = [{ address: session.user.address }];
-    if (userObjectId) ownershipClauses.push({ user_id: userObjectId });
-    if (userIdString && userIdString !== userObjectId?.toString()) {
-      ownershipClauses.push({ user_id: userIdString });
-    }
-
     const items = await db
       .collection(testMode ? 'test-devices' : 'devices')
-      .find({ $or: ownershipClauses })
+      .find({ address: session.user.address })
       .project({ miner_key: 1 })
       .toArray();
 

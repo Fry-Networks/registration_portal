@@ -115,11 +115,19 @@ export interface UserPaysAssetLeg {
   rewardAmount: number; // raw micro-units of the reward asset
 }
 
+export interface UserPaysFeeLeg {
+  assetId: number;
+  amount: number; // raw micro-units of the FFG holder-cut
+  receiver: string; // fee sink (U5TA)
+  noteB64?: string; // base64 note (e.g. "ffg-fee:v1")
+}
+
 export interface UserPaysClaimGroupConfig extends MnemonicAccountPairConfig {
   algod: Algodv2;
   claimingAddress: string;
-  assetLegs: UserPaysAssetLeg[]; // one vault -> user ASA transfer per reward asset
+  assetLegs: UserPaysAssetLeg[]; // one vault -> user ASA transfer per reward asset (amount = payout)
   gasPaymentMicroAlgo: number; // ALGO (micro) the user pays to the vault to cover ALL group fees
+  feeLegs?: UserPaysFeeLeg[]; // optional FFG holder-cut legs (vault -> sink), vault-signed, in-group
 }
 
 export interface UserPaysClaimGroupResult {
@@ -146,7 +154,8 @@ export const buildUserPaysClaimGroup = async ({
   algod,
   claimingAddress,
   assetLegs,
-  gasPaymentMicroAlgo
+  gasPaymentMicroAlgo,
+  feeLegs = []
 }: UserPaysClaimGroupConfig): Promise<UserPaysClaimGroupResult> => {
   if (!Array.isArray(assetLegs) || assetLegs.length === 0) {
     throw new Error('[user-pays] No asset legs supplied for claim group.');
@@ -155,7 +164,9 @@ export const buildUserPaysClaimGroup = async ({
 
   const base = await algod.getTransactionParams().do();
   const minFee = Number((base as any).minFee ?? 1000) || 1000;
-  const leg0Params = { ...base, flatFee: true, fee: (1 + assetLegs.length) * minFee } as algosdk.SuggestedParams;
+  // leg0 (user payment) pools ALL group fees: 1 (leg0) + N reward legs + M FFG fee legs.
+  const legCount = 1 + assetLegs.length + feeLegs.length;
+  const leg0Params = { ...base, flatFee: true, fee: legCount * minFee } as algosdk.SuggestedParams;
   const zeroFeeParams = { ...base, flatFee: true, fee: 0 } as algosdk.SuggestedParams;
 
   const leg0 = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
@@ -173,15 +184,27 @@ export const buildUserPaysClaimGroup = async ({
       suggestedParams: zeroFeeParams
     })
   );
+  // FFG holder-cut legs (vault -> sink), vault-signed, fee 0 (covered by leg0).
+  const feeTxns = feeLegs.map((leg) =>
+    algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+      sender: vaultAddress,
+      receiver: leg.receiver,
+      assetIndex: leg.assetId,
+      amount: leg.amount,
+      note: leg.noteB64 ? new Uint8Array(Buffer.from(leg.noteB64, 'base64')) : undefined,
+      suggestedParams: zeroFeeParams
+    })
+  );
 
-  algosdk.assignGroupID([leg0, ...vaultLegs]);
-  const signedServerLegsB64 = vaultLegs.map((t) => Buffer.from(t.signTxn(signer.sk)).toString('base64'));
+  const serverLegs = [...vaultLegs, ...feeTxns];
+  algosdk.assignGroupID([leg0, ...serverLegs]);
+  const signedServerLegsB64 = serverLegs.map((t) => Buffer.from(t.signTxn(signer.sk)).toString('base64'));
 
   return {
     groupId: Buffer.from(leg0.group as Uint8Array).toString('base64'),
     unsignedUserLegB64: Buffer.from(algosdk.encodeUnsignedTransaction(leg0)).toString('base64'),
     signedServerLegsB64,
-    unsignedServerLegsB64: vaultLegs.map((t) => Buffer.from(algosdk.encodeUnsignedTransaction(t)).toString('base64')),
+    unsignedServerLegsB64: serverLegs.map((t) => Buffer.from(algosdk.encodeUnsignedTransaction(t)).toString('base64')),
     expected: {
       receiver: vaultAddress,
       amountMicroAlgo: gasPaymentMicroAlgo,

@@ -24,6 +24,7 @@ import { getClientToken, refreshClientToken } from '../lib/clientToken';
 import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
+import { isSecurityBlockCode } from '../lib/api/securityCodes';
 import { collectStakeHistory, type StakeEvent, type StakeHistoryMap } from '../lib/history/collectStakeHistory';
 import Tooltip from '../components/Tooltip';
 import StatusPill from '../components/StatusPill';
@@ -340,7 +341,7 @@ export default function History({
         } catch {
           errorCode = undefined;
         }
-        if (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH') {
+        if (isSecurityBlockCode(errorCode)) {
           handleSecurityBlock(errorCode);
           return null;
         }
@@ -601,7 +602,7 @@ export default function History({
           } catch {
             errorCode = undefined;
           }
-          if (errorCode === 'DEVICE_MISMATCH' || errorCode === 'DEVICE_FINGERPRINT_REFRESH') {
+          if (isSecurityBlockCode(errorCode)) {
             handleSecurityBlock(errorCode);
             return;
           }
@@ -1119,16 +1120,36 @@ export default function History({
             </div>
 
             {(() => {
-              const claimableItems = [...itemsWeekly, ...itemsDaily].filter((r: any) => r.status === 'claimable');
+              const allItems = [...itemsWeekly, ...itemsDaily];
+              const claimableItems = allItems.filter((r: any) => r.status === 'claimable' && !r.onHold);
               const claimableCount = claimableItems.length;
               const totalClaimable = claimableItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
-              return claimableCount > 0 ? (
-                <button
-                  onClick={handleClaimAll}
-                  className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-token-md font-semibold text-sm transition"
-                >
-                  Claim All Rewards ({totalClaimable.toFixed(2)})
-                </button>
+              const pendingItems = allItems.filter((r: any) => r.status === 'aggregated' && !r.onHold);
+              const pendingTotal = pendingItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
+              const heldItems = allItems.filter((r: any) => r.onHold);
+              const heldTotal = heldItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
+              return (claimableCount > 0 || pendingItems.length > 0 || heldItems.length > 0) ? (
+                <div className="flex flex-col items-end gap-1">
+                  {claimableCount > 0 && (
+                    <button
+                      onClick={handleClaimAll}
+                      className="bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-token-md font-semibold text-sm transition"
+                    >
+                      Claim All Rewards ({totalClaimable.toFixed(2)})
+                    </button>
+                  )}
+                  {(pendingItems.length > 0 || heldItems.length > 0) && (
+                    <div className="text-xs text-ink-muted text-right">
+                      {pendingItems.length > 0 && (
+                        <span>{pendingItems.length} pending finalization ({pendingTotal.toFixed(2)})</span>
+                      )}
+                      {pendingItems.length > 0 && heldItems.length > 0 && <span> · </span>}
+                      {heldItems.length > 0 && (
+                        <span>{heldItems.length} under review ({heldTotal.toFixed(2)})</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : null;
             })()}
           </div>
@@ -1190,11 +1211,14 @@ export default function History({
               <div>Action</div>
             </div>
             {list.map((item, i) => {
-              const isClaimable = item.status === 'claimable';
+              const isClaimable = item.status === 'claimable' && !(item as any).onHold;
               const isWeekly = (item as any).isWeekly === true;
               let statusClass = 'bg-surface-strong text-ink-muted';
-              if (item.status === 'claimable') statusClass = 'bg-success-500/20 text-success-400';
-              if (item.status === 'pending') statusClass = 'bg-warning-500/20 text-warning-400';
+              let statusLabel = (item.status ?? '') as string;
+              if ((item as any).onHold) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Under review'; }
+              else if (item.status === 'claimable') { statusClass = 'bg-success-500/20 text-success-400'; statusLabel = 'Claimable'; }
+              else if (item.status === 'aggregated') { statusClass = 'bg-primary-500/20 text-primary-400'; statusLabel = 'Pending finalization'; }
+              else if (item.status === 'pending') { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Pending'; }
               return (
                 <div
                   key={(item as any)._id || i}
@@ -1205,8 +1229,8 @@ export default function History({
                   <div className="text-sm font-display text-ink">{item.amount}</div>
                   <div>
                     <span className={`inline-flex items-center gap-1.5 rounded-token-sm px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                      {item.status === 'claimable' && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
-                      {item.status}
+                      {item.status === 'claimable' && !(item as any).onHold && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
+                      {statusLabel}
                     </span>
                   </div>
                   <div className="text-xs text-ink-muted">{new Date(item.createdAt as any).toLocaleDateString()}</div>
@@ -1236,10 +1260,13 @@ export default function History({
           {/* Mobile list */}
           <div className="md:hidden space-y-3">
             {list.map((item, i) => {
-              const isClaimable = item.status === 'claimable';
+              const isClaimable = item.status === 'claimable' && !(item as any).onHold;
               let statusClass = 'bg-surface-strong text-ink-muted';
-              if (item.status === 'claimable') statusClass = 'bg-success-500/20 text-success-400';
-              if (item.status === 'pending') statusClass = 'bg-warning-500/20 text-warning-400';
+              let statusLabel = (item.status ?? '') as string;
+              if ((item as any).onHold) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Under review'; }
+              else if (item.status === 'claimable') { statusClass = 'bg-success-500/20 text-success-400'; statusLabel = 'Claimable'; }
+              else if (item.status === 'aggregated') { statusClass = 'bg-primary-500/20 text-primary-400'; statusLabel = 'Pending finalization'; }
+              else if (item.status === 'pending') { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Pending'; }
               return (
                 <div
                   key={(item as any)._id || i}
@@ -1248,8 +1275,8 @@ export default function History({
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-sm text-ink">{getAssetDisplay(item.asset_id)}</span>
                     <span className={`inline-flex items-center gap-1.5 rounded-token-sm px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                      {item.status === 'claimable' && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
-                      {item.status}
+                      {item.status === 'claimable' && !(item as any).onHold && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
+                      {statusLabel}
                     </span>
                   </div>
                   <div className="text-lg font-display text-primary-500 mb-1">{item.amount}</div>
@@ -1353,7 +1380,7 @@ function MinerSelect() {
           const productLabel = item.productName || null;
           const status = item.status || null;
           const baseLabel = nickname && nickname.length > 0 ? `${nickname} (${mk})` : productLabel ? `${productLabel} (${mk})` : mk;
-          const label = status ? `${baseLabel} (${status})` : baseLabel;
+          const label = status ? `${baseLabel} (${status === 'active' ? 'registered' : status})` : baseLabel;
           return {
             miner_key: mk,
             label
@@ -1633,6 +1660,33 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   const minerKeyParam = context?.query?.miner_key;
   const miner_key = Array.isArray(minerKeyParam) ? minerKeyParam[0] : minerKeyParam;
   if (!miner_key) {
+    // Bare /history (navbar, summary card) — default to the wallet's first
+    // device instead of rendering the misleading empty state.
+    const ownerAddress = (session.user as { address?: string }).address;
+    if (ownerAddress) {
+      try {
+        const client = await clientPromise;
+        const first = await client
+          .db('main')
+          .collection('devices')
+          .find({ address: ownerAddress })
+          .project({ miner_key: 1 })
+          .sort({ miner_key: 1 })
+          .limit(1)
+          .toArray();
+        const firstKey = first[0]?.miner_key;
+        if (firstKey) {
+          return {
+            redirect: {
+              destination: `/history?miner_key=${encodeURIComponent(firstKey)}`,
+              permanent: false
+            }
+          };
+        }
+      } catch (error) {
+        console.error('Failed to resolve default miner for history', error);
+      }
+    }
     return EMPTY_HISTORY_PROPS;
   }
   try {

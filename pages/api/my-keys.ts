@@ -58,17 +58,9 @@ export default async function handler(
     const mainDb = client.db(mainDbName);
     const credsDb = client.db(credsDbName);
 
-    // 1. Find user doc to get _id for user_id fallback
-    const userDoc = await mainDb
-      .collection('registration-users')
-      .findOne({ address: session.user.address }, { projection: { _id: 1 } });
+    const query = { address: session.user.address };
 
-    const userId = userDoc?._id?.toString();
-    const query = userId
-      ? { $or: [{ address: session.user.address }, { user_id: userId }] }
-      : { address: session.user.address };
-
-    // 2. Find all devices for this wallet address or user_id
+    // 2. Find all devices for this wallet address
     const deviceDocsRaw = await mainDb
       .collection('devices')
       .find(query)
