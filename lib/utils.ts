@@ -13,7 +13,6 @@ import { MnemonicAccount, signDecodedTransaction } from './algorand/admin';
 
 const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud';
 const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io';
-const API_TOKEN = 'REDACTED_ROTATE_ME';
 
 export const algodClient = getAlgodClient();
 // Dedicated client instance using Tinyman's bundled algosdk (supports setIntDecoding at runtime & types)

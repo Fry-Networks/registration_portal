@@ -53,7 +53,7 @@ const MapboxAutocomplete = dynamic(() => import('@mapbox/search-js-react').then(
 const HexMap = dynamic(() => import('../components/HexMap'), {
   ssr: false
 });
-mapboxgl.accessToken = 'REDACTED_ROTATE_ME';
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
 
 // =============================
 // Regexes & Validation Helpers
