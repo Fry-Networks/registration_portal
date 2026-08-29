@@ -70,3 +70,24 @@ patch-headlessui.py
 scripts/check_mongo.js
 *.bak
 *.bak[0-9]*
+
+# open-source hygiene
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
+id_rsa
+id_ed25519
+.npmrc
+.netrc
+*.tfstate
+*.tfstate.*
+kubeconfig
+serviceAccount*.json
+secrets.json
+*.sqlite
+*.sqlite3
+*.db
