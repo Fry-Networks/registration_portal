@@ -12,8 +12,7 @@ const MapboxAutocomplete = dynamic(
 );
 
 
-mapboxgl.accessToken =
-  'REDACTED_ROTATE_ME';
+mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
 
 interface MapInfoData {
   latitude: number;

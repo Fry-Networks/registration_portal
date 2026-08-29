@@ -15,7 +15,7 @@ import { utf8ToBytes } from '@noble/hashes/utils';
 
 const LEGACY_CLIENT_TOKEN_KEY = 'clientToken';
 const CLIENT_TOKEN_STATE_KEY = 'clientToken.state.v1';
-const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
+const TOKEN_GENERATION_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
 const TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // rotate daily to avoid stale bindings
 
 type StoredClientToken = {

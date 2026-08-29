@@ -13,7 +13,7 @@ import crypto from 'crypto';
 import { isAdminRequest, extractWalletFromRequest } from './adminCheck';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
-const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
+const TOKEN_GENERATION_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
 
 /**
  * Helper: Format and log security event

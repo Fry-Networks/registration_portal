@@ -9,9 +9,12 @@ import { execSync } from 'child_process';
 import * as crypto from 'crypto';
 
 const BASE_URL = 'http://localhost:3000';
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
+const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
+if (!SIGNATURE_SECRET) {
+  throw new Error('REQUEST_SIGNATURE_SECRET environment variable is required to run this test script');
+}
 const TEST_USER_AGENT = 'test-client/1.0';
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
+const CLIENT_TOKEN_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
 
 const results = [];
 
