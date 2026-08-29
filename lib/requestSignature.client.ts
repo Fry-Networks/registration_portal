@@ -7,7 +7,10 @@
  * Server-side verification is in requestSignature.server.ts
  */
 
-const SIGNATURE_SECRET = process.env.NEXT_PUBLIC_REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
+const SIGNATURE_SECRET = process.env.NEXT_PUBLIC_REQUEST_SIGNATURE_SECRET;
+if (!SIGNATURE_SECRET) {
+  throw new Error('NEXT_PUBLIC_REQUEST_SIGNATURE_SECRET environment variable is required');
+}
 
 /**
  * Generate an HMAC-SHA256 signature for a request.
