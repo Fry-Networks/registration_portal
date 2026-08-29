@@ -10,8 +10,8 @@
  */
 
 const BASE_URL = 'http://localhost:3000';
-const SIGNATURE_SECRET = 'REDACTED_ROTATE_ME';
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
+const SIGNATURE_SECRET = 'PASTE_YOUR_REQUEST_SIGNATURE_SECRET_HERE'; // matches your dev server's REQUEST_SIGNATURE_SECRET
+const CLIENT_TOKEN_SECRET = 'fry-rewards-client-'; // matches NEXT_PUBLIC_CLIENT_TOKEN_SECRET default
 const TEST_USER_AGENT = navigator.userAgent;
 
 console.log('🚀 Starting Security Layer Tests...\n');

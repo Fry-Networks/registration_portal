@@ -14,7 +14,7 @@ Run the authenticated script with a real session token:
 
 ```bash
 SESSION_COOKIE="paste_next_auth_token" \
-REQUEST_SIGNATURE_SECRET="REDACTED_ROTATE_ME" \
+REQUEST_SIGNATURE_SECRET="your_request_signature_secret" \
 node scripts/test-authenticated-session.mjs
 ```
 

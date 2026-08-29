@@ -38,8 +38,7 @@ services:
       NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC: ${NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC:-'2025-12-05T00:00:00.000Z'}
       BUG_REPORT_RATE_LIMIT_HOURS: 1
       ALGOD_URL: "http://100.69.195.100:8190"
-      ALGOD_TOKEN: "REDACTED_ROTATE_ME"
-      # Request-signature HMAC dual-accept rotation (server accepts this AND the legacy default).
+      ALGOD_TOKEN: 'op://Dashboard/Dash Secrets/ALGOD_TOKEN'
       REQUEST_SIGNATURE_SECRET: 'op://Dashboard/Dash Secrets/REQUEST_SIGNATURE_SECRET'
       # User-pays-gas dark-launch. Default OFF: live claim path stays custodial. Flip to 'true' on wake.
       REWARD_USER_PAYS_GAS: 'true'
@@ -79,7 +78,7 @@ services:
       GUARANTEE_VAULT_APP_ID: '3563123514'
       GUARANTEE_PAUSED: 'false'
       GUARANTEE_MNEMONIC: 'op://Dashboard/Guarantee Settlement Signer/GUARANTEE_MNEMONIC'
-      FRY_PROXY_KEY: 'REDACTED_ROTATE_ME'
+      FRY_PROXY_KEY: 'op://Dashboard/Dash Secrets/FRY_PROXY_KEY'
     healthcheck:
       test:
         [
