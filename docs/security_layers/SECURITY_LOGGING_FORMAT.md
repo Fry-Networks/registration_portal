@@ -87,7 +87,7 @@ Instead of creating 1 document per event (which would explode the database), we 
   
   // Wallet identification
   walletAddress: "ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY",
-  minerKey: "REDACTED_ROTATE_ME",
+  minerKey: "AEM-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   
   // Total counters (incremented on each event, not a new doc)
   totalEvents: 42,
