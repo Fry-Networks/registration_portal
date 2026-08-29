@@ -17,7 +17,10 @@ import { NextApiRequest } from 'next';
 import { isAdminWallet } from './adminCheck';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'REDACTED_ROTATE_ME';
+const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
+if (!SIGNATURE_SECRET) {
+  throw new Error('REQUEST_SIGNATURE_SECRET environment variable is required');
+}
 const MAX_AGE_SECONDS = 900; // 15 minutes — increased from 5 min to tolerate clock skew while clients adopt serverTime
 
 type RequestWithSessionWallet = NextApiRequest & {
@@ -179,9 +182,7 @@ export function verifyRequestSignature(
 
   // Compute expected signature
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
-  // Dual-accept rotation: accept the configured secret AND the legacy default so
-  // old client bundles keep working while a new secret is rolled out. Non-breaking.
-  const SECRETS = Array.from(new Set([SIGNATURE_SECRET, 'REDACTED_ROTATE_ME']));
+  const SECRETS = [SIGNATURE_SECRET];
 
   // Use timing-safe comparison to prevent timing attacks
   try {
