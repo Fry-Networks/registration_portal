@@ -231,18 +231,6 @@ export async function verifyDeviceFingerprintMiddleware(
     return 'ok';
   }
 
-  // Allow internal SSR/service requests to bypass fingerprint checks
-  if ((req.headers['x-internal-request'] || '').toString().toLowerCase() === 'next-ssr') {
-    await logFingerprintEvent(
-      req,
-      'DEVICE_FINGERPRINT_BYPASS',
-      walletAddress,
-      minerKey,
-      'Internal Next.js request bypassed device fingerprint check'
-    );
-    return 'ok';
-  }
-
   // Admins bypass fingerprint check (can use scripts)
   if (isAdmin) {
     await logFingerprintEvent(

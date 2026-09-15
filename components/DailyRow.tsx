@@ -30,7 +30,8 @@ export default function DailyRow({
 }) {
   const [expanded, setExpanded] = React.useState(true);
   const status = item.status;
-  const canClaim = status === 'claimable';
+  // Mirror /api/rewards/claim: held rows and rows awaiting PoC evidence are refused there.
+  const canClaim = status === 'claimable' && !(item as any).onHold && !(item as any).pendingEvidence;
   const canBoost = status === 'pending' && isBoostAssetSupported(item.asset_id);
   const assetName = getAssetName(item.asset_id) || item.asset_id;
   // Theme-aware action styling for consistency with weekly cards.
@@ -64,8 +65,11 @@ export default function DailyRow({
         {item.txId && (
           <a href={`https://explorer.perawallet.app/tx/${item.txId}`} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:underline dark:text-sky-300">View Tx</a>
         )}
-        {status === 'claimable' && (
+        {canClaim && (
           <span className="text-xs text-emerald-600 dark:text-emerald-300">• Ready to claim •</span>
+        )}
+        {status === 'claimable' && !canClaim && (
+          <span className="text-xs text-amber-600 dark:text-amber-300">• {(item as any).onHold ? 'Under review' : 'Awaiting PoC evidence'} •</span>
         )}
         {status === 'claimed' && item.claimedAt && (
           <span className="text-xs text-slate-500 dark:text-slate-400">Claimed: {new Date(item.claimedAt).toUTCString()}</span>

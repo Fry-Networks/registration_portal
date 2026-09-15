@@ -79,8 +79,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
-  // Guard: force the wallet to opt into the registration staking asset before continuing.
-  await ensureWalletAssetOptIn(session.user.address, asset_id, 'submitting registration stake');
+  // Guard: refuse to continue until the wallet has opted into the asset. The helper throws
+  // `{ status, response }`; outside withDeviceActionLock nothing mapped it, so an un-opted-in
+  // wallet used to get an EMPTY HTTP 500 instead of the 400 WALLET_ASSET_NOT_OPTED_IN payload.
+  try {
+    await ensureWalletAssetOptIn(session.user.address, asset_id, 'submitting registration stake');
+  } catch (guardError: any) {
+    const status = typeof guardError?.status === 'number' ? guardError.status : 500;
+    const payload = guardError?.response && typeof guardError.response === 'object'
+      ? guardError.response
+      : createApiError(ErrorCodes.INTERNAL_ERROR, 'Could not verify the wallet asset opt-in.', 'Please try again in a few minutes.');
+    res.status(status).json(payload);
+    return;
+  }
 
   void monitorWalletHealth(session.user.address, { minerKey: miner, operation: 'stake:registration' });
 

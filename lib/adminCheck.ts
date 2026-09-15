@@ -1,24 +1,31 @@
 /**
  * Admin Check Utility
- * 
- * Provides centralized logic for checking if a wallet address has admin privileges.
- * Admin users bypass all security layers (token, signature, session verification).
- * 
+ *
+ * Decides whether the AUTHENTICATED caller is an admin. The wallet address is
+ * taken ONLY from the NextAuth session (or the `_sessionWalletAddress` a route
+ * stashed from that same session) and is then re-checked against
+ * registration-users.admin. Nothing from the request body or headers is trusted:
+ * a client-supplied address would let anyone who knows an admin wallet skip the
+ * L1 client-token, L2 request-signature and L4 device-fingerprint layers.
+ *
  * Used by:
- * - clientTokenMiddleware.ts (token verification)
- * - requestSignature.server.ts (signature verification)
- * - All reward endpoints (layer checks)
+ * - pages/api/rewards/* (boost, claim, confirm, get-asset-totals,
+ *   get-reward-summary, get-reward-summary-batch, get-rewards-page)
+ * - lib/api/enforceWalletSecurity.ts
  */
 
 import { NextApiRequest } from 'next';
 import clientPromise from './mongoclient';
 
+type SessionLike = { user?: { address?: string | null } | null } | null | undefined;
+type RequestWithSessionWallet = NextApiRequest & { _sessionWalletAddress?: string };
+
 /**
  * Check if a wallet address has admin privileges.
- * 
+ *
  * Queries the registration-users collection for the wallet and checks admin field.
  * Returns true if admin field is explicitly set to true.
- * 
+ *
  * @param walletAddress - The Algorand wallet address
  * @returns true if admin=true, false otherwise
  */
@@ -42,41 +49,22 @@ export async function isAdminWallet(walletAddress: string | undefined): Promise<
 }
 
 /**
- * Extract wallet address from request (multiple sources).
- * 
- * Checks in this order:
- * 1. req.body.address (POST body)
- * 2. req.body.wallet (alternative POST body field)
- * 3. x-wallet header
- * 4. x-address header
- * 
- * @param req - NextApiRequest object
- * @returns wallet address or undefined
+ * Admin decision for a request.
+ *
+ * The address comes from the authenticated session only:
+ *   session.user.address  ->  req._sessionWalletAddress (stashed by the route from the session)
+ * and is then re-checked in the database (the JWT `admin` claim is only refreshed at login).
+ * Fail-closed: no session address -> false, database error -> false.
+ *
+ * @param req - NextApiRequest object (only its `_sessionWalletAddress` stash is read)
+ * @param session - the NextAuth session returned by getServerSession, if the caller has it
+ * @returns true if the authenticated wallet is admin, false otherwise
  */
-export function extractWalletFromRequest(req: NextApiRequest): string | undefined {
-  try {
-    // Check request body first
-    if (req.body?.address) return req.body.address;
-    if (req.body?.wallet) return req.body.wallet;
-    
-    // Check headers
-    if (req.headers['x-wallet']) return req.headers['x-wallet'] as string;
-    if (req.headers['x-address']) return req.headers['x-address'] as string;
-  } catch (e) {
-    // Silently fail
+export async function isAdminRequest(req: NextApiRequest, session?: SessionLike): Promise<boolean> {
+  const address =
+    session?.user?.address ?? (req as RequestWithSessionWallet)._sessionWalletAddress;
+  if (typeof address !== 'string' || address.length === 0) {
+    return false;
   }
-  return undefined;
-}
-
-/**
- * Check if a request is from an admin wallet.
- * 
- * Extracts wallet from request and checks admin status.
- * 
- * @param req - NextApiRequest object
- * @returns true if wallet is admin, false otherwise
- */
-export async function isAdminRequest(req: NextApiRequest): Promise<boolean> {
-  const wallet = extractWalletFromRequest(req);
-  return isAdminWallet(wallet);
+  return isAdminWallet(address);
 }

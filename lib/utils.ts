@@ -9,16 +9,20 @@ const DEFAULT_NODE_TOKEN = '';
 const DEFAULT_NODE_PORT = 443;
 import { AssetWithIdAndDecimals } from '@tinymanorg/tinyman-js-sdk/dist/util/asset/assetModels';
 import { getAlgodClient, getIndexerClient } from './wallet/clients';
+import { browserAlgodBase } from './algorand/sameOriginProxy';
+import { AlgodUnavailableError } from './algorand/failover';
 import { MnemonicAccount, signDecodedTransaction } from './algorand/admin';
 
-const DEFAULT_INDEX_BASEURL = 'https://mainnet-idx.algonode.cloud';
-const CUSTOME_INDEX_URL = 'https://mainnet-idx.4160.nodely.io';
 
 export const algodClient = getAlgodClient();
 // Dedicated client instance using Tinyman's bundled algosdk (supports setIntDecoding at runtime & types)
+// Browser traffic goes through the same-origin proxy; server-side keeps the public default.
+// Resolved HERE rather than at DEFAULT_NODE_BASEURL above, which is declared before this
+// module's import block and would read the binding while it is still uninitialised.
+// Verified: Tinyman's bundled algosdk 2.11.0 preserves a baseServer path prefix, as does 3.5.2.
 const tinymanAlgodClient = new TinymanAlgo.Algodv2(
   DEFAULT_NODE_TOKEN,
-  DEFAULT_NODE_BASEURL,
+  browserAlgodBase() || DEFAULT_NODE_BASEURL,
   DEFAULT_NODE_PORT
 );
 
@@ -121,20 +125,25 @@ export const anchorIdForMinerKey = (minerKey: string): string => {
   return `device-${normalized || 'unknown'}`;
 };
 
-export const getWalletAddress = (mnemonic: string) => {
-  if (mnemonic?.length > 0) {
-    const account = algosdk.mnemonicToSecretKey(mnemonic);
-
-    return account.addr;
-  }
-  return '';
+// 2026-08-06: this derived an Algorand signing key in the browser via
+// algosdk.mnemonicToSecretKey. lib/utils.ts is imported by client pages (pages/devices.tsx), so
+// that capability shipped in the browser bundle. It had no live callers -- both usages were
+// already commented out -- but the capability itself is the hazard. The export is retained
+// because pages/devices.tsx still imports the symbol; calling it is now a hard error.
+// Derive addresses server-side, or use the wallet connection flow in the browser.
+export const getWalletAddress = (mnemonic: string): string => {
+  throw new Error(
+    'getWalletAddress is disabled: mnemonic derivation must never run client-side.'
+  );
 };
 
 export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
   try {
-    // Prefer the live rewards sender vault (derived from REWARD_MNEMONIC),
-    // fall back to the static constant for client-side contexts.
-    const vaultAddr = getRewardsVaultAddress();
+    // Resolve the vault address without any mnemonic derivation, so this module stays free of
+    // key-derivation code (see lib/rewardsVault.server.ts). Verified 2026-08-06 that the address
+    // derived from the live REWARD_MNEMONIC is byte-identical to REWARD_WALLET. If the vault key
+    // is ever rotated, set REWARDS_VAULT_ADDR or this lookup will read the previous address.
+    const vaultAddr = process.env.REWARDS_VAULT_ADDR?.trim() || REWARD_WALLET;
     const normalizedTarget = normalizeAssetId(assetId);
 
     try {
@@ -249,37 +258,44 @@ export const getFRYAssetBalances = async (assetId: string): Promise<number> => {
             ? (indexErr as { message: string }).message
             : String(indexErr ?? 'unknown error')
       });
+      // Cannot confirm a zero balance — returning 0 here would let transfer
+      // flows falsely report an empty vault during an outage.
+      throw new AlgodUnavailableError([
+        `indexer: ${
+          indexErr && typeof indexErr === 'object' && 'message' in indexErr
+            ? (indexErr as { message: string }).message
+            : String(indexErr ?? 'unknown error')
+        }`
+      ]);
     }
     return 0;
   } catch (err) {
+    if (err instanceof AlgodUnavailableError) {
+      throw err;
+    }
     console.error('Error fetching balance:', err);
-    return 0;
+    throw new AlgodUnavailableError([
+      `algod: ${err instanceof Error ? err.message : String(err)}`
+    ]);
   }
 };
 
-/**
- * Returns the on-chain address of the rewards vault used by server-side senders.
- * If REWARD_MNEMONIC is present, derive the address to avoid mismatches when
- * vault keys rotate. Falls back to the static constant for browser contexts.
- */
-export const getRewardsVaultAddress = (): string => {
-  try {
-    // Highest priority: explicit configured address
-    const configured = process.env.REWARDS_VAULT_ADDR as string | undefined;
-    if (configured && configured.trim().length > 0) {
-      return configured.trim();
-    }
+// getRewardsVaultAddress moved to lib/rewardsVault.server.ts (2026-08-06). It derived a key
+// from REWARD_MNEMONIC, and this module is imported by 12+ client files, so that derivation was
+// being compiled into browser bundles. Server callers import it from the .server module.
 
-    const m = process.env.REWARD_MNEMONIC as string | undefined;
-    if (m && m.length > 0) {
-      const acc = algosdk.mnemonicToSecretKey(m);
-      // Always return a primitive string regardless of SDK Address typing.
-      return String(acc.addr);
-    }
-  } catch (e) {
-    // ignore and fall back
-  }
-  return REWARD_WALLET;
+// The configured indexer is derived from ALGOD_URL, so a self-hosted node outage takes
+// asset lookups down with it and every claim answers 503. Asset params are public data,
+// so fall back to the public indexers before giving up. Public hosts only — never log or
+// embed the private node address here (this module is bundled for the browser too).
+const PUBLIC_ASSET_INDEXERS = [
+  'https://mainnet-idx.4160.nodely.dev',
+  'https://mainnet-idx.algonode.cloud'
+];
+
+const toDecimals = (value: unknown): number | null => {
+  const n = typeof value === 'bigint' ? Number(value) : Number(value);
+  return Number.isFinite(n) ? n : null;
 };
 
 export const getAssetDecimals = async (
@@ -287,13 +303,26 @@ export const getAssetDecimals = async (
 ): Promise<number | null> => {
   try {
     const assetInfo = await indexerClient.lookupAssetByID(assetId).do();
-    const decimals = assetInfo.asset.params.decimals;
-    console.log(`Asset ID: ${assetId}, Decimals: ${decimals}`);
-    return decimals;
+    const decimals = toDecimals(assetInfo.asset.params.decimals);
+    if (decimals !== null) return decimals;
+    console.error(`Asset ${assetId} returned no usable decimals from the configured indexer`);
   } catch (error) {
     console.error(`Failed to fetch asset info for Asset ID ${assetId}:`, error);
-    return null;
   }
+
+  for (const host of PUBLIC_ASSET_INDEXERS) {
+    try {
+      const response = await fetch(`${host}/v2/assets/${assetId}`);
+      if (!response.ok) continue;
+      const body = await response.json();
+      const decimals = toDecimals(body?.asset?.params?.decimals);
+      if (decimals !== null) return decimals;
+    } catch (error) {
+      console.error(`Fallback asset lookup failed at ${host} for Asset ID ${assetId}:`, error);
+    }
+  }
+
+  return null;
 };
 
 export const getAssetName = (assetId: string) => {

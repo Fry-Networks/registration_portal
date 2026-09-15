@@ -9,18 +9,14 @@
  * - Request replay attacks (time-bound signatures)
  * - Unauthorized signature generation (only frontend knows the secret)
  * 
- * ADMIN BYPASS: If the wallet address has admin=true in registration-users,
- * signature verification is skipped.
+ * No admin bypass here. Routes skip L2 for admins based on the authenticated
+ * session (lib/adminCheck.ts); this module only verifies signatures.
  */
 
 import { NextApiRequest } from 'next';
-import { isAdminWallet } from './adminCheck';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
-if (!SIGNATURE_SECRET) {
-  throw new Error('REQUEST_SIGNATURE_SECRET environment variable is required');
-}
+const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'fry-rewards-signature-v1-';
 const MAX_AGE_SECONDS = 900; // 15 minutes — increased from 5 min to tolerate clock skew while clients adopt serverTime
 
 type RequestWithSessionWallet = NextApiRequest & {
@@ -83,12 +79,11 @@ async function logLayer2Event(
 }
 
 /**
- * Verify a request signature with admin bypass (ASYNC).
- * 
- * This async wrapper checks if the wallet is admin FIRST.
- * If admin, returns true without verification.
- * If not admin, calls verifyRequestSignature for full verification.
- * 
+ * Async verification entry point (kept for API compatibility with its callers).
+ *
+ * No admin bypass: L2 is only reached for non-admin sessions and the signature
+ * is always verified.
+ *
  * Backend usage:
  *   if (!await verifyRequestSignatureAsync('POST', '/api/rewards/claim', body, timestamp, signature, req)) {
  *     return res.status(403).json({ error: 'Invalid signature' });
@@ -102,26 +97,6 @@ export async function verifyRequestSignatureAsync(
   signature: string,
   req?: NextApiRequest
 ): Promise<boolean> {
-  // Admin bypass: check if wallet is admin
-  if (req) {
-    try {
-      const walletAddress = req.body?.address || req.body?.wallet || 'unknown';
-      const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
-      const isAdmin = await isAdminWallet(walletAddress);
-      if (isAdmin) {
-        // Admin users bypass signature verification
-        const timeStr = new Date().toISOString();
-        const consoleLog = `[L2 - RequestSignature] ${timeStr} - Admin bypass allowed | Wallet: ${walletAddress} | Miner: ${minerKey}`;
-        console.log(consoleLog);
-        return true;
-      }
-    } catch (err) {
-      console.error('[L2 - RequestSignature] Error checking admin status:', err);
-      // Fall through to normal verification
-    }
-  }
-
-  // Non-admin: perform full verification (sync version)
   return verifyRequestSignature(method, path, body, timestamp, signature, req);
 }
 
@@ -148,17 +123,13 @@ export function verifyRequestSignature(
 
   const crypto = require('crypto');
   const sessionWalletAddress = (req as RequestWithSessionWallet | undefined)?._sessionWalletAddress;
-  const headerWallet =
-    (typeof req?.headers?.['x-wallet'] === 'string' ? (req.headers['x-wallet'] as string) : undefined) ??
-    (typeof req?.headers?.['x-address'] === 'string' ? (req.headers['x-address'] as string) : undefined);
-
+  // Logging only: session wallet first, then the self-asserted body wallet; headers are never read.
   const walletAddress = (
+    sessionWalletAddress ||
     (req?.body?.address as string | undefined) ||
     (req?.body?.wallet as string | undefined) ||
-    sessionWalletAddress ||
-    headerWallet ||
     'unknown'
-  ) as string;  
+  ) as string;
   const minerKey = (req?.body?.miner_key || req?.query?.miner_key || 'unknown') as string;
 
   // Check timestamp is within acceptable range
@@ -182,7 +153,9 @@ export function verifyRequestSignature(
 
   // Compute expected signature
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
-  const SECRETS = [SIGNATURE_SECRET];
+  // Dual-accept rotation: accept the configured secret AND the legacy default so
+  // old client bundles keep working while a new secret is rolled out. Non-breaking.
+  const SECRETS = Array.from(new Set([SIGNATURE_SECRET, 'fry-rewards-signature-v1-']));
 
   // Use timing-safe comparison to prevent timing attacks
   try {

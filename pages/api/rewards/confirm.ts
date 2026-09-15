@@ -6,6 +6,7 @@ import clientPromise from '../../../lib/mongoclient';
 import { getTransactionTime } from '../../../lib/utils';
 import { loadMnemonicAccountPair } from '../../../lib/algorand/admin';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { verifyTransaction } from '../algorand/verify-txn';
 import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
@@ -35,7 +36,7 @@ export default async function handler(
   }
 
   // Check if user is admin (bypasses all security layers)
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     // Layer 1: Verify client token to prevent automated scripts
@@ -132,7 +133,7 @@ export default async function handler(
         userLegBytes,
         ...(pending.signedServerLegsB64 as string[]).map((b) => new Uint8Array(Buffer.from(b, 'base64')))
       ];
-      const algod = getAlgodClient();
+      const algod = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
       const { txid } = await algod.sendRawTransaction(signedGroup).do();
       await algosdk.waitForConfirmation(algod, txid, 6);
 

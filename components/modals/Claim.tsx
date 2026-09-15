@@ -405,6 +405,9 @@ export default function ClaimModal({
             : code === 'WALLET_ASSET_NOT_OPTED_IN'
             ? previewResult?.action ||
               `Your reward wallet must opt into ${previewResult?.assetId ?? 'this asset'} before claiming.`
+            : code === 'REWARD_ON_HOLD'
+            ? previewResult?.action ||
+              'This reward is under review or awaiting proof-of-coverage evidence and cannot be claimed yet. No action is needed — it becomes claimable automatically once verification completes.'
             : code === 'REWARD_VAULT_DEPLETED'
             ? previewResult?.action ||
               'Rewards vault is depleted. Claims will resume once the vault is refilled.'
@@ -455,7 +458,13 @@ export default function ClaimModal({
         const b64ToBytes = (b: string) => { const s = atob(b); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
         const bytesToB64 = (u: Uint8Array) => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
         try {
-          setStatusText('Approve the gas payment in your wallet…');
+          // The wallet is handed the whole atomic group so it can show what it signs against,
+          // but only leg 0 (the gas payment) is ours to sign. Say so explicitly, or the wallet's
+          // "N transactions" prompt reads as N separate claims.
+          const groupLegs = 1 + (((result.unsignedServerLegs as string[]) || []).length);
+          setStatusText(
+            `Approve the gas payment in your wallet — it shows ${groupLegs} transaction${groupLegs === 1 ? '' : 's'} in one atomic group; you sign only the first (the network fee).`
+          );
           const signed = await signTransactions([b64ToBytes(result.unsignedUserLeg as string), ...(((result.unsignedServerLegs as string[]) || []).map(b64ToBytes))], { indexesToSign: [0] });
           setStage('submitted');
           setStatusText('Submitting your claim…');
@@ -525,6 +534,9 @@ export default function ClaimModal({
             : code === 'WALLET_ASSET_NOT_OPTED_IN'
             ? result?.action ||
               `Your reward wallet must opt into ${result?.assetId ?? 'this asset'} before claiming.`
+            : code === 'REWARD_ON_HOLD'
+            ? result?.action ||
+              'This reward is under review or awaiting proof-of-coverage evidence and cannot be claimed yet. No action is needed — it becomes claimable automatically once verification completes.'
             : code === 'REWARD_VAULT_DEPLETED'
             ? result?.action ||
               'Rewards vault is depleted. Claims will resume once the vault is refilled.'
@@ -603,6 +615,9 @@ export default function ClaimModal({
             ? 'No claimable rewards. If you just boosted, wait for confirmation and try again.'
             : code === 'UNAUTHORIZED'
             ? 'Unauthorized. Make sure you are signed in with the device wallet.'
+            : code === 'REWARD_ON_HOLD'
+            ? result?.action ||
+              'This reward is under review or awaiting proof-of-coverage evidence and cannot be claimed yet. No action is needed — it becomes claimable automatically once verification completes.'
             : code === 'REWARD_VAULT_DEPLETED'
             ? result?.action || 'Rewards vault is depleted. Claims will resume once the vault is refilled.'
             : result?.message || 'Unknown error';

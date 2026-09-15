@@ -13,6 +13,7 @@ import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -145,7 +146,7 @@ export default async function handler(
       session.user.address;
   }
 
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     const tokenVerified = await verifyClientToken(req, res);
@@ -342,7 +343,7 @@ export default async function handler(
         await ensureWalletAssetOptIn(rewardWallet, assetId, 'running instant claim');
       }
 
-      const algodClient = getAlgodClient();
+      const algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
       const suggestedParams = await algodClient.getTransactionParams().do();
       const { account, signer } = loadMnemonicAccountPair({
         mnemonicEnv: 'REWARD_MNEMONIC',

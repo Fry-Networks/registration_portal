@@ -91,7 +91,10 @@ export default async function handler(
       return;
     }
 
-    if (exists.is_registered) {
+    // A device flagged is_registered but carrying no address is owned by nobody: the
+    // owner-mismatch gate above short-circuits on the falsy address, so refusing here
+    // left it permanently unclaimable (485 such devices measured 2026-09-14).
+    if (exists.is_registered && exists.address) {
       res.status(400).json(
         createApiError(
           ErrorCodes.ALREADY_REGISTERED,

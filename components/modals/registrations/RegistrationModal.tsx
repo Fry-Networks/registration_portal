@@ -74,8 +74,10 @@ const RegistrationModal: React.FC<REGModalProps> = ({
     const handleSubmit = async () => {
         const hasErrors = Object.values(errors).some(error => error !== '');
         if (hasErrors) return;
-        const response = await fetch('/api/registrations/create', { // Replace with your actual API endpoint
-            method: 'PUT',
+        const response = await fetch('/api/registrations/create', {
+            // POST: the route has been POST-only since 2025-10-26 and answered 405 to this PUT,
+            // which left the /new_registration submit dead.
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },

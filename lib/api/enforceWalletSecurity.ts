@@ -34,7 +34,7 @@ export const enforceWalletApiSecurity = async (
       session.user.address;
   }
 
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     const tokenVerified = await verifyClientToken(req, res);
