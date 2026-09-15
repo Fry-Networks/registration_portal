@@ -1,6 +1,8 @@
 import { Algodv2, Indexer } from 'algosdk';
 import { normalizeAssetId } from '../utils';
 import { withAlgorandRetry } from './withRetry';
+import { AlgodUnavailableError } from './failover';
+import { browserAlgodBase, browserIndexerBase } from './sameOriginProxy';
 
 /*
 const ALGOD_TOKEN = '';
@@ -8,8 +10,10 @@ const ALGOD_SERVER = 'https://xna-mainnet-api.algonode.cloud/';
 const ALGOD_PORT = 443;
 const INDEXER_SERVER = 'https://mainnet-idx.algonode.cloud/';
 */
-const ALGOD_SERVER = 'https://mainnet-api.algonode.cloud';
-const INDEXER_SERVER = 'https://mainnet-idx.algonode.cloud';
+// Browser traffic goes through the same-origin proxy and lands on the self-hosted node; the
+// public endpoints stay as the server-side and test default.
+const ALGOD_SERVER = browserAlgodBase() || 'https://mainnet-api.algonode.cloud';
+const INDEXER_SERVER = browserIndexerBase() || 'https://mainnet-idx.algonode.cloud';
 
 /*
 const tokenHeader = {
@@ -24,13 +28,20 @@ const indexerClient = new Indexer(tokenHeader, INDEXER_SERVER, ALGOD_PORT);
 const algodClient = new Algodv2('', ALGOD_SERVER, '');
 const indexerClient = new Indexer('', INDEXER_SERVER, '');
 
-export async function getAlgoBalance(address: string): Promise<number | null> {
+/**
+ * Returns the wallet's ALGO balance in whole Algos, full precision.
+ * Throws AlgodUnavailableError when the balance cannot be determined —
+ * callers must never treat an algod outage as a zero/absent balance.
+ */
+export async function getAlgoBalance(address: string): Promise<number> {
   try {
     const accountInfo = await withAlgorandRetry(algodClient.accountInformation(address));
     return Number(accountInfo.amount) / 1e6;
   } catch (error) {
     console.error('Error fetching ALGO balance:', error);
-    return null;
+    throw new AlgodUnavailableError([
+      `algod: ${error instanceof Error ? error.message : String(error)}`
+    ]);
   }
 }
 
@@ -44,6 +55,12 @@ export async function getAssetDecimals(assetId: number): Promise<number | null> 
   }
 }
 
+/**
+ * Returns the wallet's whole-unit balance of the asset, or `null` when the
+ * wallet is not opted in (a legitimate state callers use for opt-in checks).
+ * Throws AlgodUnavailableError when the balance cannot be determined —
+ * callers must never treat an algod outage as "not opted in".
+ */
 export async function getAssetBalance(
   address: string,
   assetId: string
@@ -84,11 +101,22 @@ export async function getAssetBalance(
     }
 
     const decimals = await getAssetDecimals(normalizedAssetId);
-    const divisor = Math.pow(10, decimals ?? 0);
+    if (decimals === null) {
+      // Without real decimals the raw amount would be returned as microunits.
+      throw new AlgodUnavailableError([
+        `indexer: could not resolve decimals for asset ${normalizedAssetId}`
+      ]);
+    }
+    const divisor = Math.pow(10, decimals);
     const amount = Number(asset.amount ?? 0);
-    return divisor === 0 ? amount : Number((amount / divisor).toFixed(2));
+    return divisor === 0 ? amount : amount / divisor;
   } catch (error) {
+    if (error instanceof AlgodUnavailableError) {
+      throw error;
+    }
     console.error('Error fetching asset balance:', error);
-    return null;
+    throw new AlgodUnavailableError([
+      `algod: ${error instanceof Error ? error.message : String(error)}`
+    ]);
   }
 }

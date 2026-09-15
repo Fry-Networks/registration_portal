@@ -5,7 +5,8 @@ import type { Transaction } from 'algosdk';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import type { Device } from '../../../lib/types';
-import { getAssetDecimals, fNODE, tFRY, getRewardsVaultAddress } from '../../../lib/utils';
+import { getAssetDecimals, fNODE, tFRY } from '../../../lib/utils';
+import { getRewardsVaultAddress } from '../../../lib/rewardsVault.server';
 import { loggers } from '../../../lib/logger';
 import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
@@ -18,6 +19,7 @@ import { loadEvidence, hasEvidenceInWindow } from '../../../lib/rewards/pocEvide
 import { reserveRows, releaseRows, releaseStaleReservations } from '../../../lib/rewards/reservation';
 // Modern wallet infrastructure imports for consistent network handling
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -29,12 +31,10 @@ import { monitorWalletHealth } from '../../../lib/monitoring/walletHealth';
 import { monitorTransaction } from '../../../lib/monitoring/transactionMonitor';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
 import { withRetry } from '../../../lib/algorand/withRetry';
+import { NODE_PREFIXES, AEM_PREFIX, FEM_PREFIX } from '../../../lib/devicePrefixes';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
-const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-const AEM_PREFIX = 'AEM';
-const FEM_PREFIX = 'FEM';
 
 type DeviceClaimTarget = {
   source: 'weekly' | 'daily';
@@ -97,7 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Preserve the admin bypass + client token + request signature layers we had previously.
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     const tokenVerified = await verifyClientToken(req, res);
@@ -206,7 +206,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       let rewardsDoc = await rewardsCollection.findOne({ miner_key });
-      const algodClient = getAlgodClient();
+      // A dead self-hosted node used to surface as "Unable to verify rewards vault
+      // balance" after three retries; fail over, or say the network is unreachable.
+      let algodClient: ReturnType<typeof getAlgodClient>;
+      try {
+        algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
+      } catch (error) {
+        loggers.apiError('/api/rewards/claim', toError(error), { miner_key, issueType: 'ALGOD_UNAVAILABLE', part: 'algod-failover' });
+        throw {
+          status: 503,
+          response: createApiError(
+            ErrorCodes.NETWORK_ERROR,
+            'Could not reach the Algorand network',
+            'Please try again in a few minutes.'
+          )
+        };
+      }
       const rewardsVaultAddress = getRewardsVaultAddress();
       // Hand back rows whose claim never completed, so an abandoned claim cannot strand rewards.
       await releaseStaleReservations(rewardsCollection, db.collection('reward_pending_claims'), miner_key);
@@ -282,7 +297,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         let decimals = decimalsCache.get(assetId);
         if (decimals === undefined) {
           const fetched = await getAssetDecimals(assetId);
-          decimals = typeof fetched === 'number' ? fetched : 0;
+          if (typeof fetched !== 'number') {
+            // Defaulting to 0 decimals would compute micro-totals on raw units
+            // and corrupt the vault-liquidity and fee math.
+            throw {
+              status: 503,
+              response: createApiError(
+                ErrorCodes.NETWORK_ERROR,
+                'Could not verify on-chain data',
+                'Please try again in a few minutes.'
+              )
+            };
+          }
+          decimals = fetched;
           decimalsCache.set(assetId, decimals);
         }
         const microAmount = BigInt(
@@ -388,7 +415,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       } catch (e) {
         loggers.apiError('/api/rewards/claim', toError(e), { miner_key, issueType: 'FFG_CONFIG_LOAD_FAILED', part: 'ffg-fee' });
       }
-      const ffgEnabled = ffgCfg?.fee_enabled === true;
+      // The FFG fee is the Instant Claim fee (config fee_source): a matured claim is
+      // fee-free per the whitepaper, and /api/rewards/boost charges instant claims itself.
+      const ffgTargetsMaturedClaim = String(ffgCfg?.fee_source ?? 'instant_claim') === 'matured_claim';
+      const ffgEnabled = ffgCfg?.fee_enabled === true && ffgTargetsMaturedClaim;
       const ffgBps = Number(ffgCfg?.fee_bps ?? 3000);
       const ffgNum = Number(ffgCfg?.holder_share_num ?? 1);
       const ffgDen = Number(ffgCfg?.holder_share_den ?? 3);

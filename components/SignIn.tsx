@@ -37,6 +37,19 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+// D1: condense a wallet-thrown error into a short, user-safe string. Wallet SDKs
+// (Pera/Defly/WalletConnect) often throw with useful detail ("session expired",
+// "network mismatch", a rejected-request code) that was previously swallowed —
+// only logged to console.error, never shown to the user. Cap length so a stack
+// trace or JSON blob doesn't blow up the toast.
+const MAX_WALLET_ERROR_LEN = 160;
+function describeWalletError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error ?? {});
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return 'Unknown wallet error';
+  return trimmed.length > MAX_WALLET_ERROR_LEN ? `${trimmed.slice(0, MAX_WALLET_ERROR_LEN)}…` : trimmed;
+}
+
 export default function SignIn({ signed }: SignInProps) {
   const router = useRouter();
   const { devConnect, devAccount, algodClient: devAlgodClient } = useDevWallet();
@@ -145,6 +158,9 @@ export default function SignIn({ signed }: SignInProps) {
 
       setIsAuthenticating(true);
       let signTimedOut = false;
+      // D1: last wallet-thrown error (not a timeout, not an in-flight-request conflict),
+      // so the final failure toast can show the wallet's own message instead of a generic one.
+      let lastWalletError: string | null = null;
       try {
         const nonce = Math.floor(Math.random() * 1000000).toString();
         const message = `Sign this message to prove you own the wallet: ${nonce}`;
@@ -218,6 +234,10 @@ export default function SignIn({ signed }: SignInProps) {
               });
               return null;
             }
+            // D1: the wallet actually threw (rejected request, session error, network
+            // mismatch, etc.) — previously only logged to console.error and discarded.
+            // Capture it so the caller can show the real reason instead of a generic message.
+            lastWalletError = describeWalletError(error);
             console.error(
               '[SignIn] signTransactions failed',
               includeMessage ? 'with message' : 'default',
@@ -245,10 +265,15 @@ export default function SignIn({ signed }: SignInProps) {
           // Skip the generic failure toast if another wallet request is already active
           // or the timeout toast was just shown.
           if (!signTimedOut && !isWalletRequestActive()) {
+            // D1: prefer the wallet's own error text (set by collectSignature) over the
+            // generic "we did not receive a signature" message, so a real wallet-side
+            // failure (session expired, network mismatch, rejected request, etc.) is
+            // visible instead of silently swallowed.
             toast.error({
-              heading: 'Signature Required',
-              message:
-                'We did not receive a signature. Reopen Pera/Defly and try again.'
+              heading: lastWalletError ? 'Wallet Signing Error' : 'Signature Required',
+              message: lastWalletError
+                ? `Your wallet reported: ${lastWalletError}`
+                : 'We did not receive a signature. Reopen Pera/Defly and try again.'
             });
           }
           setIsAuthenticating(false);

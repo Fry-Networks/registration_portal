@@ -432,6 +432,49 @@ export default function FryConversionModal({
     } else {
       try {
         if (account) {
+          // account.amount is the stored Dec-2024 snapshot, not a live balance. Burning it
+          // blind underflows the ASA transfer once the wallet has moved those FRY 1.0, and
+          // the user only sees an opaque wallet rejection. Verify on chain first.
+          let liveFry1 = 0;
+          try {
+            const balanceResponse = await fetch('/api/algorand/get-token-balance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ address, asset_id: FRY_1.id })
+            });
+            const balanceJson = await balanceResponse.json();
+            if (!balanceResponse.ok) {
+              throw new Error(balanceJson?.message || 'Balance check failed');
+            }
+            // A wallet that is not opted in reports success:false -- treat that as zero held.
+            liveFry1 = balanceJson?.success === false
+              ? 0
+              : Number(balanceJson?.balance ?? balanceJson?.amount ?? 0);
+            if (!Number.isFinite(liveFry1)) {
+              throw new Error('Balance response was not numeric');
+            }
+          } catch (balanceError) {
+            console.error('[FryConversion] FRY 1.0 balance pre-check failed', balanceError);
+            toast.error({
+              heading: 'Could not verify balance',
+              message:
+                'We could not verify your FRY 1.0 balance right now. Please try again in a few minutes.'
+            });
+            setIsProcessing(false);
+            return;
+          }
+
+          if (liveFry1 < account.amount) {
+            toast.error({
+              heading: 'Insufficient FRY 1.0 balance',
+              message:
+                `This conversion burns ${account.amount} FRY 1.0 but this wallet currently holds ${liveFry1}. ` +
+                'Restore the FRY 1.0 to this wallet, or contact support if you believe this is wrong.'
+            });
+            setIsProcessing(false);
+            return;
+          }
+
           const burnResult = await transferToBurn(address, account.amount);
 
           if (burnResult.status === 'success') {

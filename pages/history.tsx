@@ -9,6 +9,7 @@ import { useWallet } from '@txnlab/use-wallet-react';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './api/auth/[...nextauth]';
 import clientPromise from '../lib/mongoclient';
+import { isVoided } from '../lib/rewards/effective';
 import { Reward } from '../lib/types';
 import { useRewardSummary } from '../lib/hooks/useRewardSummary';
 import WeeklyCard, { WeeklyRewardView } from '../components/WeeklyCard';
@@ -37,6 +38,7 @@ import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; 
 // removed asset filter; keep utils unused import out
 
 const FIVE_MINUTES = 5 * 60 * 1000;
+import { NODE_PREFIXES, AEM_PREFIX, FEM_PREFIX } from '../lib/devicePrefixes';
 function getThisFridayStartUTC(ref: Date): Date {
   const utc = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate(), 0, 0, 0, 0));
   const day = utc.getUTCDay();
@@ -53,9 +55,6 @@ function computeNextFrydayUnlock(now: Date): Date {
   return thisUnlock;
 }
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE && process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-const AEM_PREFIX = 'AEM';
-const FEM_PREFIX = 'FEM';
 const PAGE_SIZE = 10;
 const dayMs = 24 * 60 * 60 * 1000;
 const sixMonthsMs = 180 * dayMs;
@@ -442,7 +441,7 @@ export default function History({
   const isClaimingAllRef = useRef(false);
 
   const handleClaimAll = () => {
-    const queue = [...itemsWeekly, ...itemsDaily].filter((r: any) => r.status === 'claimable' && !r.onHold);
+    const queue = [...itemsWeekly, ...itemsDaily].filter((r: any) => r.status === 'claimable' && !r.onHold && !r.pendingEvidence);
     if (queue.length === 0) return;
     isClaimingAllRef.current = true;
     claimQueueRef.current = queue.slice(1) as any;
@@ -1121,14 +1120,16 @@ export default function History({
 
             {(() => {
               const allItems = [...itemsWeekly, ...itemsDaily];
-              const claimableItems = allItems.filter((r: any) => r.status === 'claimable' && !r.onHold);
+              const claimableItems = allItems.filter((r: any) => r.status === 'claimable' && !r.onHold && !r.pendingEvidence);
               const claimableCount = claimableItems.length;
               const totalClaimable = claimableItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
               const pendingItems = allItems.filter((r: any) => r.status === 'aggregated' && !r.onHold);
               const pendingTotal = pendingItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
               const heldItems = allItems.filter((r: any) => r.onHold);
               const heldTotal = heldItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
-              return (claimableCount > 0 || pendingItems.length > 0 || heldItems.length > 0) ? (
+              const evidenceItems = allItems.filter((r: any) => r.status === 'claimable' && !r.onHold && r.pendingEvidence);
+              const evidenceTotal = evidenceItems.reduce((sum, r: any) => sum + (typeof r.amount === 'number' ? r.amount : 0), 0);
+              return (claimableCount > 0 || pendingItems.length > 0 || heldItems.length > 0 || evidenceItems.length > 0) ? (
                 <div className="flex flex-col items-end gap-1">
                   {claimableCount > 0 && (
                     <button
@@ -1138,7 +1139,7 @@ export default function History({
                       Claim All Rewards ({totalClaimable.toFixed(2)})
                     </button>
                   )}
-                  {(pendingItems.length > 0 || heldItems.length > 0) && (
+                  {(pendingItems.length > 0 || heldItems.length > 0 || evidenceItems.length > 0) && (
                     <div className="text-xs text-ink-muted text-right">
                       {pendingItems.length > 0 && (
                         <span>{pendingItems.length} pending finalization ({pendingTotal.toFixed(2)})</span>
@@ -1146,6 +1147,10 @@ export default function History({
                       {pendingItems.length > 0 && heldItems.length > 0 && <span> · </span>}
                       {heldItems.length > 0 && (
                         <span>{heldItems.length} under review ({heldTotal.toFixed(2)})</span>
+                      )}
+                      {(pendingItems.length > 0 || heldItems.length > 0) && evidenceItems.length > 0 && <span> · </span>}
+                      {evidenceItems.length > 0 && (
+                        <span>{evidenceItems.length} awaiting PoC evidence ({evidenceTotal.toFixed(2)})</span>
                       )}
                     </div>
                   )}
@@ -1211,11 +1216,12 @@ export default function History({
               <div>Action</div>
             </div>
             {list.map((item, i) => {
-              const isClaimable = item.status === 'claimable' && !(item as any).onHold;
+              const isClaimable = item.status === 'claimable' && !(item as any).onHold && !(item as any).pendingEvidence;
               const isWeekly = (item as any).isWeekly === true;
               let statusClass = 'bg-surface-strong text-ink-muted';
               let statusLabel = (item.status ?? '') as string;
               if ((item as any).onHold) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Under review'; }
+              else if (item.status === 'claimable' && (item as any).pendingEvidence) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Awaiting PoC evidence'; }
               else if (item.status === 'claimable') { statusClass = 'bg-success-500/20 text-success-400'; statusLabel = 'Claimable'; }
               else if (item.status === 'aggregated') { statusClass = 'bg-primary-500/20 text-primary-400'; statusLabel = 'Pending finalization'; }
               else if (item.status === 'pending') { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Pending'; }
@@ -1229,7 +1235,7 @@ export default function History({
                   <div className="text-sm font-display text-ink">{item.amount}</div>
                   <div>
                     <span className={`inline-flex items-center gap-1.5 rounded-token-sm px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                      {item.status === 'claimable' && !(item as any).onHold && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
+                      {item.status === 'claimable' && !(item as any).onHold && !(item as any).pendingEvidence && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
                       {statusLabel}
                     </span>
                   </div>
@@ -1260,10 +1266,11 @@ export default function History({
           {/* Mobile list */}
           <div className="md:hidden space-y-3">
             {list.map((item, i) => {
-              const isClaimable = item.status === 'claimable' && !(item as any).onHold;
+              const isClaimable = item.status === 'claimable' && !(item as any).onHold && !(item as any).pendingEvidence;
               let statusClass = 'bg-surface-strong text-ink-muted';
               let statusLabel = (item.status ?? '') as string;
               if ((item as any).onHold) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Under review'; }
+              else if (item.status === 'claimable' && (item as any).pendingEvidence) { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Awaiting PoC evidence'; }
               else if (item.status === 'claimable') { statusClass = 'bg-success-500/20 text-success-400'; statusLabel = 'Claimable'; }
               else if (item.status === 'aggregated') { statusClass = 'bg-primary-500/20 text-primary-400'; statusLabel = 'Pending finalization'; }
               else if (item.status === 'pending') { statusClass = 'bg-warning-500/20 text-warning-400'; statusLabel = 'Pending'; }
@@ -1275,7 +1282,7 @@ export default function History({
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-bold text-sm text-ink">{getAssetDisplay(item.asset_id)}</span>
                     <span className={`inline-flex items-center gap-1.5 rounded-token-sm px-2 py-0.5 text-xs font-medium ${statusClass}`}>
-                      {item.status === 'claimable' && !(item as any).onHold && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
+                      {item.status === 'claimable' && !(item as any).onHold && !(item as any).pendingEvidence && <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />}
                       {statusLabel}
                     </span>
                   </div>
@@ -1712,7 +1719,7 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
       });
       return `${fmt(start)} – ${fmt(end)}`;
     };
-    const weekly = (doc?.weekly_rewards || []).filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= cutoffDate).map((wr: any) => {
+    const weekly = (doc?.weekly_rewards || []).filter((wr: any) => !isVoided(wr) && wr.unlock_at && new Date(wr.unlock_at) >= cutoffDate).map((wr: any) => {
       const unlockAt = new Date(wr.unlock_at);
       return {
         _id: wr._id,
@@ -1734,7 +1741,7 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
         })()
       };
     });
-    const daily = (doc?.daily_rewards || []).filter((dr: any) => dr.created_at && new Date(dr.created_at) < cutoffDate).map((dr: any) => {
+    const daily = (doc?.daily_rewards || []).filter((dr: any) => !isVoided(dr) && dr.created_at && new Date(dr.created_at) < cutoffDate).map((dr: any) => {
       const createdAt = new Date(dr.created_at);
       return {
         _id: dr._id,

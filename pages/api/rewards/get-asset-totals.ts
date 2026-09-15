@@ -1,4 +1,9 @@
-import { computeClaimableTotals } from '../../../lib/rewards/effective';
+import {
+  computeGatedTotals,
+  sumRowsByAssetForStatus,
+  isDeviceAGateExempt
+} from '../../../lib/rewards/effective';
+import { loadEvidenceBatch } from '../../../lib/rewards/pocEvidence';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -14,6 +19,7 @@ import {
   ErrorCodes,
   handleApiError,
 } from '../../../lib/api-errors';
+import { NODE_PREFIXES, AEM_PREFIX, FEM_PREFIX } from '../../../lib/devicePrefixes';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -23,9 +29,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
 const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
-const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-const AEM_PREFIX = 'AEM';
-const FEM_PREFIX = 'FEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -57,8 +60,20 @@ function getCurrentWeekDates(): { dateStrings: string[]; nextUnlockAt: Date } {
   return { dateStrings, nextUnlockAt };
 }
 
-type RewardBucket = { pending: number; claimable: number; claimed: number; accruing: number };
-const createBucket = (): RewardBucket => ({ pending: 0, claimable: 0, claimed: 0, accruing: 0 });
+type RewardBucket = {
+  pending: number;
+  claimable: number;
+  claimed: number;
+  accruing: number;
+  // held = blocked by a review flag; pendingEvidence = dropped by the claim path's PoC
+  // A-gate. Both are surfaced so the UI can explain a claimable total that is lower
+  // than the raw row sum instead of the user hitting "No rewards available to claim".
+  held: number;
+  pendingEvidence: number;
+};
+const createBucket = (): RewardBucket => ({
+  pending: 0, claimable: 0, claimed: 0, accruing: 0, held: 0, pendingEvidence: 0
+});
 
 function formatWeekRangeFromUnlock(unlockAt: Date, weekStart?: Date | string | null, weekEnd?: Date | string | null): string | null {
   const unlock = unlockAt instanceof Date ? unlockAt : new Date(unlockAt);
@@ -86,7 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // Check if user is admin (bypasses all security layers)
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     // Layer 1: Verify client token
@@ -150,14 +165,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const client = await clientPromise;
     const db = client.db('main');
 
-    // Get all devices owned by this user
+    // Get all devices owned by this user. virtual/activated are needed for the claim path's
+    // PoC carve-out (an activated virtual device has no hardware to produce evidence).
     const devices = await db
       .collection(testMode ? 'test-devices' : 'devices')
       .find({ address: walletAddress })
-      .project({ miner_key: 1 })
+      .project({ miner_key: 1, virtual: 1, activated: 1 })
       .toArray();
 
     const isMinerDeviceByKey = new Map<string, boolean>();
+    const exemptByKey = new Map<string, boolean>();
     for (const device of devices) {
       const key = device?.miner_key;
       if (!key) continue;
@@ -165,6 +182,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const isNode = NODE_PREFIXES.has(prefix);
       const isAem = prefix === AEM_PREFIX || prefix === FEM_PREFIX;
       isMinerDeviceByKey.set(key, !(isNode || isAem));
+      exemptByKey.set(key, isDeviceAGateExempt(device));
     }
 
     const minerKeys = devices.map((d: any) => d.miner_key);
@@ -172,8 +190,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.status(200).json({
       success: true,
       totals: {
-        fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0 },
-        tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0 }
+        fnode: { pending: 0, claimable: 0, claimed: 0, accruing: 0, held: 0, pendingEvidence: 0 },
+        tfry: { pending: 0, claimable: 0, claimed: 0, accruing: 0, held: 0, pendingEvidence: 0 }
       },
       nextUnlockAt: null,
       nextClaimableAt: null,
@@ -187,6 +205,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .find({ miner_key: { $in: minerKeys } })
       .toArray();
 
+    // Same evidence set /api/rewards/claim loads, in two queries for the whole fleet.
+    const evidenceByKey = await loadEvidenceBatch(client, minerKeys);
+
     const fnode = createBucket();
     const tfry = createBucket();
     let legacyFryClaimedSnapshot = 0;
@@ -196,14 +217,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { dateStrings, nextUnlockAt } = getCurrentWeekDates();
     const nowMs = Date.now();
 
+    // Reward rows carry their own asset_id. Bucketing by miner-key prefix put every reward a
+    // device earned into one asset column, so on an all-FEM fleet the tFRY column was always
+    // zero and tFRY earnings were displayed as fNODE.
+    const bucketForAsset = (assetId: unknown, fallbackIsMiner: boolean): RewardBucket => {
+      const key = String(normalizeAssetId(assetId as any));
+      if (key === fNodeAssetId) return fnode;
+      if (key === TFryAssetId || key === FRY1AssetId) return tfry;
+      return fallbackIsMiner ? tfry : fnode;
+    };
+
     for (const doc of devRewards) {
       const deviceKey = doc?.miner_key as string | undefined;
       const isMinerDevice = deviceKey ? isMinerDeviceByKey.get(deviceKey) !== false : true;
-      const bucket = isMinerDevice ? tfry : fnode;
+      const deviceBucket = isMinerDevice ? tfry : fnode;
+      const ev = deviceKey ? evidenceByKey.get(deviceKey) : undefined;
+      const exempt = deviceKey ? exemptByKey.get(deviceKey) === true : false;
 
-      bucket.pending = round2(bucket.pending + Number(doc?.total_pending ?? 0));
-      bucket.claimable = round2(bucket.claimable + computeClaimableTotals(doc).claimable);
-      bucket.claimed = round2(bucket.claimed + Number(doc?.total_claimed ?? 0));
+      // claimable / held / pendingEvidence, per asset, gated exactly as claim.ts gates.
+      const gated = computeGatedTotals(doc, ev, exempt);
+      for (const [assetKey, t] of Object.entries(gated.byAsset)) {
+        const bucket = bucketForAsset(assetKey, isMinerDevice);
+        bucket.claimable = round2(bucket.claimable + t.claimable);
+        bucket.held = round2((bucket.held ?? 0) + t.held);
+        bucket.pendingEvidence = round2((bucket.pendingEvidence ?? 0) + t.pendingEvidence);
+      }
+
+      // pending, per asset, off the rows for the same reason.
+      const pendingByAsset = sumRowsByAssetForStatus(doc, ['pending']);
+      const pendingRowTotal = Object.values(pendingByAsset).reduce((a, b) => a + b, 0);
+      if (pendingRowTotal > 0) {
+        for (const [assetKey, amount] of Object.entries(pendingByAsset)) {
+          const bucket = bucketForAsset(assetKey, isMinerDevice);
+          bucket.pending = round2(bucket.pending + amount);
+        }
+      } else {
+        // No pending rows to attribute — keep the legacy doc-level number rather than
+        // silently dropping it.
+        deviceBucket.pending = round2(deviceBucket.pending + Number(doc?.total_pending ?? 0));
+      }
+
+      // claimed stays on the doc-level aggregate (unchanged behaviour): it predates per-row
+      // asset attribution and rewriting it here is out of scope for this fix.
+      deviceBucket.claimed = round2(deviceBucket.claimed + Number(doc?.total_claimed ?? 0));
 
       if (isMinerDevice) {
         legacyFryClaimedSnapshot = round2(
@@ -212,13 +268,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       if (Array.isArray(doc.daily_rewards)) {
-        const allowedAssets = isMinerDevice ? new Set([TFryAssetId, FRY1AssetId]) : new Set([fNodeAssetId]);
         for (const dr of doc.daily_rewards) {
           const assetKey = String(normalizeAssetId(dr.asset_id));
-          if (!allowedAssets.has(assetKey)) {
+          if (assetKey !== fNodeAssetId && assetKey !== TFryAssetId && assetKey !== FRY1AssetId) {
             continue;
           }
           if ((dr.status === 'accruing' || dr.status === 'pending') && dateStrings.includes(dr.date)) {
+            const bucket = bucketForAsset(assetKey, isMinerDevice);
             bucket.accruing = round2(bucket.accruing + (dr.amount || 0));
           }
         }
@@ -269,4 +325,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 }
-

@@ -1,4 +1,5 @@
-import { computeClaimableTotals } from '../../../lib/rewards/effective';
+import { computeGatedTotals, isDeviceAGateExempt } from '../../../lib/rewards/effective';
+import { loadEvidence } from '../../../lib/rewards/pocEvidence';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -14,6 +15,7 @@ import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.serve
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { tFRY, fNODE, FRY_1, normalizeAssetId } from '../../../lib/utils';
+import { NODE_PREFIXES, AEM_PREFIX, FEM_PREFIX } from '../../../lib/devicePrefixes';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -22,9 +24,6 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
 const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
-const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-const AEM_PREFIX = 'AEM';
-const FEM_PREFIX = 'FEM';
 
 function formatDateUTC(d: Date): string {
   const yyyy = d.getUTCFullYear();
@@ -73,7 +72,7 @@ export default async function handler(
   }
 
   // Check if user is admin (bypasses all security layers)
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     // Layer 1: Verify client token
@@ -160,9 +159,14 @@ export default async function handler(
     // Device-rewards is the single source of truth
     const devRewardsCol = db.collection('device-rewards');
     const doc = await devRewardsCol.findOne({ miner_key });
+    // Mirror the claim path exactly: rows under review AND rows the claim endpoint's PoC
+    // A-gate will drop are both excluded from `claimable`, and reported separately. Showing
+    // the ungated sum here is what produced "No rewards available to claim" on a device whose
+    // dashboard tile advertised a balance.
+    const gated = computeGatedTotals(doc, await loadEvidence(client, miner_key), isDeviceAGateExempt(device));
     const totals = {
       pending: round2(doc?.total_pending ?? 0),
-      claimable: computeClaimableTotals(doc).claimable,
+      claimable: gated.claimable,
       claimed: round2(doc?.total_claimed ?? 0),
       accruing: 0
     };
@@ -221,6 +225,8 @@ export default async function handler(
       summary: {
         pending: totals.pending,
         claimable: totals.claimable,
+        held: gated.held,
+        pendingEvidence: gated.pendingEvidence,
         claimed: totals.claimed,
         accruing: totals.accruing,
         nextUnlockAt,

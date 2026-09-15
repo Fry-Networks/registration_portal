@@ -7,6 +7,8 @@ import { verifyClientToken } from '../../../lib/clientTokenMiddleware';
 import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.server';
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
+import { isHeld, isVoided, passesAGate, isDeviceAGateExempt } from '../../../lib/rewards/effective';
+import { loadEvidence, emptyEvidence } from '../../../lib/rewards/pocEvidence';
 import {
   CommonErrors,
   createApiError,
@@ -25,7 +27,7 @@ export default async function handler(
   }
 
   // Check if user is admin (bypasses all security layers)
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     // Layer 1: Verify client token
@@ -131,6 +133,16 @@ export default async function handler(
       res.status(200).json({ success: true, items: [], totalPages: 1, weeklyCount: 0, dailyCount: 0, totalCount: 0 });
       return;
     }
+    // A-gate mirror (claim.ts `_aGateOk`): a claimable, unheld row with no PoC evidence in its
+    // own window is refused by /api/rewards/claim with REWARD_ON_HOLD. Flag it here so the UI
+    // never offers a Claim button that can only fail. Fail closed on evidence lookup errors.
+    const deviceExempt = isDeviceAGateExempt(device);
+    let evidence: Awaited<ReturnType<typeof loadEvidence>> | undefined;
+    try {
+      evidence = deviceExempt ? emptyEvidence() : await loadEvidence(client, miner_key);
+    } catch {
+      evidence = undefined;
+    }
     const daysBetween = (a: Date, b: Date): number => {
       const ms = Math.max(0, b.getTime() - a.getTime());
       return Math.min(30, Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24))));
@@ -151,7 +163,7 @@ export default async function handler(
     };
 
     const weekly = (doc?.weekly_rewards || [])
-      .filter((wr: any) => wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
+      .filter((wr: any) => !isVoided(wr) && wr.unlock_at && new Date(wr.unlock_at) >= CUTOFF_DATE)
       .map((wr: any) => ({
         _id: wr._id,
         miner_key,
@@ -161,6 +173,7 @@ export default async function handler(
         amount: typeof wr.corrected_amount === 'number' ? wr.corrected_amount : wr.amount,
         originalAmount: wr.amount,
         onHold: wr.payout_hold === true || wr.ghost_device === true || wr.evidence_unavailable === true,
+        pendingEvidence: wr.status === 'claimable' && !isHeld(wr) && !passesAGate(wr, evidence, deviceExempt, 'weekly'),
         txId: wr.tx_id,
         createdAt: wr.unlock_at,
         claimedAt: wr.claimed_at,
@@ -176,7 +189,7 @@ export default async function handler(
       }));
 
     const daily = (doc?.daily_rewards || [])
-      .filter((dr: any) => dr.created_at && new Date(dr.created_at) < CUTOFF_DATE)
+      .filter((dr: any) => !isVoided(dr) && dr.created_at && new Date(dr.created_at) < CUTOFF_DATE)
       .map((dr: any) => ({
         _id: dr._id,
         miner_key,
@@ -186,6 +199,7 @@ export default async function handler(
         amount: typeof dr.corrected_amount === 'number' ? dr.corrected_amount : dr.amount,
         originalAmount: dr.amount,
         onHold: dr.payout_hold === true || dr.ghost_device === true || dr.evidence_unavailable === true,
+        pendingEvidence: dr.status === 'claimable' && !isHeld(dr) && !passesAGate(dr, evidence, deviceExempt, 'daily'),
         txId: dr.tx_id,
         createdAt: dr.created_at,
         claimedAt: dr.claimed_at,

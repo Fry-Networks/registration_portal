@@ -71,23 +71,8 @@ scripts/check_mongo.js
 *.bak
 *.bak[0-9]*
 
-# open-source hygiene
-.env.*
-!.env.example
-*.key
-*.p12
-*.pfx
-*.keystore
-*.jks
-id_rsa
-id_ed25519
-.npmrc
-.netrc
-*.tfstate
-*.tfstate.*
-kubeconfig
-serviceAccount*.json
-secrets.json
-*.sqlite
-*.sqlite3
-*.db
+# Round 6: ad-hoc patch artifacts and harness manifests must never be committed.
+# .env.fixed.* carried 5 credential-shaped lines and was NOT covered by the .env rule.
+*.fixed.*
+harness-baseline-*.txt
+.mint-dbg.js

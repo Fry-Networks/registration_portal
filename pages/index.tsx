@@ -73,8 +73,10 @@ export default function IndexPage() {
   const [deviceCount, setDeviceCount] = useState(0);
   const [onlineCount, setOnlineCount] = useState(0);
   const [devicesLoading, setDevicesLoading] = useState(false);
+  const [devicesStatusUnavailable, setDevicesStatusUnavailable] = useState(false);
 
   const [claimableTotal, setClaimableTotal] = useState(0);
+  const [rewardsMeta, setRewardsMeta] = useState({ held: 0, pendingEvidence: 0, pending: 0, accruing: 0 });
   const [rewardsLoading, setRewardsLoading] = useState(false);
 
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
@@ -86,13 +88,16 @@ export default function IndexPage() {
     setDevicesLoading(true);
     // Real device + online counts (lease-first activity; B2)
     fetch('/api/devices/status-summary', { method: 'POST', credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(json => {
+      .then(async r => ({ ok: r.ok, json: await r.json().catch(() => null) }))
+      .then(({ ok, json }) => {
         if (!active) return;
-        setDeviceCount(typeof json?.total === 'number' ? json.total : 0);
-        setOnlineCount(typeof json?.online === 'number' ? json.online : 0);
+        if (typeof json?.total === 'number') setDeviceCount(json.total);
+        // A failed lookup must not render as "0 online" — that reads as an outage.
+        const unavailable = !ok || json?.success === false || typeof json?.online !== 'number';
+        setDevicesStatusUnavailable(unavailable);
+        setOnlineCount(unavailable ? 0 : json.online);
       })
-      .catch(() => {})
+      .catch(() => { if (active) setDevicesStatusUnavailable(true); })
       .finally(() => {
         if (active) setDevicesLoading(false);
       });
@@ -109,6 +114,9 @@ export default function IndexPage() {
         if (!active) return;
         const total = json?.summary?.claimable ?? json?.claimable ?? 0;
         setClaimableTotal(typeof total === 'number' ? total : 0);
+        const s = json?.summary || {};
+        const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+        setRewardsMeta({ held: num(s.held), pendingEvidence: num(s.pendingEvidence), pending: num(s.pending), accruing: num(s.accruing) });
       })
       .catch(() => {})
       .finally(() => { if (active) setRewardsLoading(false); });
@@ -139,7 +147,7 @@ export default function IndexPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-4">
             {/* Total Devices */}
             <Link
-              href="/devices"
+              href={!devicesLoading && deviceCount === 0 ? '/new_registration' : '/devices'}
               className="group block bg-surface-elevated border border-divider rounded-token-lg p-space-5 hover:shadow-token-md transition border-l-4 border-primary-500"
             >
               <div className="text-4xl font-display text-ink">
@@ -147,7 +155,7 @@ export default function IndexPage() {
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Devices</div>
               <div className="mt-3 text-sm font-medium text-primary-500 group-hover:underline">
-                View all →
+                {!devicesLoading && deviceCount === 0 ? 'Installed Fry Edge Miner? Register your miner key →' : 'View all →'}
               </div>
             </Link>
 
@@ -161,7 +169,17 @@ export default function IndexPage() {
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Claimable</div>
               <div className={`mt-3 text-sm font-medium group-hover:underline ${claimableTotal > 0 ? 'text-accent-500' : 'text-ink-secondary'}`}>
-                {claimableTotal > 0 ? 'Claimable · details →' : 'Nothing pending'}
+                {claimableTotal > 0
+                  ? 'Claimable · details →'
+                  : rewardsMeta.pendingEvidence > 0
+                  ? `${rewardsMeta.pendingEvidence.toFixed(2)} awaiting PoC evidence →`
+                  : rewardsMeta.held > 0
+                  ? `${rewardsMeta.held.toFixed(2)} under review →`
+                  : rewardsMeta.pending > 0
+                  ? `${rewardsMeta.pending.toFixed(2)} maturing (30-day lock) →`
+                  : rewardsMeta.accruing > 0
+                  ? `${rewardsMeta.accruing.toFixed(2)} accruing this week →`
+                  : 'Nothing pending'}
               </div>
             </Link>
 
@@ -179,11 +197,15 @@ export default function IndexPage() {
             {/* Network Status */}
             <div className="bg-surface-elevated border border-divider rounded-token-lg p-space-5 hover:shadow-token-md transition border-l-4 border-success-500">
               <div className="text-4xl font-display text-ink">
-                {devicesLoading ? '...' : onlineCount}
+                {devicesLoading ? '...' : devicesStatusUnavailable ? '\u2014' : onlineCount}
               </div>
               <div className="mt-1 text-sm text-ink-secondary">Network Status</div>
-              <div className={`mt-3 text-sm ${onlineCount > 0 ? 'text-success-500' : 'text-ink-secondary'}`}>
-                {devicesLoading ? '...' : `${onlineCount} of ${deviceCount} online`}
+              <div className={`mt-3 text-sm ${!devicesStatusUnavailable && onlineCount > 0 ? 'text-success-500' : 'text-ink-secondary'}`}>
+                {devicesLoading
+                  ? '...'
+                  : devicesStatusUnavailable
+                    ? 'Status unavailable \u2014 retry shortly'
+                    : `${onlineCount} of ${deviceCount} online`}
               </div>
             </div>
           </div>
@@ -228,7 +250,7 @@ export default function IndexPage() {
             {/* Quick Actions */}
             <div className="lg:w-2/5 space-y-3">
               {[
-                { href: '/register', label: 'Register New Device', desc: 'Onboard a miner or node', icon: 'plus' },
+                { href: '/new_registration', label: 'Register New Device', desc: 'Onboard a miner or node', icon: 'plus' },
                 { href: '/devices', label: 'My Devices', desc: 'Manage your fleet', icon: 'grid' },
                 { href: '/history', label: 'Reward History', desc: 'Claims and reward history', icon: 'coin' },
                 { href: '/help/credentials', label: 'Device Credentials', desc: 'Portal linking guide', icon: 'key' },
@@ -357,14 +379,14 @@ export default function IndexPage() {
                 </div>
                 <span className="text-sm text-ink-secondary">
                   {deviceCount === 0
-                    ? 'Register your first device to start earning rewards.'
+                    ? 'No devices are linked to this wallet yet. Installed Fry Edge Miner? Enter its miner key to link it.'
                     : `${claimableTotal} in rewards are ready to claim from your devices.`}
                 </span>
                 <Link
-                  href={deviceCount === 0 ? '/register' : '/history'}
+                  href={deviceCount === 0 ? '/new_registration' : '/history'}
                   className="sm:ml-auto text-sm font-semibold text-primary-500 hover:underline shrink-0"
                 >
-                  {deviceCount === 0 ? 'Register Device →' : 'View history →'}
+                  {deviceCount === 0 ? 'Register miner key →' : 'View history →'}
                 </Link>
               </div>
             </div>

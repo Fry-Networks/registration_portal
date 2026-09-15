@@ -1,4 +1,5 @@
-import { computeClaimableTotals } from '../../../lib/rewards/effective';
+import { computeGatedTotals, isDeviceAGateExempt } from '../../../lib/rewards/effective';
+import { loadEvidenceBatch } from '../../../lib/rewards/pocEvidence';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
@@ -14,6 +15,7 @@ import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.serve
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { tFRY, fNODE, FRY_1, normalizeAssetId } from '../../../lib/utils';
+import { NODE_PREFIXES, AEM_PREFIX, FEM_PREFIX } from '../../../lib/devicePrefixes';
 
 const WEEKLY_FLAG = process.env.NEXT_PUBLIC_WEEKLY_REWARDS_ENABLED === 'true' || process.env.WEEKLY_REWARDS_ENABLED === 'true';
 const CUTOFF_ISO = process.env.WEEKLY_CUTOFF_UTC || '2025-09-12T00:00:00.000Z';
@@ -22,9 +24,6 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 const TFryAssetId = String(normalizeAssetId(tFRY.id));
 const fNodeAssetId = String(normalizeAssetId(fNODE.id));
 const FRY1AssetId = String(normalizeAssetId(FRY_1.id));
-const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-const AEM_PREFIX = 'AEM';
-const FEM_PREFIX = 'FEM';
 const MAX_BATCH_SIZE = 200;
 
 function formatDateUTC(d: Date): string {
@@ -68,14 +67,19 @@ interface SummaryResult {
   serverTime: number;
 }
 
-function computeSummary(doc: any, devicePrefix: string): SummaryResult {
+function computeSummary(
+  doc: any,
+  devicePrefix: string,
+  evidence: any,
+  deviceExempt: boolean
+): SummaryResult {
   const isNodeDevice = NODE_PREFIXES.has(devicePrefix);
   const isAemDevice = devicePrefix === AEM_PREFIX || devicePrefix === FEM_PREFIX;
   const allowedAssets = (isNodeDevice || isAemDevice) ? new Set([fNodeAssetId]) : new Set([TFryAssetId, FRY1AssetId]);
 
   const totals = {
     pending: round2(doc?.total_pending ?? 0),
-    claimable: computeClaimableTotals(doc).claimable,
+    claimable: computeGatedTotals(doc, evidence, deviceExempt).claimable,
     claimed: round2(doc?.total_claimed ?? 0),
     accruing: 0
   };
@@ -146,7 +150,7 @@ export default async function handler(
       session.user.address;
   }
 
-  const isAdmin = await isAdminRequest(req);
+  const isAdmin = await isAdminRequest(req, session);
 
   if (!isAdmin) {
     const tokenVerified = await verifyClientToken(req, res);
@@ -218,7 +222,7 @@ export default async function handler(
     // Verify all requested devices belong to this wallet (by address)
     const devices = await devicesCol.find(
       { miner_key: { $in: uniqueKeys } },
-      { projection: { miner_key: 1, address: 1, user_id: 1 } }
+      { projection: { miner_key: 1, address: 1, user_id: 1, virtual: 1, activated: 1 } }
     ).toArray();
 
     const ownedKeys = new Set<string>();
@@ -238,6 +242,11 @@ export default async function handler(
       rewardsByKey.set(doc.miner_key, doc);
     }
 
+    const exemptByKey = new Map<string, boolean>(
+      devices.map((d: any) => [String(d.miner_key), isDeviceAGateExempt(d)])
+    );
+    const evidenceByKey = await loadEvidenceBatch(client, Array.from(ownedKeys));
+
     // Compute summaries
     const summaries: Record<string, SummaryResult> = {};
     for (const key of uniqueKeys) {
@@ -252,7 +261,12 @@ export default async function handler(
       }
       const devicePrefix = key.split('-')[0] || '';
       const doc = rewardsByKey.get(key);
-      summaries[key] = computeSummary(doc, devicePrefix);
+      summaries[key] = computeSummary(
+        doc,
+        devicePrefix,
+        evidenceByKey.get(key),
+        exemptByKey.get(key) === true
+      );
     }
 
     return res.status(200).json({ success: true, summaries });

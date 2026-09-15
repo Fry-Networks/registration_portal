@@ -1,6 +1,7 @@
 import PageShell from "../../components/PageShell";
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import algosdk from 'algosdk';
+import { browserAlgodBase, browserPort } from '../../lib/algorand/sameOriginProxy';
 import { useRouter } from 'next/router';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { useTheme } from 'next-themes';
@@ -162,7 +163,11 @@ export default function BuyTokenPage() {
       const boxName = new Uint8Array(boxPrefix.length + orderHashBytes.length);
       boxName.set(boxPrefix, 0);
       boxName.set(orderHashBytes, boxPrefix.length);
-      const algod = new algosdk.Algodv2('', 'https://mainnet-api.algonode.cloud', 443);
+      const algod = new algosdk.Algodv2(
+        '',
+        browserAlgodBase() || 'https://mainnet-api.algonode.cloud',
+        browserPort(),
+      );
       const sp = await algod.getTransactionParams().do();
       sp.flatFee = true;
       sp.fee = BigInt(2000); // covers inner AssetTransfer

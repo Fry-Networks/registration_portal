@@ -7,6 +7,7 @@ import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { CommonErrors, createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { loggers } from '../../../lib/logger';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -83,8 +84,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return;
   }
 
-  // Guard: refuse to reimburse fees until the destination wallet opts into the asset.
-  await ensureWalletAssetOptIn(to, asset_id, 'receiving fee reimbursement');
+  // Guard: refuse to continue until the wallet has opted into the asset. The helper throws
+  // `{ status, response }`; outside withDeviceActionLock nothing mapped it, so an un-opted-in
+  // wallet used to get an EMPTY HTTP 500 instead of the 400 WALLET_ASSET_NOT_OPTED_IN payload.
+  try {
+    await ensureWalletAssetOptIn(to, asset_id, 'receiving fee reimbursement');
+  } catch (guardError: any) {
+    const status = typeof guardError?.status === 'number' ? guardError.status : 500;
+    const payload = guardError?.response && typeof guardError.response === 'object'
+      ? guardError.response
+      : createApiError(ErrorCodes.INTERNAL_ERROR, 'Could not verify the wallet asset opt-in.', 'Please try again in a few minutes.');
+    res.status(status).json(payload);
+    return;
+  }
 
   void monitorWalletHealth(walletAddress, { minerKey, operation: 'fee:withdraw' });
 
@@ -95,10 +107,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     address: walletAddress,
     metadata: { asset_id, to, amount }
   }, async () => {
-    const algodClient = getAlgodClient();
+    const algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
     // Determine the dev custodial account handling fee reimbursements.
     const { account } = loadMnemonicAccountPair({
-      mnemonicEnv: 'NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC',
+      mnemonicEnv: 'ALGORAND_DEV_MNEMONIC',
       label: 'dev fee withdraw'
     });
     const sender = account.addr.toString();
@@ -127,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const txn = decodeUnsignedTransaction(encodedTxn);
     // Submit the withdrawal through the shared custodial signing helper (wait for confirmation).
     const { txId } = await signAndSubmitCustodialTransactions({
-      mnemonicEnv: 'NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC',
+      mnemonicEnv: 'ALGORAND_DEV_MNEMONIC',
       label: 'dev fee withdraw',
       algod: algodClient,
       transactions: [txn],

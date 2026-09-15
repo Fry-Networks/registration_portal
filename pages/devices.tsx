@@ -5,7 +5,7 @@ import { UserIcon, UserAddIcon, UserRemoveIcon, ArrowRightIcon, SwitchHorizontal
 import { useRouter } from 'next/router';
 import { Button, Flex, Title } from '@tremor/react';
 import { getSession, signOut, useSession } from 'next-auth/react';
-import { computeActiveSet } from '../lib/deviceActivity';
+import { computeActiveSet, TRACKED_PREFIXES } from '../lib/deviceActivity';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './api/auth/[...nextauth]';
 import { SWRConfig } from 'swr';
@@ -43,7 +43,7 @@ import { shouldForceLegacyUnverified, isLegacyVerificationStake } from '../lib/l
 import HeroBanner from '../components/HeroBanner';
 import { useSeasonalTheme } from '../app/seasonal-theme/SeasonalThemeProvider'; // Holiday-aware hero
 // import WithdrawAlgoModal from '../components/modals/WithdrawAlgo';
-import { isNodeStaked, isRegistrationStaked, getWalletAddress, algodClient, computeDeviceStatus, anchorIdForMinerKey } from '../lib/utils';
+import { isNodeStaked, isRegistrationStaked, algodClient, computeDeviceStatus, anchorIdForMinerKey } from '../lib/utils';
 import type { Notification as AppNotification } from '../components/NotificationCenter';
 import { describeMacIssue } from '../lib/validators/macAddressValidator';
 import { useNotifications } from '../app/notificationcontext';
@@ -72,7 +72,7 @@ const minerType = {
   air: ['IHAQM', 'ILAQM', 'OMAQM', 'IMAQM', 'OHAQM'],
   water: ['OLWQM', 'OHWQM'],
   radiation: ['IRM'],
-  hardware: ['ISM', 'OSM', 'BM', 'FEM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN'],
+  hardware: ['ISM', 'OSM', 'BM', 'FEM', 'AEM', 'IDM', 'ODM', 'SDN', 'SVN', 'RDN', 'CN'],
   camera: ['AOWSCM', 'AOWCM', 'AIWCM', 'AOSCM', 'AISCM', 'AOTCM', 'AITCM', 'AIWSCM'],
   energy: ['EM'],
   virtual: ['VRDN', 'VSDN', 'VSVN']
@@ -87,8 +87,23 @@ type HardwareStatus = {
   detail?: string;
 };
 const FRY_DOCS_LINK = 'https://docs.frynetworks.com/poc-4-all';
+// Legacy product lines (AEM/BM/ISM/RDN/SVN/IDM/OSM/SDN) have no main.products row, so their
+// cards hit the product-miss early return below. They are superseded by Fry Edge Miner.
+const FEM_INSTALL_LINK = 'https://docs.frynetworks.com/docs/install-fem.html';
+// Only these legacy lines are actually superseded. The product-miss stub below is the
+// fallback for ANY prefix with no main.products row, including a NEW product whose row has
+// simply not been created yet (IOT was in exactly that state on 2026-09-14), so the
+// deprecation wording must be gated on this set or it tells owners of working new hardware
+// that their device is obsolete.
+const DEPRECATED_PREFIXES = new Set(['AEM', 'BM', 'CN', 'IDM', 'ISM', 'ODM', 'OSM', 'RDN', 'SDN', 'SVN']);
 const NOTIFICATION_PREFIXES = new Set(['SDN', 'SVN', 'RDN', 'CN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
 const HARDWARE_MAC_PREFIXES = new Set(['CN', 'RDN', 'SDN', 'SVN', 'BM', 'FEM', 'ISM', 'OSM', 'IDM', 'ODM']);
+const NODE_KEY_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
+// A device is a node when its key prefix is a node product OR it was registered through the
+// node portal: FEM keys registered as nodes carry registered_portal_model === 'node' (838
+// fleet-wide on 2026-09-10) and were being counted as miners, so users saw "N miners, 0 nodes".
+const isNodeRecord = (d: { miner_key: string; registered_portal_model?: string | null }): boolean =>
+  NODE_KEY_PREFIXES.has(String(d.miner_key || '').split('-')[0]) || d.registered_portal_model === 'node';
 
 // Hardware checks follow the same configuration as credentials needed setting
 // Hardware MAC check is independent of credential portal requirements —
@@ -157,9 +172,8 @@ function StatsGrid({
   nodeDevices?: Device[];
   hardwareStatusMap?: Record<string, HardwareStatus>;
 }) {
-  const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
-  const miners = minerDevices ?? devices.filter(d => !NODE_PREFIXES.has(d.miner_key.split('-')[0]));
-  const nodes = nodeDevices ?? devices.filter(d => NODE_PREFIXES.has(d.miner_key.split('-')[0]));
+  const miners = minerDevices ?? devices.filter(d => !isNodeRecord(d));
+  const nodes = nodeDevices ?? devices.filter(d => isNodeRecord(d));
 
   // Count not linked but consider env-driven requirements
   const getNotLinkedDevices = (arr: Device[]) => arr.filter(d => {
@@ -606,11 +620,10 @@ const DevicesPage = ({
       });
     }
     if (typeFilter !== 'all') {
-      const NODE_PREFIXES = new Set(['RDN', 'SVN', 'SDN', 'CN']);
       if (typeFilter === 'miners') {
-        list = list.filter(d => !NODE_PREFIXES.has(d.miner_key.split('-')[0]));
+        list = list.filter(d => !isNodeRecord(d));
       } else if (typeFilter === 'nodes') {
-        list = list.filter(d => NODE_PREFIXES.has(d.miner_key.split('-')[0]));
+        list = list.filter(d => isNodeRecord(d));
       }
     }
     return sortDevices(list);
@@ -1071,7 +1084,12 @@ const DevicesPage = ({
           if (consecutiveFailures >= 3) {
             stopPolling();
           }
-          if (active) setTotalsError(true);
+          // An expected security rejection (403/409 from the client-token / signature /
+          // fingerprint layers) is recoverable and already retried by
+          // fetchWithFingerprintRetry, so it must not paint the red "Unable to load rewards"
+          // panel. Genuine failures still do. Note totalsError is a BOOLEAN, so it cannot be
+          // classified at the render site the way batchError is - it has to be decided here.
+          if (active) setTotalsError(!isExpectedSecurityRejection);
           return;
         }
         const json = await res.json();
@@ -1240,6 +1258,13 @@ const DevicesPage = ({
       openModal('withdraw');
       return;
     }
+    // FEM verification-exempt devices count as staked-verified via staked.time
+    // (mirrors DeviceListItem isStaked()); route them to withdraw, not a re-stake.
+    const femVerificationExempt = typeof device?.miner_key === 'string' && device.miner_key.startsWith('FEM-') && Boolean(device?.is_registered && device?.reward_wallet);
+    if (femVerificationExempt && device?.staked?.time) {
+      openModal('withdraw');
+      return;
+    }
     if (!device.verified) {
       setStakeContext('verification');
       openModal('stake');
@@ -1370,10 +1395,7 @@ const DevicesPage = ({
   //   console.log('Selected Withdraw: ', device);
   // }
 
-  const isNodeDevice = useCallback((d: Device): boolean => {
-    const prefix = d.miner_key.split('-')[0];
-    return ['RDN', 'SVN', 'SDN', 'CN'].includes(prefix);
-  }, []);
+  const isNodeDevice = useCallback((d: Device): boolean => isNodeRecord(d), []);
   const isMinerDevice = useCallback((d: Device): boolean => !isNodeDevice(d), [isNodeDevice]);
   const minerDevices = useMemo(() => devices.filter(isMinerDevice), [devices, isMinerDevice]);
   const nodeDevices = useMemo(() => devices.filter(isNodeDevice), [devices, isNodeDevice]);
@@ -1404,7 +1426,7 @@ const DevicesPage = ({
       <div className={`px-2 sm:px-20 ${heroOffsetClass}`}>
         <HeroBanner title="Fry Operations Center" subtitle="Register and manage miners and nodes: verify details, link portals, and handle rewards." backgroundImage={bgImg} links={[{
             label: 'Registration Guide',
-            href: 'https://docs.frynetworks.com/dashboard/registration'
+            href: 'https://docs.frynetworks.com/docs/install-fem.html'
           }]} mode={isDark ? 'dark' : 'light'} holidayKey={holidayKey} />
       </div>
       {securityBlocked && <div className="mx-2 sm:mx-20 rounded-lg border border-error-300 bg-error-50 px-4 py-3 text-sm text-error-900">
@@ -1416,7 +1438,7 @@ const DevicesPage = ({
           <Link href="/signin" className="underline font-medium">Sign in</Link>
         </div>}
       {/* FloatingTotalsWidget - replaces old sticky ribbon */}
-      {session?.user?.address && (totals || totalsError) && <FloatingTotalsWidget totals={totals} countdown={countdown} claimCountdown={claimCountdown} estimatedFnode={estimatedFnode} estimatedTfry={estimatedTfry} legacyFryClaimedSnapshot={totals?.legacyFryClaimedSnapshot} isError={!!batchError || totalsError} />}
+      {session?.user?.address && (totals || totalsError) && <FloatingTotalsWidget totals={totals} countdown={countdown} claimCountdown={claimCountdown} estimatedFnode={estimatedFnode} estimatedTfry={estimatedTfry} legacyFryClaimedSnapshot={totals?.legacyFryClaimedSnapshot} isError={shouldFallBackPerDevice(batchError) || totalsError} />}
       {/* Phase 3: Virtual device activation banner */}
       {pendingVirtualDevices.length > 0 && <VirtualActivationBanner devices={pendingVirtualDevices} sessionAddress={session?.user?.address || ''} />}
       {/* Phase 4: Credential onboarding banner */}
@@ -1508,7 +1530,14 @@ const DevicesPage = ({
               return <div key={device.miner_key} className="rounded-xl border border-warning-500/30 bg-warning-500/5 p-4">
                   <div className="text-sm font-medium text-warning-200">{device.name || device.miner_key}</div>
                   <div className="text-xs font-mono text-warning-300/70 mt-1">{device.miner_key}</div>
+                  {DEPRECATED_PREFIXES.has(String(device.miner_key || '').split('-')[0]) ? (
+                  <div className="text-xs text-warning-400 mt-2">
+                    This device type has been replaced by Fry Edge Miner. Install FEM on this machine to continue earning rewards.{' '}
+                    <a href={FEM_INSTALL_LINK} target="_blank" rel="noreferrer" className="underline">Install Fry Edge Miner</a>
+                  </div>
+                  ) : (
                   <div className="text-xs text-warning-400 mt-2">Product configuration missing for this device type. Contact admin to configure.</div>
+                  )}
                 </div>;
             }
             return <DeviceListItem key={device.miner_key} initialDevice={device} batchRewardSummary={batchSummaries?.[device.miner_key]} batchDeviceInfo={batchDeviceInfos?.[device.miner_key]} batchOptInStatus={batchTokenBalances?.[device.miner_key]} batchRewardError={shouldFallBackPerDevice(batchError)} batchDeviceError={!!deviceInfoError} batchTokenError={!!tokenBalanceError} product={product!} tokenMetadata={tokenMetadata} stakeable={isProductStakeAvailable(product!)} initialStatus={statusFallback[device.miner_key]} hardwareStatus={hardwareStatus[device.miner_key]} handleStakeRequirement={handleStakeRequirement} handleDeleteButton={handleDeleteButton} handleChange={handleChange} handleSetting={handleSetting} handleBoostButton={handleBoostButton} handleClaimButton={handleClaimButton} handleWithdrawStake={handleWithdrawStake} handleWithdrawAllButton={handleWithdrawAllButton}
@@ -1542,6 +1571,11 @@ const DevicesPage = ({
                   </svg>
                   Add your first device
                 </button>
+              )}
+              {devices.length === 0 && (
+                <Link href="/new_registration" className="mt-3 block text-sm text-primary-500 hover:underline">
+                  Installed Fry Edge Miner? Register its miner key →
+                </Link>
               )}
               {devices.length > 0 && (
                 <button
@@ -1706,7 +1740,6 @@ export async function getServerSideProps(context: any) {
     const devices = await Promise.all(devicesRaw.map((device: any) => hydrateDeviceWithPosition(client, device)));
 
     // Active-device tracking: lease-first truthful activity (B2).
-    const TRACKED_PREFIXES = ['AEM', 'BM', 'FEM', 'RDN', 'SDN', 'SVN', 'CN'];
     const deviceMinerKeys = devices.map((d: any) => d.miner_key).filter(Boolean);
     const activeMinerKeys = await computeActiveSet(client, deviceMinerKeys);
 

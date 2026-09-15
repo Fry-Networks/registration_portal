@@ -40,7 +40,7 @@
     "@mapbox/search-js-core": "^1.5.0",
     "@mapbox/search-js-react": "^1.0.0-beta.18",
     "@noble/hashes": "^1.3.3",
-    "@perawallet/connect": "^1.4.2",
+    "@perawallet/connect": "^1.6.0",
     "@planetscale/database": "^1.10.0",
     "@remixicon/react": "^4.2.0",
     "@scure/base": "^1.1.6",

@@ -83,6 +83,21 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
           ]);
         } catch (e) {
           console.warn('[wallet] resumeSessions timed out or failed, forcing ready', e);
+          // A session that genuinely fails to restore is dead weight: the same corrupt blob
+          // is retried on every reload and the user is stuck on "Connect Wallet" with no way
+          // out, because the "Clear wallet data & retry" button below only renders when
+          // wallet INIT throws. Drop the same two provider keys so the next connect starts
+          // clean. A TIMEOUT is excluded on purpose -- a slow network must not silently
+          // disconnect a working wallet.
+          const resumeTimedOut = e instanceof Error && /timeout/i.test(e.message);
+          if (!resumeTimedOut) {
+            try {
+              localStorage.removeItem('pera-wallet-session');
+              localStorage.removeItem('defly-wallet-session');
+            } catch (cleanupError) {
+              console.warn('[wallet] could not clear stale wallet session data', cleanupError);
+            }
+          }
         }
         // Force ready regardless of timeout or success
         manager.store.setState((state) => ({ ...state, managerStatus: 'ready' }));

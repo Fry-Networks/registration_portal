@@ -10,10 +10,11 @@
 
 import { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import crypto from 'crypto';
-import { isAdminRequest, extractWalletFromRequest } from './adminCheck';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
-const TOKEN_GENERATION_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
+const TOKEN_GENERATION_SECRET = 'fry-rewards-client-';
+
+type RequestWithSessionWallet = NextApiRequest & { _sessionWalletAddress?: string };
 
 /**
  * Helper: Format and log security event
@@ -69,25 +70,18 @@ async function logLayer1Event(
  * The token should be sent as the 'x-client-token' header.
  * We verify it by computing the expected hash based on the User-Agent header.
  * 
- * ADMIN BYPASS: If the wallet address has admin=true in registration-users,
- * this verification is skipped entirely.
+ * No admin bypass here: there is no session in scope. Routes that skip L1 for
+ * admins decide that from the authenticated session (lib/adminCheck.ts).
  */
 export async function verifyClientToken(req: NextApiRequest, res: NextApiResponse): Promise<boolean> {
-  // Admin bypass: check if wallet is admin
-  const isAdmin = await isAdminRequest(req);
-  if (isAdmin) {
-    // Admin users bypass this check
-    const walletAddress = extractWalletFromRequest(req) || 'unknown';
-    const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
-    const timestamp = new Date().toISOString();
-    const consoleLog = `[L1 - ClientToken] ${timestamp} - Admin bypass allowed | Wallet: ${walletAddress} | Miner: ${minerKey}`;
-    console.log(consoleLog);
-    return true;
-  }
-
   const token = req.headers['x-client-token'] as string | undefined;
   const userAgent = req.headers['user-agent'] || '';
-  const walletAddress = extractWalletFromRequest(req) || 'unknown';
+  // Logging only (never a decision): session wallet, else the self-asserted body wallet.
+  const walletAddress =
+    (req as RequestWithSessionWallet)._sessionWalletAddress ||
+    (req.body?.address as string | undefined) ||
+    (req.body?.wallet as string | undefined) ||
+    'unknown';
   const minerKey = (req.body?.miner_key || req.query?.miner_key || 'unknown') as string;
 
   if (!token) {
@@ -122,7 +116,7 @@ export async function verifyClientToken(req: NextApiRequest, res: NextApiRespons
 /**
  * Middleware wrapper: protect an API handler with client token verification.
  * 
- * Admin users bypass this check.
+ * No admin bypass (no session in scope).
  * 
  * Usage:
  *   export default withClientTokenVerification(async (req, res) => {
