@@ -1,5 +1,5 @@
 import { getClientToken, refreshClientToken } from '../clientToken';
-import { generateRequestSignatureAsync } from '../requestSignature.client';
+import { generateRequestSignatureAsync, resetSigningKey } from '../requestSignature.client';
 
 type JsonValue = Record<string, unknown> | Array<unknown> | string | number | boolean | null;
 
@@ -54,7 +54,11 @@ export const secureFetch = async (
         return performFetch(clientToken);
       }
       if (code === 'INVALID_SIGNATURE' || code === 'INVALID_REQUEST_SIGNATURE') {
-        console.warn('[secureFetch] Request signature rejected, regenerating and retrying', { endpoint, method });
+        // R11: the signing key is per-session and fetched at runtime, so a rejected signature
+        // usually means the cached key is stale (session rotated). Drop it before retrying —
+        // regenerating with the same stale key would just fail again.
+        console.warn('[secureFetch] Request signature rejected, refreshing signing key and retrying', { endpoint, method });
+        resetSigningKey();
         return performFetch(clientToken);
       }
     } catch {

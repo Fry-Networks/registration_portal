@@ -1,5 +1,4 @@
-import { getAlgodClient } from '../wallet/clients';
-import { withAlgorandRetry } from './withRetry';
+import { getFailoverAccountInfo } from './failover';
 
 /**
  * Cache for auth-addr lookups.
@@ -28,13 +27,19 @@ export async function getAuthAddr(
     }
   }
 
-  const algod = getAlgodClient();
-  const accountInfo = await withAlgorandRetry(algod.accountInformation(address));
+  // Failover across algod endpoints so wallet sign-in survives a single node
+  // outage. Throws AlgodUnavailableError when every endpoint fails.
+  const accountInfo = await getFailoverAccountInfo(address);
 
   // auth-addr field is present only if account is rekeyed
   // If auth-addr equals the account address, it's effectively un-rekeyed
-  // algosdk returns kebab-case keys in the response
-  const authAddr = (accountInfo as { authAddr?: { toString(): string } }).authAddr?.toString();
+  // Read both key shapes: raw JSON uses kebab-case ('auth-addr'),
+  // algosdk model classes use camelCase (authAddr).
+  const info = accountInfo as unknown as {
+    ['auth-addr']?: { toString(): string };
+    authAddr?: { toString(): string };
+  };
+  const authAddr = (info['auth-addr'] ?? info.authAddr)?.toString();
   const effectiveAuthAddr = (authAddr && authAddr !== address) ? authAddr : null;
 
   // Cache the result

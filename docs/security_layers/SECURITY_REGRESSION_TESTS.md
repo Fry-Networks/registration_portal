@@ -14,9 +14,14 @@ Run the authenticated script with a real session token:
 
 ```bash
 SESSION_COOKIE="paste_next_auth_token" \
-REQUEST_SIGNATURE_SECRET="your_request_signature_secret" \
+BASE_URL="http://localhost:3007" \
 node scripts/test-authenticated-session.mjs
 ```
+
+> **R11:** the L2 signing key is now per-session and issued by `GET /api/auth/signing-key`.
+> The script fetches it automatically with the session cookie you supply, so there is no
+> longer a signing secret to export. A request signed with a build-time constant is rejected
+> by design — that constant used to ship in the client bundle.
 
 Expected:
 - Step 1 prints the wallet address.

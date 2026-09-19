@@ -10,12 +10,12 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 
 const BASE_URL = process.env.TEST_URL || 'http://localhost:3000';
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
-if (!SIGNATURE_SECRET) {
-  throw new Error('REQUEST_SIGNATURE_SECRET environment variable is required to run this test script');
-}
+// R11 NEGATIVE CONTROL: the value below is the RETIRED, publicly-known L2 constant that used
+// to ship in the client bundle. It is kept deliberately so these scripts prove the server now
+// REJECTS constant-signed requests. It is not a credential and grants nothing.
+const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'fry-rewards-signature-v1-';
 const TEST_USER_AGENT = 'test-client/1.0';
-const CLIENT_TOKEN_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
+const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
 
 const results = [];
 

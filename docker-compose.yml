@@ -22,7 +22,7 @@ services:
       NODE_OPTIONS: --no-deprecation # Suppress DEP0060 warning
       NEXTAUTH_URL: 'op://Dashboard/Dash Secrets/NEXTAUTH_URL'
       NEXTAUTH_URL_INTERNAL: "http://127.0.0.1:3007"
-      NEXTAUTH_SECRET: 'op://Dashboard/Dash Secrets/NEXT_AUTH_SECRET'
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-'op://Dashboard/Dash Secrets/NEXT_AUTH_SECRET'}
       STAKE_MNEMONIC: 'op://Dashboard/Dash Secrets/STAKE_MNEMONIC'
       STAKE_REKEY: 'op://Dashboard/Dash Secrets/STAKE_REKEY'
       REWARD_MNEMONIC: 'op://Dashboard/Dash Secrets/REWARD_MNEMONIC'
@@ -37,17 +37,18 @@ services:
       LEGACY_VERIFICATION_FORCE_UTC: ${LEGACY_VERIFICATION_FORCE_UTC:-'2025-12-05T00:00:00.000Z'}
       NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC: ${NEXT_PUBLIC_LEGACY_VERIFICATION_FORCE_UTC:-'2025-12-05T00:00:00.000Z'}
       BUG_REPORT_RATE_LIMIT_HOURS: 1
-      ALGOD_URL: "http://100.69.195.100:8190"
-      ALGOD_TOKEN: 'op://Dashboard/Dash Secrets/ALGOD_TOKEN'
+      ALGOD_URL: ${ALGOD_URL:-http://100.69.195.100:8190}
+      ALGOD_TOKEN: ${ALGOD_TOKEN}
+      # Request-signature HMAC dual-accept rotation (server accepts this AND the legacy default).
       REQUEST_SIGNATURE_SECRET: 'op://Dashboard/Dash Secrets/REQUEST_SIGNATURE_SECRET'
       # User-pays-gas dark-launch. Default OFF: live claim path stays custodial. Flip to 'true' on wake.
       REWARD_USER_PAYS_GAS: 'true'
       REWARD_USER_PAYS_GAS_TEST_WALLETS: ''
       USER_GAS_PAYMENT_MICROALGO: '10000'
-      DIMO_CLIENT_ID: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'
-      DIMO_CLIENT_SECRET: 'op://Dashboard/Dash Secrets/DIMO_CLIENT_SECRET'
-      DIMO_REDIRECT_URI: 'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'
-      DIMO_HASH_SECRET: 'op://Dashboard/Dash Secrets/DIMO_HASH_SECRET'
+      DIMO_CLIENT_ID: ${DIMO_CLIENT_ID:-'op://Dashboard/Dash Secrets/DIMO_CLIENT_ID'}
+      DIMO_CLIENT_SECRET: ${DIMO_CLIENT_SECRET:-'op://Dashboard/Dash Secrets/DIMO_CLIENT_SECRET'}
+      DIMO_REDIRECT_URI: ${DIMO_REDIRECT_URI:-'op://Dashboard/Dash Secrets/DIMO_REDIRECT_URI'}
+      DIMO_HASH_SECRET: ${DIMO_HASH_SECRET:-'op://Dashboard/Dash Secrets/DIMO_HASH_SECRET'}
       DIMO_LOGIN_BASE: 'https://login.dimo.org'
       DIMO_JWKS_URL: 'https://auth.dimo.zone/keys'
       DIMO_API_BASE: 'https://api.dimo.co'
@@ -78,7 +79,7 @@ services:
       GUARANTEE_VAULT_APP_ID: '3563123514'
       GUARANTEE_PAUSED: 'false'
       GUARANTEE_MNEMONIC: 'op://Dashboard/Guarantee Settlement Signer/GUARANTEE_MNEMONIC'
-      FRY_PROXY_KEY: 'op://Dashboard/Dash Secrets/FRY_PROXY_KEY'
+      FRY_PROXY_KEY: '5959039c142ee53267db921d5721858276906ed8353789428af3b26832ffb724'
     healthcheck:
       test:
         [

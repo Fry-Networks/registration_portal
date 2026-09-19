@@ -14,13 +14,48 @@
  */
 
 import { NextApiRequest } from 'next';
+import { getToken } from 'next-auth/jwt';
 import { logSecurityEventAggregated } from './securityEventAggregation';
 
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'fry-rewards-signature-v1-';
+// R11: no fallback. The previous default was a public constant that also shipped in the
+// client bundle, so falling back to it silently disabled L2 entirely. Missing secret now
+// fails closed at the call sites (deriveSigningKey throws).
+const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
 const MAX_AGE_SECONDS = 900; // 15 minutes — increased from 5 min to tolerate clock skew while clients adopt serverTime
+
+// Clients cache the derived key; keep that cache inside the server's own signature window.
+export const SIGNING_KEY_TTL_SECONDS = MAX_AGE_SECONDS;
+
+/**
+ * Derive the per-session L2 signing key (R11).
+ *
+ * The key handed to the browser is HMAC(server secret, session identity) rather than the
+ * server secret itself, so a leaked key compromises one session rather than the whole scheme,
+ * and a key minted for one session cannot sign for another. Binding in session.expires makes
+ * the key rotate whenever the session does.
+ *
+ * Both inputs MUST be stable for the life of the session. Do NOT pass session.expires or
+ * the JWT's iat/exp: NextAuth re-issues the token while a page is open, so those drift and
+ * the key would change between the request that issues it and the request that uses it.
+ * Callers pass the JWT's `sid` claim, which is minted once at sign-in.
+ *
+ * Throws when REQUEST_SIGNATURE_SECRET is unset so the caller fails closed.
+ */
+export function deriveSigningKey(sessionAddress: string, sessionIssuedAt: string): string {
+  if (!SIGNATURE_SECRET) {
+    throw new Error('REQUEST_SIGNATURE_SECRET is not configured');
+  }
+  const crypto = require('crypto');
+  return crypto
+    .createHmac('sha256', SIGNATURE_SECRET)
+    .update(`fry-l2-signing-key|v2|${sessionAddress}|${sessionIssuedAt}`)
+    .digest('hex');
+}
 
 type RequestWithSessionWallet = NextApiRequest & {
   _sessionWalletAddress?: string;
+  // Set by enforceWalletApiSecurity from the authenticated session (R11).
+  _sessionSigningKey?: string;
 };
 
 /**
@@ -97,6 +132,24 @@ export async function verifyRequestSignatureAsync(
   signature: string,
   req?: NextApiRequest
 ): Promise<boolean> {
+  // The signature-gated routes call this directly rather than through
+  // enforceWalletApiSecurity, so the per-session key cannot be assumed to be present.
+  // Derive it here from the request's own session JWT when it is missing.
+  if (req) {
+    const tagged = req as RequestWithSessionWallet;
+    if (!tagged._sessionSigningKey) {
+      try {
+        const jwt = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+        const subject =
+          (jwt?.address as string | undefined) || (jwt?.sub as string | undefined) || '';
+        if (jwt && subject) {
+          tagged._sessionSigningKey = deriveSigningKey(subject, String(jwt.sid ?? ''));
+        }
+      } catch {
+        // No usable session: fall through and fail closed in verifyRequestSignature.
+      }
+    }
+  }
   return verifyRequestSignature(method, path, body, timestamp, signature, req);
 }
 
@@ -153,23 +206,26 @@ export function verifyRequestSignature(
 
   // Compute expected signature
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
-  // Dual-accept rotation: accept the configured secret AND the legacy default so
-  // old client bundles keep working while a new secret is rolled out. Non-breaking.
-  const SECRETS = Array.from(new Set([SIGNATURE_SECRET, 'fry-rewards-signature-v1-']));
+
+  // R11: verify against the caller's PER-SESSION key, set by enforceWalletApiSecurity.
+  // The previous implementation also dual-accepted a hardcoded legacy constant that shipped
+  // in the client bundle — so any visitor could mint a valid signature and L2 was not a
+  // boundary at all. There is deliberately no fallback here: no key, no pass.
+  const signingKey = (req as RequestWithSessionWallet | undefined)?._sessionSigningKey;
+  if (!signingKey) {
+    if (req) {
+      logLayer2Event(req, 'MISSING_SIGNATURE', walletAddress, minerKey, 'No per-session signing key on request').catch(() => {});
+    }
+    return false;
+  }
 
   // Use timing-safe comparison to prevent timing attacks
   try {
-    let valid = false;
-    for (const secret of SECRETS) {
-      const expected = crypto
-        .createHmac('sha256', secret)
-        .update(message)
-        .digest('hex');
-      if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
-        valid = true;
-        break;
-      }
-    }
+    const expected = crypto
+      .createHmac('sha256', signingKey)
+      .update(message)
+      .digest('hex');
+    const valid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 
     if (!valid && req) {
       logLayer2Event(req, 'INVALID_SIGNATURE', walletAddress, minerKey).catch(() => {});

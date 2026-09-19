@@ -8,13 +8,29 @@
 import { execSync } from 'child_process';
 import * as crypto from 'crypto';
 
-const BASE_URL = 'http://localhost:3001'; // Updated to port 3001
-const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET;
-if (!SIGNATURE_SECRET) {
-  throw new Error('REQUEST_SIGNATURE_SECRET environment variable is required to run this test script');
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3007';
+// R11: the L2 signing key is per-session and issued by the server. It is fetched once here
+// using this script's own session cookie. Signing with a global constant no longer works --
+// that constant used to ship in the client bundle, which is exactly what R11 removed.
+let SIGNING_KEY = null;
+function getSigningKey() {
+  if (SIGNING_KEY) return SIGNING_KEY;
+  const cmd = `curl -s "${BASE_URL}/api/auth/signing-key" -H "Cookie: __Secure-next-auth.session-token=${sessionCookie}"`;
+  const out = execSync(cmd, { encoding: 'utf8' });
+  let parsed;
+  try {
+    parsed = JSON.parse(out);
+  } catch {
+    throw new Error(`signing-key fetch returned non-JSON: ${out.slice(0, 200)}`);
+  }
+  if (!parsed || typeof parsed.key !== 'string') {
+    throw new Error(`signing-key fetch failed: ${out.slice(0, 200)}`);
+  }
+  SIGNING_KEY = parsed.key;
+  return SIGNING_KEY;
 }
 const TEST_USER_AGENT = 'test-client/1.0';
-const CLIENT_TOKEN_SECRET = process.env.NEXT_PUBLIC_CLIENT_TOKEN_SECRET || 'fry-rewards-client-';
+const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
 
 let sessionCookie = process.env.SESSION_COOKIE;
 if (!sessionCookie) {
@@ -33,7 +49,7 @@ function generateClientToken(userAgent) {
 function generateRequestSignature(method, path, body, timestamp) {
   const message = `${method}|${path}|${JSON.stringify(body)}|${timestamp}`;
   return crypto
-    .createHmac('sha256', SIGNATURE_SECRET)
+    .createHmac('sha256', getSigningKey())
     .update(message)
     .digest('hex');
 }

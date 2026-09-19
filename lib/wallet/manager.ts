@@ -35,6 +35,9 @@ const deflyOptions: DeflyWalletConnectOptions = {
   chainId: 416001
 };
 
+// SECURITY: this is an explicit allowlist, and it must stay one. The @txnlab/use-wallet
+// Mnemonic provider (WalletId.MNEMONIC) must never be added here -- it persists a raw mnemonic
+// to localStorage, putting a signing key somewhere any script or browser extension can read it.
 const SUPPORTED_WALLETS = [
   {
     id: WalletId.PERA,

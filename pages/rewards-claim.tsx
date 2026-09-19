@@ -62,10 +62,16 @@ export default function RewardsClaimPage() {
   useEffect(() => {
     if (!activeAddress) return;
     (async () => {
-      const tfryBal = await getAssetBalance(activeAddress, TFRY_ID.toString());
-      const fnodeBal = await getAssetBalance(activeAddress, FNODE_ID.toString());
-      setTfryOptedIn(tfryBal !== null);
-      setFnodeOptedIn(fnodeBal !== null);
+      try {
+        const tfryBal = await getAssetBalance(activeAddress, TFRY_ID.toString());
+        const fnodeBal = await getAssetBalance(activeAddress, FNODE_ID.toString());
+        setTfryOptedIn(tfryBal !== null);
+        setFnodeOptedIn(fnodeBal !== null);
+      } catch (err) {
+        // Balance check unavailable — keep current opt-in state rather than
+        // falsely prompting for opt-in.
+        console.error('Opt-in status check failed:', err);
+      }
     })();
   }, [activeAddress]);
 

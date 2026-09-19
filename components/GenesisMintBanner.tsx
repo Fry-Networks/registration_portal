@@ -4,12 +4,20 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 const STORAGE_KEY = 'genesisBannerDismissed';
-const MINTED_COUNT = 6;
-const TOTAL_SUPPLY = 1000;
+
+type Collection = {
+  key: string;
+  name: string;
+  app_id: number;
+  total_supply: number;
+  total_minted: number | null;
+  degraded: boolean;
+};
 
 export default function GenesisMintBanner() {
   const [dismissed, setDismissed] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [collections, setCollections] = useState<Collection[] | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -19,6 +27,22 @@ export default function GenesisMintBanner() {
     } catch {
       setDismissed(false);
     }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/genesis/fry-fee/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!active) return;
+        setCollections(Array.isArray(json?.collections) ? json.collections : []);
+      })
+      .catch(() => {
+        if (active) setCollections([]);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const handleDismiss = () => {
@@ -32,7 +56,31 @@ export default function GenesisMintBanner() {
 
   if (!mounted || dismissed) return null;
 
-  const percent = Math.min(100, Math.round((MINTED_COUNT / TOTAL_SUPPLY) * 100));
+  // A count we could not read stays unknown — rendering 0 would read as "none minted".
+  const renderCollection = (c: Collection) => {
+    const unknown = c.degraded || typeof c.total_minted !== 'number';
+    const percent = unknown
+      ? 0
+      : Math.min(100, Math.round(((c.total_minted as number) / c.total_supply) * 100));
+    return (
+      <div key={c.key} className="flex items-center gap-3">
+        <span className="text-xs font-medium text-white/60 w-[150px] shrink-0 truncate">{c.name}</span>
+        <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden max-w-[160px]">
+          {!unknown && (
+            <div
+              className="h-full bg-white rounded-full transition-all duration-500"
+              style={{ width: `${percent}%` }}
+            />
+          )}
+        </div>
+        <span className="text-xs font-medium text-white/70">
+          {unknown
+            ? 'count unavailable'
+            : `${c.total_minted} / ${c.total_supply} minted (${percent}%)`}
+        </span>
+      </div>
+    );
+  };
 
   return (
     <div className="relative overflow-hidden rounded-token-lg bg-gradient-to-r from-primary-600 to-primary-900 text-white shadow-token-md">
@@ -58,19 +106,20 @@ export default function GenesisMintBanner() {
             </h2>
           </div>
           <p className="text-sm text-white/80 mb-2">
-            Only 1,000 will ever exist. Claim your spot in Fry Networks history.
+            Strictly limited supply. Claim your spot in Fry Networks history.
           </p>
-          {/* Scarcity bar */}
-          <div className="flex items-center gap-3">
-            <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden max-w-[200px]">
-              <div
-                className="h-full bg-white rounded-full transition-all duration-500"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <span className="text-xs font-medium text-white/70">
-              {MINTED_COUNT} / {TOTAL_SUPPLY} minted ({percent}%)
-            </span>
+          {/* Scarcity bars — one per collection, live from chain */}
+          <div className="flex flex-col gap-1.5">
+            {collections === null ? (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden max-w-[160px]" />
+                <span className="text-xs font-medium text-white/50">Loading mint counts…</span>
+              </div>
+            ) : collections.length === 0 ? (
+              <span className="text-xs font-medium text-white/70">Mint counts unavailable</span>
+            ) : (
+              collections.map(renderCollection)
+            )}
           </div>
           <p className="text-xs text-white/60 mt-1.5">
             Genesis holders earn 10% of fry.farm fees every month, forever — completely passive income.

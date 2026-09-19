@@ -4,7 +4,8 @@ import { authOptions } from "../auth/[...nextauth]";
 import clientPromise from "../../../lib/mongoclient";
 import { hydrateDeviceWithPosition } from "../../../lib/devicePosition";
 import { shouldForceLegacyUnverified } from "../../../lib/legacyStake";
-import { computeActiveSet, TRACKED_PREFIXES } from "../../../lib/deviceActivity";
+import { shouldReconcileVerified } from "../../../lib/stakeReconcile";
+import { computeActiveSet, getRewardEligibility, TRACKED_PREFIXES } from "../../../lib/deviceActivity";
 import {
   CommonErrors,
   createApiError,
@@ -80,6 +81,16 @@ export default async function handler(
         rawDevice.verified = false;
       }
 
+      // A device registered after its stake already existed never had
+      // /api/stake/verification run for it, so the flag stayed false on a real stake.
+      if (shouldReconcileVerified(rawDevice)) {
+        await collection.updateOne(
+          { _id: rawDevice._id },
+          { $set: { verified: true } }
+        );
+        rawDevice.verified = true;
+      }
+
       const hydrated = await hydrateDeviceWithPosition(client, rawDevice as any);
       await enrichLegacyStakeData(collection, rawDevice.miner_key, hydrated);
       devices[rawDevice.miner_key] = hydrated;
@@ -90,8 +101,18 @@ export default async function handler(
     const trackedKeys = Object.keys(devices).filter(k => TRACKED_PREFIXES.includes(k.split('-')[0]));
     if (trackedKeys.length > 0) {
       const activeSet = await computeActiveSet(client, trackedKeys);
+      // A heartbeating device can still be reward-ineligible (PoC version / liveness
+      // gate). Surface that verdict so "Active" never implies "earning".
+      const eligibility = await getRewardEligibility(client, trackedKeys);
       for (const key of trackedKeys) {
         (devices[key] as any).is_active = activeSet.has(key);
+        const verdict = eligibility.get(key);
+        if (verdict && verdict.eligible !== null) {
+          (devices[key] as any).reward_eligible = verdict.eligible;
+          (devices[key] as any).reward_block_reason = verdict.reason;
+          (devices[key] as any).reward_poc_version_installed = verdict.pocVersionInstalled;
+          (devices[key] as any).reward_poc_version_required = verdict.pocVersionRequired;
+        }
       }
     }
 

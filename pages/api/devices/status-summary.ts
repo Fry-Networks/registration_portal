@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
-import { computeActiveSet } from '../../../lib/deviceActivity';
+import { computeActiveSetDetailed } from '../../../lib/deviceActivity';
 
 // Lightweight per-wallet device status counts for the home dashboard tile (B2).
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,14 +32,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       minerKeys.push(d.miner_key);
     }
 
-    const activeSet = await computeActiveSet(client, minerKeys);
+    const { active, degraded } = await computeActiveSetDetailed(client, minerKeys);
+    if (degraded) {
+      // Reporting 0 online here would be indistinguishable from every miner being
+      // offline, so say the status is unknown instead.
+      return res.status(503).json({
+        success: false,
+        code: 'ACTIVITY_UNAVAILABLE',
+        message: 'Device status is temporarily unavailable',
+        total: minerKeys.length
+      });
+    }
     return res.status(200).json({
       success: true,
       total: minerKeys.length,
-      online: activeSet.size
+      online: active.size
     });
   } catch (e) {
     console.error('[/api/devices/status-summary] Error:', e);
-    return res.status(200).json({ success: true, total: 0, online: 0 });
+    return res.status(503).json({
+      success: false,
+      code: 'ACTIVITY_UNAVAILABLE',
+      message: 'Device status is temporarily unavailable'
+    });
   }
 }

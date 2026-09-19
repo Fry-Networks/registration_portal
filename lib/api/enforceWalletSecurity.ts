@@ -1,10 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import type { Session } from 'next-auth';
 import { getServerSession } from 'next-auth';
+import { getToken } from 'next-auth/jwt';
 
 import { authOptions } from '../../pages/api/auth/[...nextauth]';
 import { verifyClientToken } from '../clientTokenMiddleware';
-import { verifyRequestSignatureAsync } from '../requestSignature.server';
+import { deriveSigningKey, verifyRequestSignatureAsync } from '../requestSignature.server';
 import { verifyDeviceFingerprintMiddleware } from '../deviceFingerprint';
 import { CommonErrors, createApiError } from '../api-errors';
 import { isAdminRequest } from '../adminCheck';
@@ -16,6 +17,11 @@ type SecurityContext = {
 };
 
 type AuthenticatedSession = Session & { user: NonNullable<Session['user']> };
+
+type RequestWithSessionState = NextApiRequest & {
+  _sessionWalletAddress?: string;
+  _sessionSigningKey?: string;
+};
 
 export interface WalletSecurityResult {
   session: AuthenticatedSession;
@@ -30,8 +36,7 @@ export const enforceWalletApiSecurity = async (
   const resolvedMethod = method ?? req.method ?? 'POST';
   const session = await getServerSession(req, res, authOptions);
   if (session?.user?.address) {
-    (req as NextApiRequest & { _sessionWalletAddress?: string })._sessionWalletAddress =
-      session.user.address;
+    (req as RequestWithSessionState)._sessionWalletAddress = session.user.address;
   }
 
   const isAdmin = await isAdminRequest(req, session);
@@ -39,6 +44,14 @@ export const enforceWalletApiSecurity = async (
   if (!isAdmin) {
     const tokenVerified = await verifyClientToken(req, res);
     if (!tokenVerified) {
+      return null;
+    }
+
+    // The L2 signing key is derived from the session (R11). Without a session there is no key
+    // to verify against, so an anonymous caller is answered with the same 401 it received
+    // before — not a signature error — keeping the unauthenticated contract unchanged.
+    if (!session?.user?.address) {
+      res.status(401).json(CommonErrors.noSession());
       return null;
     }
 
@@ -51,6 +64,31 @@ export const enforceWalletApiSecurity = async (
         createApiError(
           'MISSING_SIGNATURE',
           'Request signature or timestamp missing'
+        )
+      );
+      return null;
+    }
+
+    // Must match the identifier /api/auth/signing-key used, or every correct signature is
+    // rejected. sid is stable across token re-issues; iat and expires are not.
+    const jwt = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!jwt) {
+      res.status(401).json(CommonErrors.noSession());
+      return null;
+    }
+
+    try {
+      (req as RequestWithSessionState)._sessionSigningKey = deriveSigningKey(
+        session.user.address,
+        String(jwt.sid ?? '')
+      );
+    } catch (err) {
+      // REQUEST_SIGNATURE_SECRET missing: fail closed rather than accept a known constant.
+      console.error('[enforceWalletApiSecurity] unable to derive signing key', err);
+      res.status(500).json(
+        createApiError(
+          'SIGNING_KEY_UNAVAILABLE',
+          'Request signing is temporarily unavailable'
         )
       );
       return null;

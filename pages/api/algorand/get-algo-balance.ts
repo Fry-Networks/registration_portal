@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { getAlgoBalance } from '../../../lib/algorand/balances';
+import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 
 export default async function handler(
   req: NextApiRequest,
@@ -21,14 +22,21 @@ export default async function handler(
     return;
   }
 
-  const balance = await getAlgoBalance(address);
-
-  if (balance === null) {
-    res
-      .status(200)
-      .json({ success: false, message: 'Unable to fetch ALGO balance' });
+  let balance: number;
+  try {
+    balance = await getAlgoBalance(address);
+  } catch (err) {
+    console.error('[get-algo-balance] balance check failed', err);
+    res.status(503).json(
+      createApiError(
+        ErrorCodes.NETWORK_ERROR,
+        'Could not verify on-chain balance',
+        'Please try again in a few minutes.'
+      )
+    );
     return;
   }
 
-  res.status(200).json({ success: true, balance: balance.toFixed(3) });
+  // Full precision — formatting belongs to the display layer.
+  res.status(200).json({ success: true, balance });
 }

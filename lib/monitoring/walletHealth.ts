@@ -108,9 +108,13 @@ async function assessConnectionStability(address: string): Promise<number> {
   let success = 0;
 
   for (let i = 0; i < attempts; i++) {
-    const balance = await getAlgoBalance(address);
-    if (balance !== null) {
+    // A thrown balance error counts as a failed attempt — this function
+    // measures availability, so the catch here is intentional.
+    try {
+      await getAlgoBalance(address);
       success += 1;
+    } catch {
+      // failed attempt
     }
     if (i < attempts - 1) {
       await new Promise((resolve) => setTimeout(resolve, 500));

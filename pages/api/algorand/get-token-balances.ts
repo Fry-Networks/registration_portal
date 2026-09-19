@@ -2,6 +2,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]";
 import { getAssetBalance } from "../../../lib/algorand/balances";
+import { AlgodUnavailableError } from "../../../lib/algorand/failover";
+import { createApiError, ErrorCodes } from "../../../lib/api-errors";
 
 const MAX_BATCH_SIZE = 200;
 
@@ -61,6 +63,17 @@ export default async function handler(
 
     return res.status(200).json({ success: true, results });
   } catch (error) {
+    if (error instanceof AlgodUnavailableError) {
+      // A partial batch would falsely report devices as not opted in.
+      console.error("[get-token-balances] algod unavailable during batch", error);
+      return res.status(503).json(
+        createApiError(
+          ErrorCodes.NETWORK_ERROR,
+          "Could not verify on-chain balances",
+          "Please try again in a few minutes."
+        )
+      );
+    }
     console.error("[get-token-balances] Batch balance check failed", error);
     return res.status(500).json({ message: "Internal server error" });
   }

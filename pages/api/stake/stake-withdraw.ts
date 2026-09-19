@@ -13,6 +13,7 @@ import { VERIFY_RESULT } from '../../../lib/algorand/verification';
 import { verifyTransaction } from '../algorand/verify-txn';
 // Modern wallet infrastructure imports
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -240,7 +241,7 @@ export async function withdraw(
 ) {
   try {
     // Use modern wallet infrastructure for network clients
-    const algodClient = getAlgodClient();
+    const algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
     // Load the verification staking vault + signer via the shared helper.
     const { account } = loadMnemonicAccountPair({
       mnemonicEnv: 'STAKE_MNEMONIC',

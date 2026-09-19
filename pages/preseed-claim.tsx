@@ -55,10 +55,16 @@ export default function PreseedClaimPage() {
 
         // Check opt-in status
         if (activeAddress) {
-          const tfryBal = await getAssetBalance(activeAddress, TFRY_ID.toString());
-          const fnodeBal = await getAssetBalance(activeAddress, FNODE_ID.toString());
-          setTfryOptedIn(tfryBal !== null);
-          setFnodeOptedIn(fnodeBal !== null);
+          try {
+            const tfryBal = await getAssetBalance(activeAddress, TFRY_ID.toString());
+            const fnodeBal = await getAssetBalance(activeAddress, FNODE_ID.toString());
+            setTfryOptedIn(tfryBal !== null);
+            setFnodeOptedIn(fnodeBal !== null);
+          } catch (balanceErr) {
+            // Balance check unavailable — must not fall through to the outer
+            // catch, which would falsely mark the claim ineligible.
+            console.error('Opt-in status check failed:', balanceErr);
+          }
         }
       } catch (err) {
         console.error('Claim status fetch error:', err);

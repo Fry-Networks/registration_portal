@@ -18,6 +18,11 @@ export interface Device extends mongoose.Document {
   note?: string;
   is_registered: boolean;
   is_active?: boolean;
+  // PoC reward-eligibility verdict surfaced by /api/devices (dashfix-20260807).
+  reward_eligible?: boolean | null;
+  reward_block_reason?: string | null;
+  reward_poc_version_installed?: string;
+  reward_poc_version_required?: string;
   registered_portal_model?: string;
   legacy_stake_unlocked?: boolean;
   // Allow UI diffs to compare last refresh timestamps without optional chaining explosions.

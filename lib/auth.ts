@@ -1,6 +1,7 @@
 import algosdk from 'algosdk';
 import nacl from 'tweetnacl';
 import { getSigningAddress } from './algorand/authAddr';
+import { AlgodUnavailableError } from './algorand/failover';
 
 export async function verifySignature(
   address: string,
@@ -53,6 +54,11 @@ export async function verifySignature(
 
     return true;
   } catch (error) {
+    if (error instanceof AlgodUnavailableError) {
+      // Verification infrastructure is down — must not be reported as an
+      // invalid signature. Callers surface a "try again" error instead.
+      throw error;
+    }
     console.error('Error verifying signature:', error);
     return false;
   }

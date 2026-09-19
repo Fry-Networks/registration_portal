@@ -41,6 +41,14 @@ const resolveSuggestedParams = async (
   if (params.suggestedParams) {
     return params.suggestedParams;
   }
+  if (typeof window === 'undefined') {
+    // Server-side: the configured node may be down, and a build failure here strands a
+    // claim/conversion after the user has already signed. The browser keeps the configured
+    // client (public config) so no wallet flow changes.
+    const { getFailoverAlgodClient } = await import('../algorand/failover');
+    const failoverAlgod = await getFailoverAlgodClient();
+    return failoverAlgod.getTransactionParams().do();
+  }
   const algod = getAlgodClient(params.network);
   return algod.getTransactionParams().do();
 };
