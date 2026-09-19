@@ -1,6 +1,7 @@
 // Added dedicated helper utilities for ASA opt-in enforcement so APIs can fail fast
 // with actionable guidance instead of letting Algorand reject transfers mid-flight.
 import { getAssetBalance } from './balances';
+import { AlgodUnavailableError } from './failover';
 import { getAssetDisplay } from '../utils';
 import { createApiError, ErrorCodes } from '../api-errors';
 
@@ -19,7 +20,24 @@ export const ensureWalletAssetOptIn = async (
   }
 
   const normalizedAssetId = String(assetId);
-  const balance = await getAssetBalance(walletAddress, normalizedAssetId);
+  let balance: number | null;
+  try {
+    balance = await getAssetBalance(walletAddress, normalizedAssetId);
+  } catch (err) {
+    if (err instanceof AlgodUnavailableError) {
+      // An algod outage must not be reported as "not opted in".
+      throw {
+        status: 503,
+        response: createApiError(
+          ErrorCodes.NETWORK_ERROR,
+          'Could not verify on-chain data',
+          'Please try again in a few minutes.',
+          { assetId: normalizedAssetId, walletAddress, operation }
+        )
+      };
+    }
+    throw err;
+  }
   if (balance === null) {
     const assetLabel = getAssetDisplay(normalizedAssetId);
     throw {

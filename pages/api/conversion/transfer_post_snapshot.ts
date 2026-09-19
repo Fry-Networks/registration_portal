@@ -16,6 +16,8 @@ import {
   handleApiError,
 } from '../../../lib/api-errors';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
+import { AlgodUnavailableError, getFailoverAssetBalance } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -106,28 +108,54 @@ export default async function handler(
     const snapshotUser = await fryConversions.findOne({ address });
     const snapshotAmount = snapshotUser?.amount ?? 0;
 
-    const algodClient = getAlgodClient();
+    // A dead self-hosted node must not strand a conversion whose burn already landed.
+    let algodClient: ReturnType<typeof getAlgodClient>;
+    try {
+      algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
+    } catch (algodErr) {
+      loggers.apiError('/api/conversion/transfer_post_snapshot', algodErr instanceof Error ? algodErr : new Error(String(algodErr)), {
+        address,
+        issueType: 'POST_SNAPSHOT_CLAIM_ALGOD_UNAVAILABLE',
+        part: 'transfer-post-snapshot.algod',
+      });
+      return res.status(503).json(
+        createApiError(
+          ErrorCodes.NETWORK_ERROR,
+          'Could not reach the Algorand network',
+          'Please try again in a few minutes.'
+        )
+      );
+    }
+    // A failed balance check must surface as an error — defaulting to 0 here
+    // would falsely report "No tFRY available to claim" for every wallet.
     let userFry1Balance = 0;
     try {
-      const accountInfo = await algodClient.accountInformation(address).do();
-      const assets = (accountInfo.assets ?? []) as Array<{
-        ['asset-id']?: number | string | bigint;
-        assetId?: number | string | bigint;
-        amount?: number | string | bigint;
-      }>;
-      const fry1Asset = assets.find((a) => {
-        const id = a['asset-id'] ?? a.assetId ?? null;
-        return String(id) === FRY_1.id;
-      });
-      if (fry1Asset) {
-        userFry1Balance = Number(fry1Asset.amount) / Math.pow(10, FRY_1.decimals);
-      }
+      userFry1Balance = await getFailoverAssetBalance(address, FRY_1);
     } catch (err) {
-      console.warn('[transfer_post_snapshot] failed to query user FRY 1.0 balance', err);
+      loggers.apiError('/api/conversion/transfer_post_snapshot', err instanceof Error ? err : new Error(String(err)), {
+        address,
+        issueType: 'POST_SNAPSHOT_CLAIM_BALANCE_CHECK_FAILED',
+        part: 'transfer-post-snapshot.balance',
+      });
+      return res.status(503).json(
+        createApiError(
+          ErrorCodes.NETWORK_ERROR,
+          'Could not verify on-chain balance',
+          'Please try again in a few minutes.'
+        )
+      );
     }
 
-    const eligible_fry1 = Math.max(0, Number((userFry1Balance - snapshotAmount).toFixed(6)));
-    const eligible_tFRY = eligible_fry1 > 0 ? Number((eligible_fry1 / 40).toFixed(6)) : 0;
+    // The recorded burn is the entitlement: those FRY 1.0 have already left the wallet, so
+    // recomputing from the (now reduced) live balance would zero out every completed burn.
+    const recordedFry1 = Number(record.eligible_fry1 ?? 0);
+    const recordedTFRY = Number(record.eligible_tFRY ?? 0);
+    const hasRecordedBurn = recordedFry1 > 0 && recordedTFRY > 0;
+    const recomputedFry1 = Math.max(0, Number((userFry1Balance - snapshotAmount).toFixed(6)));
+    const eligible_fry1 = hasRecordedBurn ? recordedFry1 : recomputedFry1;
+    const eligible_tFRY = hasRecordedBurn
+      ? recordedTFRY
+      : (recomputedFry1 > 0 ? Number((recomputedFry1 / 40).toFixed(6)) : 0);
 
     if (eligible_tFRY <= 0) {
       return res.status(400).json(
@@ -163,7 +191,21 @@ export default async function handler(
     }
 
     // Check vault tFRY balance
-    const vaultBalance = await getFRYAssetBalances(tFRY.id);
+    let vaultBalance: number;
+    try {
+      vaultBalance = await getFRYAssetBalances(tFRY.id);
+    } catch (vaultErr) {
+      if (vaultErr instanceof AlgodUnavailableError) {
+        return res.status(503).json(
+          createApiError(
+            ErrorCodes.NETWORK_ERROR,
+            'Could not verify vault balance',
+            'Please try again in a few minutes.'
+          )
+        );
+      }
+      throw vaultErr;
+    }
     if (vaultBalance < eligible_tFRY) {
       return res.status(402).json(
         createApiError(

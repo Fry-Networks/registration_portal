@@ -18,6 +18,7 @@ import {
   handleApiError,
 } from '../../../lib/api-errors';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { buildAssetTransferTxn } from '../../../lib/wallet/transactions';
 import {
   decodeUnsignedTransaction,
@@ -26,6 +27,7 @@ import {
 } from '../../../lib/algorand/admin';
 import { Document } from 'mongodb';
 import { ensureWalletAssetOptIn } from '../../../lib/algorand/optIn';
+import { AlgodUnavailableError } from '../../../lib/algorand/failover';
 import { parseAlgodError } from '../../../lib/algorand/errorParser';
 
 const testMode =
@@ -98,7 +100,21 @@ export default async function handler(
     await ensureWalletAssetOptIn(address, assetId, 'claiming FRY conversion rewards');
     const claimableAmount = Number(user.claimableAmount ?? 0);
 
-    const vaultBalance = await getFRYAssetBalances(assetId);
+    let vaultBalance: number;
+    try {
+      vaultBalance = await getFRYAssetBalances(assetId);
+    } catch (vaultErr) {
+      if (vaultErr instanceof AlgodUnavailableError) {
+        return res.status(503).json(
+          createApiError(
+            ErrorCodes.NETWORK_ERROR,
+            'Could not verify vault balance',
+            'Please try again in a few minutes.'
+          )
+        );
+      }
+      throw vaultErr;
+    }
     if (vaultBalance < claimableAmount) {
       return res.status(402).json(
         createApiError(
@@ -166,7 +182,7 @@ export default async function handler(
     let shouldReleaseLock = true;
 
     try {
-      const algodClient = getAlgodClient();
+      const algodClient = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
       const accountInfo = await algodClient.accountInformation(address).do();
       const normalizedTarget = normalizeAssetId(assetId);
       const assets = (accountInfo.assets ?? []) as Array<{

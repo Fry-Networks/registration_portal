@@ -10,8 +10,11 @@
  */
 
 const BASE_URL = 'http://localhost:3000';
-const SIGNATURE_SECRET = 'PASTE_YOUR_REQUEST_SIGNATURE_SECRET_HERE'; // matches your dev server's REQUEST_SIGNATURE_SECRET
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-'; // matches NEXT_PUBLIC_CLIENT_TOKEN_SECRET default
+// R11 NEGATIVE CONTROL: the value below is the RETIRED, publicly-known L2 constant that used
+// to ship in the client bundle. It is kept deliberately so these scripts prove the server now
+// REJECTS constant-signed requests. It is not a credential and grants nothing.
+const SIGNATURE_SECRET = 'fry-rewards-signature-v1-';
+const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
 const TEST_USER_AGENT = navigator.userAgent;
 
 console.log('🚀 Starting Security Layer Tests...\n');

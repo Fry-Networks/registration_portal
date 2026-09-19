@@ -28,12 +28,12 @@ This approach provides **real-time monitoring** without database bloat.
 
 #### Layer 1 - Client Token (Missing)
 ```
-[L1 - ClientToken] 2025-10-16T17:13:40.499Z - No client token provided | Wallet: ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY | Miner: REDACTED_ROTATE_ME
+[L1 - ClientToken] 2025-10-16T17:13:40.499Z - No client token provided | Wallet: EXAMPLEWALLETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | Miner: AOTCM-YXBPFE58ZIZIUPRVXO22G4EOTZIEVT1C
 ```
 
 #### Layer 1 - Client Token (Invalid)
 ```
-[L1 - ClientToken] 2025-10-16T17:14:22.156Z - Client token does not match User-Agent | Wallet: ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY | Miner: REDACTED_ROTATE_ME
+[L1 - ClientToken] 2025-10-16T17:14:22.156Z - Client token does not match User-Agent | Wallet: EXAMPLEWALLETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | Miner: AOTCM-YXBPFE58ZIZIUPRVXO22G4EOTZIEVT1C
 ```
 
 #### Layer 1 - Client Token (Admin Bypass)
@@ -58,7 +58,7 @@ This approach provides **real-time monitoring** without database bloat.
 
 #### Layer 4 - Device Fingerprint (Missing)
 ```
-[L4 - DeviceFingerprint] 2025-10-16T17:13:40.499Z - No fingerprint in session | Wallet: ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY | Miner: REDACTED_ROTATE_ME
+[L4 - DeviceFingerprint] 2025-10-16T17:13:40.499Z - No fingerprint in session | Wallet: EXAMPLEWALLETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA | Miner: AOTCM-YXBPFE58ZIZIUPRVXO22G4EOTZIEVT1C
 ```
 
 #### Layer 4 - Device Fingerprint (Mismatch - Script Detected)
@@ -86,8 +86,8 @@ Instead of creating 1 document per event (which would explode the database), we 
   _id: ObjectId("..."),
   
   // Wallet identification
-  walletAddress: "ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY",
-  minerKey: "AEM-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  walletAddress: "EXAMPLEWALLETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  minerKey: "AOTCM-YXBPFE58ZIZIUPRVXO22G4EOTZIEVT1C",
   
   // Total counters (incremented on each event, not a new doc)
   totalEvents: 42,
@@ -224,7 +224,7 @@ db['security-events'].find({}).pretty()
 ### View security summary for a specific wallet
 ```javascript
 db['security-events'].findOne({
-  walletAddress: "ESM3XCELKLF2IGLOU6BRCYEP3XNGVOYEJFWVSAJLUS6FX2UOFTK7PLJUPY"
+  walletAddress: "EXAMPLEWALLETAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 })
 ```
 

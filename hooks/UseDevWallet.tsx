@@ -24,16 +24,18 @@ interface DevWalletProviderProps {
 }
 
 export function DevWalletProvider({ children }: DevWalletProviderProps) {
-  const mnemonic = process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC as string;
   const algodClient = useMemo(
     () => new algosdk.Algodv2('', 'https://mainnet-api.algonode.cloud', ''),
     []
   );
 
-  const devAccount = useMemo(
-    () => (mnemonic ? algosdk.mnemonicToSecretKey(mnemonic) : undefined),
-    [mnemonic]
-  );
+  // 2026-08-06: this used to derive an account from a NEXT_PUBLIC_ mnemonic env var.
+  // NEXT_PUBLIC_* values are inlined into the client bundle (and, with
+  // productionBrowserSourceMaps enabled, into publicly served source maps), so a mnemonic
+  // placed there would be readable by every visitor. A browser-side wallet must come from the
+  // wallet connection flow (WalletAuthProvider / use-wallet), never from an environment
+  // variable. Kept on the context so existing consumers still type-check.
+  const devAccount: Account | undefined = undefined;
 
   // console.log(devAccount?.addr);
 

@@ -19,6 +19,7 @@ import {
 } from '../../../lib/swap/guaranteeConfig';
 import { getDailyWalletTopup, getDailyGlobalTopup, getUtcDayBounds } from '../../../lib/swap/guaranteeStore';
 import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
 import { getDefaultNetwork } from '../../../lib/wallet/config';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -109,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Vault reserve sufficiency check
       if (eligible && getVaultAppId()) {
         try {
-          const algod = getAlgodClient(getDefaultNetwork());
+          const algod = (await getFailoverAlgodClient()) as ReturnType<typeof getAlgodClient>;
           const vaultAddr = algosdk.getApplicationAddress(getVaultAppId());
           const vaultInfo = await algod.accountInformation(vaultAddr).do();
           const vaultAssets = (vaultInfo.assets || []) as any[];

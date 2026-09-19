@@ -1,4 +1,4 @@
-import { computeActiveSet, TRACKED_PREFIXES } from "../../../lib/deviceActivity";
+import { computeActiveSet, getRewardEligibility, TRACKED_PREFIXES } from "../../../lib/deviceActivity";
 import { NextApiRequest, NextApiResponse } from 'next';
 import { Buffer } from 'buffer';
 import { getServerSession } from 'next-auth';
@@ -16,6 +16,7 @@ import { indexerClient } from '../../../lib/utils';
 import type { Collection, Document, UpdateFilter, ObjectId } from 'mongodb';
 import type { Device } from '../../../lib/types';
 import { shouldForceLegacyUnverified } from '../../../lib/legacyStake';
+import { shouldReconcileVerified } from '../../../lib/stakeReconcile';
 
 export default async function handler(
   req: NextApiRequest,
@@ -73,6 +74,16 @@ export default async function handler(
         device.verified = false;
     }
 
+    // A device registered after its stake already existed never had
+    // /api/stake/verification run for it, so the flag stayed false on a real stake.
+    if (device && shouldReconcileVerified(device)) {
+      await collection.updateOne(
+        { _id: device._id },
+        { $set: { verified: true } }
+      );
+      device.verified = true;
+    }
+
     const hydratedDevice = await hydrateDeviceWithPosition(client, device as any);
 
     await enrichLegacyStakeData(collection, miner_key, hydratedDevice);
@@ -82,6 +93,14 @@ export default async function handler(
     if (TRACKED_PREFIXES.includes(prefix)) {
       const activeSet = await computeActiveSet(client, [miner_key]);
       (hydratedDevice as any).is_active = activeSet.has(miner_key);
+      // "Active" must not imply "earning" — carry the PoC reward verdict too.
+      const verdict = (await getRewardEligibility(client, [miner_key])).get(miner_key);
+      if (verdict && verdict.eligible !== null) {
+        (hydratedDevice as any).reward_eligible = verdict.eligible;
+        (hydratedDevice as any).reward_block_reason = verdict.reason;
+        (hydratedDevice as any).reward_poc_version_installed = verdict.pocVersionInstalled;
+        (hydratedDevice as any).reward_poc_version_required = verdict.pocVersionRequired;
+      }
     }
 
     if (address) {

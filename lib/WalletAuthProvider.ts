@@ -1,5 +1,6 @@
 import { Provider } from 'next-auth/providers';
 import { verifySignature } from './auth';
+import { AlgodUnavailableError } from './algorand/failover';
 import clientPromise from './mongoclient';
 
 export default function WalletAuthProvider(): Provider {
@@ -25,11 +26,23 @@ export default function WalletAuthProvider(): Provider {
         return null;
       }
 
-      const isValid = await verifySignature(
-        credentials.address,
-        credentials.signedTxn,
-        credentials.nonce
-      );
+      let isValid: boolean;
+      try {
+        isValid = await verifySignature(
+          credentials.address,
+          credentials.signedTxn,
+          credentials.nonce
+        );
+      } catch (err) {
+        if (err instanceof AlgodUnavailableError) {
+          // Distinguish infrastructure outage from a rejected signature —
+          // next-auth surfaces this message to the sign-in page.
+          throw new Error(
+            'Authentication service temporarily unavailable. Please try again in a few minutes.'
+          );
+        }
+        throw err;
+      }
 
       if (isValid) {
         const client = await clientPromise;

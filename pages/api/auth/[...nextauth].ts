@@ -18,6 +18,9 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
+        // R11: stable per-session id for the L2 signing-key derivation. Minted once at
+        // sign-in and carried across every token re-issue, unlike iat/exp which drift.
+        token.sid = globalThis.crypto.randomUUID();
         token.userId = (user as any).id ?? token.sub ?? token.userId;
         token.address = user.address;
         token.email = user.email;
@@ -41,6 +44,11 @@ export const authOptions: NextAuthOptions = {
         }
         if (typeof token.admin === 'undefined') {
           token.admin = false;
+        }
+        // R11: sessions issued before sid existed. Deterministic (not random) so repeated
+        // backfills produce the same value and the derived signing key stays stable.
+        if (!token.sid) {
+          token.sid = (token.userId as string) ?? token.sub ?? (token.address as string) ?? '';
         }
       }
 

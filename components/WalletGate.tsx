@@ -102,7 +102,7 @@ export default function WalletGate({ children }: WalletGateProps) {
 
         <p className="mt-space-5 text-center text-display-xs text-ink-muted">
           After connecting, you will be redirected back to{' '}
-          <span className="font-mono text-ink-secondary">{redirectUrl}</span>
+          <span className="font-mono text-ink-secondary break-all">{redirectUrl}</span>
         </p>
       </div>
     </div>

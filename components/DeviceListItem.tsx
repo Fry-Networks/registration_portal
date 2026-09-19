@@ -175,6 +175,24 @@ export default function DeviceListItem({
     (initialStatus as any) || {}
   );
   const [device, setDevice] = useState<Device>(initialDevice);
+  // Plain-language reason a heartbeating miner still earns nothing (dashfix-20260807).
+  const rewardBlockHint = useMemo(() => {
+    if (device.reward_eligible !== false) return undefined;
+    if (device.reward_block_reason === 'update_required') {
+      const installed = device.reward_poc_version_installed ?? 'an older version';
+      const required = device.reward_poc_version_required ?? 'the current version';
+      return `Rewards are paused: this miner reports PoC ${installed} but ${required} is required. Update Fry Edge Miner to start earning again.`;
+    }
+    if (device.reward_block_reason === 'no_recent_heartbeat') {
+      return 'Rewards are paused: no recent proof-of-connectivity heartbeat reached the server.';
+    }
+    return 'Rewards are paused: this device is not currently reward-eligible.';
+  }, [
+    device.reward_eligible,
+    device.reward_block_reason,
+    device.reward_poc_version_installed,
+    device.reward_poc_version_required
+  ]);
   useEffect(() => { if (batchDeviceInfo) setDevice(prev => Object.assign(Object.assign(Object.create(Object.getPrototypeOf(prev) ?? Object.prototype), prev), batchDeviceInfo)); }, [batchDeviceInfo]);
   const initialDeviceSnapshot = useRef<string>('');
   const { data: session } = useSession();
@@ -2543,6 +2561,12 @@ const collapsibleSections: SectionConfig[] = useMemo(
                 <span className={`text-xs font-medium ${device.is_active ? 'text-green-500' : 'text-gray-500'}`}>
                   {device.is_active ? 'Active' : 'Inactive'}
                 </span>
+              </div>
+            )}
+            {device.reward_eligible === false && (
+              <div className="flex items-center gap-1.5" title={rewardBlockHint}>
+                <span className="h-2 w-2 rounded-full bg-amber-500" />
+                <span className="text-xs font-medium text-amber-500">Not earning</span>
               </div>
             )}
             <div className="flex flex-wrap items-center gap-2">

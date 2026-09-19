@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import clientPromise from '../../../lib/mongoclient';
 import { FRY_1 } from '../../../lib/utils';
-import { getAlgodClient } from '../../../lib/wallet/clients';
+import { getFailoverAssetBalance } from '../../../lib/algorand/failover';
 import { loggers } from '../../../lib/logger';
 import {
   CommonErrors,
@@ -58,25 +58,25 @@ export default async function handler(
     const snapshotUser = await fryConversions.findOne({ address });
     const snapshotAmount = snapshotUser?.amount ?? 0;
 
-    // 2. Query on-chain FRY 1.0 balance directly via Algod
-    const algodClient = getAlgodClient();
+    // 2. Query on-chain FRY 1.0 balance via Algod with failover. A failed
+    // balance check must surface as an error — defaulting to 0 here would
+    // falsely report "no post-snapshot FRY 1.0 eligible" for every wallet.
     let userFry1Balance = 0;
     try {
-      const accountInfo = await algodClient.accountInformation(address).do();
-      const assets = (accountInfo.assets ?? []) as Array<{
-        ['asset-id']?: number | string | bigint;
-        assetId?: number | string | bigint;
-        amount?: number | string | bigint;
-      }>;
-      const fry1Asset = assets.find((a) => {
-        const id = a['asset-id'] ?? a.assetId ?? null;
-        return String(id) === FRY_1.id;
-      });
-      if (fry1Asset) {
-        userFry1Balance = Number(fry1Asset.amount) / Math.pow(10, FRY_1.decimals);
-      }
+      userFry1Balance = await getFailoverAssetBalance(address, FRY_1);
     } catch (err) {
-      console.warn('[get_post_snapshot] failed to query user FRY 1.0 balance', err);
+      loggers.apiError(ENDPOINT, err instanceof Error ? err : new Error(String(err)), {
+        address,
+        issueType: 'POST_SNAPSHOT_BALANCE_CHECK_FAILED',
+        part: 'post-snapshot.get.balance',
+      });
+      return res.status(503).json(
+        createApiError(
+          ErrorCodes.NETWORK_ERROR,
+          'Could not verify on-chain balance',
+          'Please try again in a few minutes.'
+        )
+      );
     }
 
     // 3. Compute post-snapshot eligibility
@@ -87,14 +87,26 @@ export default async function handler(
     const postSnapshotCollection = db.collection('post-snapshot-conversions');
     const record = await postSnapshotCollection.findOne({ address });
 
-    const post_snapshot = {
-      eligible_fry1,
-      eligible_tFRY,
-      burned: record?.burned ?? false,
-      claimed: record?.claimed ?? false,
-      claim_txId: record?.claim_txId ?? null,
-      claimed_at: record?.claimed_at ?? null,
-    };
+    // The recorded burn is the entitlement (mirrors transfer_post_snapshot):
+    // after a burn the live-balance recompute is 0, which rendered
+    // "Claim 0.00000 tFRY" for every burned-but-unclaimed wallet.
+    const post_snapshot = record?.burned && !record?.claimed
+      ? {
+          eligible_fry1: Number(record.eligible_fry1 ?? eligible_fry1),
+          eligible_tFRY: Number(record.eligible_tFRY ?? eligible_tFRY),
+          burned: true,
+          claimed: false,
+          claim_txId: record.claim_txId ?? null,
+          claimed_at: record.claimed_at ?? null,
+        }
+      : {
+          eligible_fry1,
+          eligible_tFRY,
+          burned: record?.burned ?? false,
+          claimed: record?.claimed ?? false,
+          claim_txId: record?.claim_txId ?? null,
+          claimed_at: record?.claimed_at ?? null,
+        };
 
     return res.status(200).json({
       success: true,

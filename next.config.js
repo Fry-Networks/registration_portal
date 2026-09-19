@@ -1,7 +1,19 @@
+// Build-time guard (2026-08-06). A NEXT_PUBLIC_* variable is inlined into the client bundle
+// and would be readable by every visitor (production source maps are disabled below, but an
+// inlined value ships in the bundle regardless). A mnemonic must never travel that path, so
+// fail the build rather than ship one.
+// The server-only equivalent is ALGORAND_DEV_MNEMONIC.
+if (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_ALGORAND_DEV_MNEMONIC) {
+  throw new Error(
+    'A NEXT_PUBLIC_ Algorand mnemonic variable is set. NEXT_PUBLIC_ values are inlined into ' +
+    'the client bundle and served to every visitor. Use server-only ALGORAND_DEV_MNEMONIC.'
+  );
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  productionBrowserSourceMaps: true,
+  productionBrowserSourceMaps: false,
   images: {
     remotePatterns: [
       {
