@@ -14,7 +14,7 @@ import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { withDeviceActionLock } from '../../../lib/api/deviceAction';
 import { createApiError, ErrorCodes } from '../../../lib/api-errors';
-import { effectiveAmount, isHeld } from '../../../lib/rewards/effective';
+import { effectiveAmount, isHeld, isVoided } from '../../../lib/rewards/effective';
 import { loadEvidence, hasEvidenceInWindow } from '../../../lib/rewards/pocEvidence';
 import { reserveRows, releaseRows, releaseStaleReservations } from '../../../lib/rewards/reservation';
 // Modern wallet infrastructure imports for consistent network handling
@@ -226,8 +226,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Hand back rows whose claim never completed, so an abandoned claim cannot strand rewards.
       await releaseStaleReservations(rewardsCollection, db.collection('reward_pending_claims'), miner_key);
       rewardsDoc = await rewardsCollection.findOne({ miner_key });
-      let weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
-      let dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isHeld(r));
+      // isVoided: a voided row is neither claimable nor "under review" — it must never pay.
+      let weeklyClaimables = (rewardsDoc?.weekly_rewards || []).filter((r: any) => r.status === 'claimable' && !isVoided(r) && !isHeld(r));
+      let dailyClaimables = (rewardsDoc?.daily_rewards || []).filter((r: any) => r.status === 'claimable' && !isVoided(r) && !isHeld(r));
       // A-gate (forward PoC guard): rows WITH corrected_by (f3y/f3z) are already evidence-verdicted → trust.
       // Rows WITHOUT corrected_by (new post-F3-z) must have live PoC evidence in their epoch window, else held.
       // Virtual-mining product: activated virtual devices have no hardware → PoC-exempt by design (dbRewards reward.ts:1594).
@@ -253,8 +254,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // F3-y hold enforcement: a specifically-requested reward under review is refused explicitly (never sent).
         if (!weeklyTargets.length && !dailyTargets.length) {
           const heldRequested =
-            (rewardsDoc?.weekly_rewards || []).some((wr: any) => wr.reward_number === no && wr.status === 'claimable' && isHeld(wr)) ||
-            (rewardsDoc?.daily_rewards || []).some((dr: any) => dr.reward_number === no && dr.status === 'claimable' && isHeld(dr));
+            (rewardsDoc?.weekly_rewards || []).some((wr: any) => wr.reward_number === no && wr.status === 'claimable' && !isVoided(wr) && isHeld(wr)) ||
+            (rewardsDoc?.daily_rewards || []).some((dr: any) => dr.reward_number === no && dr.status === 'claimable' && !isVoided(dr) && isHeld(dr));
           if (heldRequested || _aGateDenied.has(no)) {
             throw {
               status: 403,
