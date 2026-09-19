@@ -53,7 +53,10 @@ audit-report.json
 dependency-audit.js
 pages/history.tsx.txt
 tempdashboardlogs.txt
-tests/
+# tests/ is now tracked (R11). Backups stay ignored:
+*.bak
+*.bak.*
+*.bak*
 docs/wallets_and_dependencies/
 WALLET_AND_DEPENDENCIES_AUDIT.md
 # Backup files
