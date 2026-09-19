@@ -3,8 +3,13 @@
 // and, after the A-gate display fix, surfaced as "Awaiting PoC evidence". They are neutralised
 // row-by-row with payout_hold + voided_by (never a new status: dbRewards' Mongoose enum would
 // break save()). The dashboard must not show or count rows carrying `voided_by` anywhere —
-// not as claimable, not as held, not in the history list — while the claim path stays untouched
-// (payout_hold already blocks payment there).
+// not as claimable, not as held, not in the history list.
+//
+// R11 update: the claim path now honours voided_by directly. It previously relied on
+// payout_hold alone, which held for the oos3 duplicates (neutralised with both markers) but
+// left a row carrying voided_by WITHOUT payout_hold invisible in the UI and still payable by
+// /api/rewards/claim. The 27 stranded devices voided in R11 set both markers, so this is a
+// defence-in-depth fix rather than a live exposure.
 //
 // Set RD_SOURCE_SUFFIX to a backup suffix (e.g. '.bak.1789143233') to run these assertions
 // against the pre-fix snapshots, which fail.
@@ -58,7 +63,13 @@ test('history.tsx server-side props filter voided weekly and daily rows out of t
   assert.match(ssr, /\.filter\(\(dr: any\) => !isVoided\(dr\) && dr\.created_at/);
 });
 
-test('the claim path is untouched by the voided filter (payout_hold already blocks payment)', () => {
+test('the claim path honours the voided filter (R11: payout_hold alone is no longer relied on)', () => {
   const src = read('pages/api/rewards/claim.ts');
-  assert.doesNotMatch(src, /isVoided/);
+  assert.match(src, /isVoided/, 'claim.ts must import and apply isVoided');
+  const selections = src.split('\n').filter((l) => /(weekly|daily)Claimables\s*=\s*\(/.test(l));
+  assert.equal(selections.length, 2, 'expected the weekly and daily claimable selections');
+  for (const l of selections) {
+    assert.match(l, /!isVoided\(/, `claimable selection must exclude voided rows: ${l.trim()}`);
+    assert.match(l, /!isHeld\(/, `claimable selection must still exclude held rows: ${l.trim()}`);
+  }
 });
