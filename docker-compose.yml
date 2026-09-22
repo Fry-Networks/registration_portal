@@ -40,7 +40,8 @@ services:
       BUG_REPORT_RATE_LIMIT_HOURS: 1
       ALGOD_URL: ${ALGOD_URL:-http://100.69.195.100:8190}
       ALGOD_TOKEN: ${ALGOD_TOKEN}
-      # Request-signature HMAC dual-accept rotation (server accepts this AND the legacy default).
+      # Per-session key material for L2 request signatures (R11) and the L1 client token (R12).
+      # There is no dual-accept and no legacy default: an unset value fails both layers closed.
       REQUEST_SIGNATURE_SECRET: 'op://Dashboard/Dash Secrets/REQUEST_SIGNATURE_SECRET'
       # User-pays-gas dark-launch. Default OFF: live claim path stays custodial. Flip to 'true' on wake.
       REWARD_USER_PAYS_GAS: 'true'

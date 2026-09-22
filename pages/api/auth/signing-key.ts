@@ -4,6 +4,7 @@ import { getToken } from 'next-auth/jwt';
 
 import { authOptions } from './[...nextauth]';
 import { deriveSigningKey, SIGNING_KEY_TTL_SECONDS } from '../../../lib/requestSignature.server';
+import { deriveClientToken } from '../../../lib/clientTokenMiddleware';
 import { CommonErrors, createApiError } from '../../../lib/api-errors';
 
 /**
@@ -16,6 +17,10 @@ import { CommonErrors, createApiError } from '../../../lib/api-errors';
  *
  * The derivation is session-scoped (address + session expiry), so a key minted for one
  * session cannot sign for another, and the key rotates when the session does.
+ *
+ * R12: the same endpoint now also issues the L1 `x-client-token`. It used to be
+ * sha256('<constant>' + userAgent) from a constant that shipped in the client bundle, so it was
+ * public. It is now derived from the same session identity plus the caller's User-Agent.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -40,9 +45,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json(CommonErrors.noSession());
   }
 
+  // The L1 token is bound to the User-Agent as well, so it must be derived from the very
+  // header the browser will replay on the protected request.
+  const userAgent = String(req.headers['user-agent'] || '');
+
   let key: string;
+  let clientToken: string;
   try {
     key = deriveSigningKey(session.user.address, String(jwt.sid ?? ''));
+    clientToken = deriveClientToken(session.user.address, String(jwt.sid ?? ''), userAgent);
   } catch (err) {
     // REQUEST_SIGNATURE_SECRET missing: fail closed rather than fall back to a known constant.
     console.error('[signing-key] unable to derive signing key', err);
@@ -53,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).json({
     key,
+    clientToken,
     expiresAt: session.expires,
     ttlSeconds: SIGNING_KEY_TTL_SECONDS
   });

@@ -14,14 +14,26 @@ const BASE_URL = 'http://localhost:3000';
 // to ship in the client bundle. It is kept deliberately so these scripts prove the server now
 // REJECTS constant-signed requests. It is not a credential and grants nothing.
 const SIGNATURE_SECRET = 'fry-rewards-signature-v1-';
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
+let CLIENT_TOKEN = null;
 const TEST_USER_AGENT = navigator.userAgent;
 
 console.log('🚀 Starting Security Layer Tests...\n');
 
-function generateClientToken(userAgent) {
-  const message = CLIENT_TOKEN_SECRET + userAgent;
-  return sha256(message);
+// R12: the L1 client token is PER-SESSION and issued by the server. It used to be
+// sha256('<constant>' + userAgent) from a constant that shipped in this very bundle, so anyone
+// could mint one. This script runs inside the signed-in browser, so it just asks for its own.
+async function getClientToken() {
+  if (CLIENT_TOKEN) return CLIENT_TOKEN;
+  const res = await fetch(`${BASE_URL}/api/auth/signing-key`, { credentials: 'same-origin' });
+  if (!res.ok) {
+    throw new Error(`Unable to obtain a per-session client token (status ${res.status})`);
+  }
+  const data = await res.json();
+  if (!data || typeof data.clientToken !== 'string' || data.clientToken.length === 0) {
+    throw new Error('signing-key response carried no clientToken');
+  }
+  CLIENT_TOKEN = data.clientToken;
+  return CLIENT_TOKEN;
 }
 
 function generateRequestSignature(method, path, body, timestamp) {
@@ -79,7 +91,7 @@ async function testSecurityLayers() {
         page: 1,
       };
 
-      const clientToken = await generateClientToken(TEST_USER_AGENT);
+      const clientToken = await getClientToken();
       const signature = await generateRequestSignature('POST', path, body, timestamp);
 
       const response = await fetch(`${BASE_URL}${path}`, {
@@ -106,7 +118,7 @@ async function testSecurityLayers() {
       const timestamp = Math.floor(Date.now() / 1000);
       const body = { address: userAddress };
 
-      const clientToken = await generateClientToken(TEST_USER_AGENT);
+      const clientToken = await getClientToken();
       const signature = await generateRequestSignature('POST', path, body, timestamp);
 
       const response = await fetch(`${BASE_URL}${path}`, {
@@ -136,7 +148,7 @@ async function testSecurityLayers() {
         miner_key: 'test-miner-key',
       };
 
-      const clientToken = await generateClientToken(TEST_USER_AGENT);
+      const clientToken = await getClientToken();
       const signature = await generateRequestSignature('POST', path, body, timestamp);
 
       const response = await fetch(`${BASE_URL}${path}`, {

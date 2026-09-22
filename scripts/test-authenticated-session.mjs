@@ -21,7 +21,7 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3007';
 let SIGNING_KEY = null;
 function getSigningKey() {
   if (SIGNING_KEY) return SIGNING_KEY;
-  const cmd = `curl -s "${BASE_URL}/api/auth/signing-key" -H "Cookie: next-auth.session-token=${sessionCookie}"`;
+  const cmd = `curl -s "${BASE_URL}/api/auth/signing-key" -H "User-Agent: ${TEST_USER_AGENT}" -H "Cookie: next-auth.session-token=${sessionCookie}"`;
   const out = execSync(cmd, { encoding: 'utf8' });
   let parsed;
   try {
@@ -33,10 +33,11 @@ function getSigningKey() {
     throw new Error(`signing-key fetch failed: ${out.slice(0, 200)}`);
   }
   SIGNING_KEY = parsed.key;
+  CLIENT_TOKEN = typeof parsed.clientToken === 'string' ? parsed.clientToken : null;
   return SIGNING_KEY;
 }
 const TEST_USER_AGENT = 'test-client/1.0';
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
+let CLIENT_TOKEN = null;
 
 // Get session from command line or environment
 let sessionCookie = process.env.SESSION_COOKIE;
@@ -62,9 +63,19 @@ if (!sessionCookie) {
 const results = [];
 let userAddress = null;
 
-function generateClientToken(userAgent) {
-  const message = CLIENT_TOKEN_SECRET + userAgent;
-  return crypto.createHash('sha256').update(message).digest('hex');
+/**
+ * R12: the L1 client token is PER-SESSION and issued by the server alongside the L2 signing key.
+ * It used to be sha256('<constant>' + userAgent) from a constant that shipped in the client
+ * bundle, so anyone could mint one. getSigningKey() caches both values from one call.
+ */
+function getClientToken() {
+  if (!CLIENT_TOKEN) {
+    getSigningKey();
+  }
+  if (typeof CLIENT_TOKEN !== 'string' || CLIENT_TOKEN.length === 0) {
+    throw new Error('signing-key response carried no clientToken');
+  }
+  return CLIENT_TOKEN;
 }
 
 function generateRequestSignature(method, path, body, timestamp) {
@@ -181,7 +192,7 @@ async function testGetRewardsPage() {
     page: 1,
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = getClientToken();
   const signature = generateRequestSignature('POST', path, body, timestamp);
 
   console.log(`  Client Token: ${clientToken.substring(0, 16)}...`);
@@ -220,7 +231,7 @@ async function testClaimRewards() {
     miner_key: 'test-miner-key',
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = getClientToken();
   const signature = generateRequestSignature('POST', path, body, timestamp);
 
   console.log(`  Client Token: ${clientToken.substring(0, 16)}...`);
@@ -261,7 +272,7 @@ async function testBoostRewards() {
     reward_ids: [],
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = getClientToken();
   const signature = generateRequestSignature('POST', path, body, timestamp);
 
   console.log(`  Client Token: ${clientToken.substring(0, 16)}...`);

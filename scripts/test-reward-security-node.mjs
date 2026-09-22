@@ -15,16 +15,31 @@ const BASE_URL = process.env.TEST_URL || 'http://localhost:3000';
 // REJECTS constant-signed requests. It is not a credential and grants nothing.
 const SIGNATURE_SECRET = process.env.REQUEST_SIGNATURE_SECRET || 'fry-rewards-signature-v1-';
 const TEST_USER_AGENT = 'test-client/1.0';
-const CLIENT_TOKEN_SECRET = 'fry-rewards-client-';
+// R12: the L1 client token is PER-SESSION and issued by the server, exactly like the R11 L2
+// signing key. It used to be sha256('<constant>' + userAgent) from a constant this script and
+// the client bundle both hardcoded, so anyone could mint one. It is now derived from the
+// caller's OWN session, so this script obtains it from GET /api/auth/signing-key. Export
+// SESSION_COOKIE (and SESSION_COOKIE_NAME for a __Secure- prefixed cookie) before running.
+const SESSION_COOKIE = process.env.SESSION_COOKIE || '';
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'next-auth.session-token';
+let CLIENT_TOKEN = null;
 
 const results = [];
 
 /**
- * Generate a client token (browser-side)
+ * Fetch the per-session client token issued by the server (R12).
  */
-function generateClientToken(userAgent) {
-  const message = CLIENT_TOKEN_SECRET + userAgent;
-  return crypto.createHash('sha256').update(message).digest('hex');
+async function getClientToken() {
+  if (CLIENT_TOKEN) return CLIENT_TOKEN;
+  const response = await makeRequest('GET', '/api/auth/signing-key', null, {});
+  if (response.status !== 200 || !response.data || typeof response.data.clientToken !== 'string') {
+    throw new Error(
+      `Unable to obtain a per-session client token (status ${response.status}). ` +
+        'Set SESSION_COOKIE to a signed-in session cookie before running this script.'
+    );
+  }
+  CLIENT_TOKEN = response.data.clientToken;
+  return CLIENT_TOKEN;
 }
 
 /**
@@ -52,6 +67,7 @@ function makeRequest(method, path, body, headers) {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': TEST_USER_AGENT,
+        ...(SESSION_COOKIE ? { Cookie: `${SESSION_COOKIE_NAME}=${SESSION_COOKIE}` } : {}),
         ...headers,
       },
     };
@@ -108,7 +124,7 @@ async function testValidRequest() {
     address: 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7Q',
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = await getClientToken();
   const signature = generateRequestSignature('POST', path, body, timestamp);
 
   console.log(`  User Agent: ${TEST_USER_AGENT}`);
@@ -288,7 +304,7 @@ async function testMissingSignature() {
     address: 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7Q',
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = await getClientToken();
 
   try {
     const response = await makeRequest('POST', path, body, {
@@ -344,7 +360,7 @@ async function testInvalidSignature() {
     address: 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7Q',
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = await getClientToken();
   const invalidSignature = 'invalid_sig_' + Math.random().toString(36).substring(7);
 
   try {
@@ -404,7 +420,7 @@ async function testTamperedBody() {
 
   // Generate signature for original body
   const signature = generateRequestSignature('POST', path, originalBody, timestamp);
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = await getClientToken();
 
   // Send tampered body with original signature
   const tamperedBody = {
@@ -467,7 +483,7 @@ async function testExpiredTimestamp() {
     address: 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7Q',
   };
 
-  const clientToken = generateClientToken(TEST_USER_AGENT);
+  const clientToken = await getClientToken();
   const signature = generateRequestSignature('POST', path, body, expiredTimestamp);
 
   try {
