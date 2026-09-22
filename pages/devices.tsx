@@ -877,14 +877,46 @@ const DevicesPage = ({
           });
           router.replace(router.asPath);
         } else {
-          toast.error({
-            heading: 'Could not link this device',
-            message: 'We could not link that device to your wallet. Please contact support.',
-            minerKey: normalizedKey,
-            walletAddress: session?.user?.address,
-            issueType: 'DEVICE_REBIND_FAILED',
-            part: 'devices.handleRegister.rebind'
-          });
+          // RC1-FIX: a retry whose first attempt actually landed answers "already
+          // registered", which is not a failure -- the device is ours now. Ask the server who
+          // owns it before telling the user to contact support.
+          let alreadyMine = false;
+          try {
+            const owner = await fetchWithFingerprintRetry(
+              () => fetch(`/api/devices/${normalizedKey}`, {
+                method: 'POST',
+                headers: { 'Content-type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ address: session?.user?.address })
+              }),
+              refreshFingerprint
+            );
+            if (owner.ok) {
+              const owned = await owner.json();
+              alreadyMine = Boolean(
+                session?.user?.address &&
+                owned?.device?.address === session.user.address
+              );
+            }
+          } catch {
+            alreadyMine = false;
+          }
+          if (alreadyMine) {
+            toast.success({
+              heading: 'Device linked to your wallet',
+              message: `${normalizedKey} is linked to your wallet.`
+            });
+            router.replace(router.asPath);
+          } else {
+            toast.error({
+              heading: 'Could not link this device',
+              message: 'We could not link that device to your wallet. Please contact support.',
+              minerKey: normalizedKey,
+              walletAddress: session?.user?.address,
+              issueType: 'DEVICE_REBIND_FAILED',
+              part: 'devices.handleRegister.rebind'
+            });
+          }
         }
         return;
       }

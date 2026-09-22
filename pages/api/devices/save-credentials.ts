@@ -70,6 +70,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (collectionName === 'hardware') {
       await ensureHardwareCredentialIndexes(db, collectionName);
+
+      // RC1-FIX (r12, 2026-09-22): creds.hardware.address is the ownership proof
+      // lib/rebindOwnership.ts uses to let a wallet recover a device-wallet-clobbered
+      // registration. Until now ANY session could mint that proof for ANY miner key -- with
+      // no record present the upsert below wrote { miner_key, address: <session wallet> } --
+      // so knowing a key (they circulate in support threads) was enough to take the device.
+      // A hardware credential save may therefore only touch a key whose main.devices doc is
+      // unbound or already bound to this wallet. The first-time registration flow is
+      // unaffected: pages/register.tsx saves credentials while the device is still unbound.
+      const ownerTestMode =
+        process.env.NEXT_PUBLIC_TEST_MODE &&
+        process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+      const devicesCollection = client
+        .db('main')
+        .collection(ownerTestMode ? 'test-devices' : 'devices');
+      let deviceDoc = await devicesCollection.findOne(
+        { miner_key },
+        { projection: { address: 1, _id: 0 } }
+      );
+      if (!deviceDoc && /^FEM-[A-Za-z0-9]{32}$/.test(String(miner_key))) {
+        // Same case-insensitive FEM lookup both registration routes do, so a differently
+        // cased key cannot be used to slip past this check.
+        deviceDoc = await devicesCollection.findOne(
+          { miner_key: { $regex: `^${miner_key}$`, $options: 'i' } },
+          { projection: { address: 1, _id: 0 } }
+        );
+      }
+      const deviceOwner =
+        typeof deviceDoc?.address === 'string' ? deviceDoc.address.trim() : '';
+      if (deviceOwner && deviceOwner !== walletAddress) {
+        return res.status(409).json(
+          createApiError(
+            ErrorCodes.DEVICE_OWNER_MISMATCH,
+            'This device is linked to a different wallet',
+            'Please sign in with the wallet that owns this device, or contact support.'
+          )
+        );
+      }
     }
 
     let filter: Record<string, unknown> = { miner_key, address: walletAddress };

@@ -131,9 +131,10 @@ export default async function handler(
     // wallet to equal creds.hardware.address, the wallet that registered the key at install
     // time, which the clobber never touched.
     let rebindSet: Record<string, unknown> = {};
+    let mayRebind = false;
     {
       const existingAddr = (exists.address || '').trim();
-      const mayRebind = await mayRebindClobberedDevice(client, exists, boundKey, address);
+      mayRebind = await mayRebindClobberedDevice(client, exists, boundKey, address);
       if (mayRebind) {
         // claim.ts pays device.reward_wallet, so a verified rebind has to move it too.
         rebindSet = { reward_wallet: address, ...rebindMetadata(existingAddr) };
@@ -149,8 +150,10 @@ export default async function handler(
         return;
       }
     }
+    // RC1-FIX: a rebind is authorised against the clobbered pre-image, so it writes only
+    // while that pre-image still stands. Otherwise a concurrent write is silently lost.
     const updateResult = await collection.updateOne(
-      { miner_key: boundKey },
+      mayRebind ? { miner_key: boundKey, address: exists.address } : { miner_key: boundKey },
       {
         $set: {
           is_registered: true,
@@ -161,6 +164,28 @@ export default async function handler(
         }
       }
     );
+
+    if (mayRebind && (updateResult.matchedCount === 0 || updateResult.modifiedCount === 0)) {
+      // The pre-image is gone: either another writer took the doc, or an earlier attempt of
+      // this same rebind already landed and the client is retrying. Re-read and say which.
+      const current = await collection.findOne({ miner_key: boundKey });
+      if (!current) {
+        res.status(404).json(CommonErrors.deviceNotFound());
+        return;
+      }
+      if ((current.address || '').trim() !== address) {
+        loggers.apiError(ENDPOINT, new Error('Clobber rebind lost a race with a concurrent write'), {
+          miner_key: boundKey,
+          address,
+          issueType: 'DEVICE_REBIND_CONFLICT',
+          part: 'registrations.create.rebind',
+        });
+        res.status(409).json(CommonErrors.deviceOwnerMismatch());
+        return;
+      }
+      res.status(200).json({ message: 'ok' });
+      return;
+    }
 
     if (updateResult.matchedCount === 0) {
       res.status(404).json(CommonErrors.deviceNotFound());

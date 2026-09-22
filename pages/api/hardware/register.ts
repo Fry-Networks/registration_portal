@@ -169,6 +169,27 @@ export default async function handler(
         return;
       }
 
+      // RC1-FIX (r12, 2026-09-22): this row is written with the SESSION wallet, so a session
+      // that does not own the device must not be able to stamp its wallet onto the key here
+      // either. The DELETE branch below has always made exactly this check against
+      // main.devices; the POST path did not.
+      const postTestMode =
+        process.env.NEXT_PUBLIC_TEST_MODE &&
+        process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+      const boundDevice = await client
+        .db('main')
+        .collection(postTestMode ? 'test-devices' : 'devices')
+        .findOne({ miner_key }, { projection: { address: 1, _id: 0 } });
+      if (
+        boundDevice &&
+        typeof boundDevice.address === 'string' &&
+        boundDevice.address.trim() &&
+        boundDevice.address.trim() !== session.user.address
+      ) {
+        res.status(403).json(CommonErrors.deviceOwnerMismatch() as ErrorResponse);
+        return;
+      }
+
       const linkedTypes = LINKED_MINER_TYPES[minerType] ?? [];
       if (linkedTypes.length > 0) {
         const minerKeySuffix = miner_key.slice(minerType.length);

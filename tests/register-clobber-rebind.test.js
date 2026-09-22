@@ -12,6 +12,7 @@
 // with NO such proof (any session holding the key could rebind); that is closed here.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { ObjectId } = require('mongodb');
 
 require('ts-node').register({
   transpileOnly: true,
@@ -22,6 +23,14 @@ const stub = (relPath, exports) => {
   const resolved = require.resolve(relPath);
   require.cache[resolved] = { id: resolved, filename: resolved, loaded: true, exports };
 };
+
+// RC1-FIX: an install record now also has to PRE-DATE the carve-out (lib/rebindOwnership.ts
+// REBIND_PROOF_CUTOFF), because creds.hardware.address by itself is mintable. The fixtures
+// below therefore carry the _id every real Mongo doc has; 2026-07-05 is the newest creation
+// time measured on the 8 real install records (ARES00, 2026-09-22).
+const oidAt = (iso) =>
+  new ObjectId(Math.floor(Date.parse(iso) / 1000).toString(16).padStart(8, '0') + '0123456789abcdef');
+const INSTALL_OID = () => oidAt('2026-07-05T22:51:15.000Z');
 
 const pad = (s) => (s + 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA').slice(0, 58);
 const OWNER = pad('SN7VBD4QOWNER');
@@ -106,7 +115,9 @@ const seedClobbered = ({ credsAddress }) => {
       device_algo_address: DEVWALLET,
     },
   ];
-  state.creds = credsAddress ? [{ miner_key: KEY_CLOBBERED, address: credsAddress }] : [];
+  state.creds = credsAddress
+    ? [{ _id: INSTALL_OID(), miner_key: KEY_CLOBBERED, address: credsAddress }]
+    : [];
 };
 
 const seedOwnedByThirdParty = () => {
@@ -122,7 +133,7 @@ const seedOwnedByThirdParty = () => {
   ];
   // creds.hardware deliberately names the ATTACKER: a non-clobbered doc owned by a real
   // wallet must still be refused even if the key's install record says otherwise.
-  state.creds = [{ miner_key: KEY_OTHER, address: ATTACKER }];
+  state.creds = [{ _id: INSTALL_OID(), miner_key: KEY_OTHER, address: ATTACKER }];
 };
 
 const doc = (key) => state.devices.find((d) => d.miner_key === key);
