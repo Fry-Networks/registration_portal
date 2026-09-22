@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { loggers } from '../../../lib/logger';
 import clientPromise from '../../../lib/mongoclient';
+import { mayRebindClobberedDevice, rebindMetadata } from '../../../lib/rebindOwnership';
 import {
   CommonErrors,
   createApiError,
@@ -86,7 +87,16 @@ export default async function handler(
       return;
     }
 
-    if (exists.address && exists.address !== address) {
+    // RC1 (2026-09-22): the July premature binding clobbered address === reward_wallet ===
+    // device_algo_address on 22 of 20,049 devices, so the rightful owner can neither see the
+    // device (pages/devices.tsx lists by {address: session wallet}) nor re-register it. Let the
+    // owner recover it -- but NEVER on miner-key possession alone, because install keys
+    // circulate in Discord support threads. The proof is creds.hardware.address: the wallet
+    // that registered this key at install time, which the clobber never touched.
+    const clobberedAddress = (exists.address || '').trim();
+    const mayRebind = await mayRebindClobberedDevice(client, exists, boundKey, address);
+
+    if (!mayRebind && exists.address && exists.address !== address) {
       res.status(409).json(CommonErrors.deviceOwnerMismatch());
       return;
     }
@@ -94,7 +104,7 @@ export default async function handler(
     // A device flagged is_registered but carrying no address is owned by nobody: the
     // owner-mismatch gate above short-circuits on the falsy address, so refusing here
     // left it permanently unclaimable (485 such devices measured 2026-09-14).
-    if (exists.is_registered && exists.address) {
+    if (!mayRebind && exists.is_registered && exists.address) {
       res.status(400).json(
         createApiError(
           ErrorCodes.ALREADY_REGISTERED,
@@ -110,7 +120,9 @@ export default async function handler(
       {
         $set: {
           is_registered: true,
-          address: address
+          address: address,
+          // claim.ts pays device.reward_wallet, so a verified rebind has to move it too.
+          ...(mayRebind ? { reward_wallet: address, ...rebindMetadata(clobberedAddress) } : {})
         }
       }
     );

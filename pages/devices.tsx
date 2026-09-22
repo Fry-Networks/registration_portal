@@ -856,6 +856,38 @@ const DevicesPage = ({
         return;
       }
       const result = await response.json();
+      if (result.device.rebind_available) {
+        // RC1: the July premature binding clobbered this device's address to its own device
+        // wallet, so it never appeared in this wallet's list and "Already registered" was a
+        // dead end. The server has already verified this session against the key's
+        // creds.hardware install record, so finish the bind here instead of refusing.
+        const rebind = await fetchWithFingerprintRetry(
+          () => fetch('/api/registrations/register', {
+            method: 'POST',
+            headers: { 'Content-type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ miner_key: normalizedKey, address: session?.user?.address })
+          }),
+          refreshFingerprint
+        );
+        if (rebind.ok) {
+          toast.success({
+            heading: 'Device linked to your wallet',
+            message: `${normalizedKey} had been linked to its own device wallet by mistake. It is now linked to your wallet.`
+          });
+          router.replace(router.asPath);
+        } else {
+          toast.error({
+            heading: 'Could not link this device',
+            message: 'We could not link that device to your wallet. Please contact support.',
+            minerKey: normalizedKey,
+            walletAddress: session?.user?.address,
+            issueType: 'DEVICE_REBIND_FAILED',
+            part: 'devices.handleRegister.rebind'
+          });
+        }
+        return;
+      }
       if (result.device.is_registered) {
         toast.error({
           heading: 'Error',

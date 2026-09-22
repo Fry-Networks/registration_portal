@@ -3,6 +3,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { Buffer } from 'buffer';
 import { getServerSession } from 'next-auth';
 import clientPromise from '../../../lib/mongoclient';
+import { isDeviceWalletClobber, mayRebindClobberedDevice } from '../../../lib/rebindOwnership';
 import { authOptions } from '../auth/[...nextauth]';
 import { hydrateDeviceWithPosition } from '../../../lib/devicePosition';
 import { loggers } from '../../../lib/logger';
@@ -116,16 +117,31 @@ export default async function handler(
       }
 
       if (device.address && device.address !== walletAddress) {
-        return res.status(401).json(CommonErrors.walletMismatch());
+        // RC1: a device-wallet-clobbered doc (address === device_algo_address, the July
+        // premature binding) belongs to whoever creds.hardware recorded at install time.
+        // Let that wallet -- and only that wallet -- load it, so the rebind can be offered.
+        if (!(await mayRebindClobberedDevice(client, device, miner_key, walletAddress))) {
+          return res.status(401).json(CommonErrors.walletMismatch());
+        }
+        (hydratedDevice as any).device_wallet_clobbered = true;
+        (hydratedDevice as any).rebind_available = true;
       }
       return res.status(200).json({ device: hydratedDevice });
     }
 
+    // RC1: report the July device-wallet clobber state, and whether THIS session can prove
+    // ownership of it via the key's creds.hardware install record, so pages/devices.tsx can
+    // offer the rebind instead of a dead "Already registered" toast.
+    const deviceWalletClobbered = isDeviceWalletClobber(device);
     return res.status(200).json({
       device: {
         is_registered: hydratedDevice.is_registered,
         registered_portal_model: hydratedDevice?.registered_portal_model,
-        position: hydratedDevice?.position
+        position: hydratedDevice?.position,
+        device_wallet_clobbered: deviceWalletClobbered,
+        rebind_available: deviceWalletClobbered
+          ? await mayRebindClobberedDevice(client, device, miner_key, walletAddress)
+          : false
       }
     });
   } catch (error) {

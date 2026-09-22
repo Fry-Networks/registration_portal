@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/[...nextauth]';
 import { loggers } from '../../../lib/logger';
 import clientPromise from '../../../lib/mongoclient';
+import { mayRebindClobberedDevice, rebindMetadata } from '../../../lib/rebindOwnership';
 import {
   CommonErrors,
   createApiError,
@@ -122,12 +123,22 @@ export default async function handler(
       return;
     }
     // F4 idempotent bind: auth already guarantees sessionAddress===address (the user's wallet).
-    // Allow (re)bind when the device is unclaimed, already bound to THIS wallet, or was a premature
-    // device-wallet binding (address===device_algo_address). Refuse only a DIFFERENT real user wallet.
+    // Allow (re)bind when the device is unclaimed or already bound to THIS wallet.
+    // RC1 (2026-09-22): the device-wallet carve-out this block used to apply (address ===
+    // device_algo_address, the July premature binding) was satisfied by miner-key possession
+    // ALONE, and install keys circulate in Discord support threads -- so any session holding a
+    // clobbered device's key could take it. The rebind now additionally requires the session
+    // wallet to equal creds.hardware.address, the wallet that registered the key at install
+    // time, which the clobber never touched.
+    let rebindSet: Record<string, unknown> = {};
     {
       const existingAddr = (exists.address || '').trim();
-      const isDeviceWallet = !!(existingAddr && exists.device_algo_address && existingAddr === exists.device_algo_address);
-      if (exists.is_registered && existingAddr && existingAddr !== address && !isDeviceWallet) {
+      const mayRebind = await mayRebindClobberedDevice(client, exists, boundKey, address);
+      if (mayRebind) {
+        // claim.ts pays device.reward_wallet, so a verified rebind has to move it too.
+        rebindSet = { reward_wallet: address, ...rebindMetadata(existingAddr) };
+      }
+      if (exists.is_registered && existingAddr && existingAddr !== address && !mayRebind) {
         res.status(409).json(
           createApiError(
             ErrorCodes.ALREADY_REGISTERED,
@@ -145,7 +156,8 @@ export default async function handler(
           is_registered: true,
           names,
           email,
-          address
+          address,
+          ...rebindSet
         }
       }
     );
