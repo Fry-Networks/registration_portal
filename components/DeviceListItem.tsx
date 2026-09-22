@@ -29,6 +29,7 @@ import {
   isBoostAssetSupported
 } from '../lib/utils';
 import { getLegacyForceTimestamp, isLegacyVerificationStake } from '../lib/legacyStake';
+import { inactiveReasonLabel } from '../lib/inactiveReason';
 import { describeMacIssue, validateMacAddress } from '../lib/validators/macAddressValidator';
 import { InformationCircleIcon } from '@heroicons/react/outline';
 // import WithdrawIcon from './WithdrawIcon';
@@ -193,6 +194,24 @@ export default function DeviceListItem({
     device.reward_poc_version_installed,
     device.reward_poc_version_required
   ]);
+  // RC9-UI: "Inactive" on its own is not actionable. The eligibility verdict the device
+  // already carries (reward_block_reason + the PoC version pair) says WHY, so render it.
+  // No new request: every input below is already on the device object.
+  const inactiveReasonText = useMemo(
+    () =>
+      inactiveReasonLabel({
+        isActive: device.is_active,
+        eligibility: device.reward_block_reason,
+        clientVersion: device.reward_poc_version_installed,
+        requiredVersion: device.reward_poc_version_required
+      }),
+    [
+      device.is_active,
+      device.reward_block_reason,
+      device.reward_poc_version_installed,
+      device.reward_poc_version_required
+    ]
+  );
   useEffect(() => { if (batchDeviceInfo) setDevice(prev => Object.assign(Object.assign(Object.create(Object.getPrototypeOf(prev) ?? Object.prototype), prev), batchDeviceInfo)); }, [batchDeviceInfo]);
   const initialDeviceSnapshot = useRef<string>('');
   const { data: session } = useSession();
@@ -2562,6 +2581,11 @@ const collapsibleSections: SectionConfig[] = useMemo(
                   {device.is_active ? 'Active' : 'Inactive'}
                 </span>
               </div>
+            )}
+            {device.is_active === false && inactiveReasonText && (
+              <p className="max-w-md text-[0.7rem] leading-snug text-gray-500">
+                {inactiveReasonText}
+              </p>
             )}
             {device.reward_eligible === false && (
               <div className="flex items-center gap-1.5" title={rewardBlockHint}>
