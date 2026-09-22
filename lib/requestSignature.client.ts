@@ -15,6 +15,8 @@
  * bundle. See pages/api/auth/signing-key.ts.
  */
 
+import { setServerTime } from './serverTime';
+
 const SIGNING_KEY_ENDPOINT = '/api/auth/signing-key';
 
 // Refetch well inside the server's 15-minute signature window so a key never goes stale
@@ -146,4 +148,73 @@ export function generateRequestSignature(
 
   // Return a placeholder that will be computed async
   return `pending:${timestamp}`;
+}
+
+/**
+ * L2 rejection codes a client can actually recover from on its own (RC5/RC6, r12).
+ *
+ * Every one of these means "re-sign and try once more": either the cached per-session key is
+ * stale (RC6 — 6,344 `Signature verification failed` events in 72h, 97% from three wallets) or
+ * the request timestamp fell outside the server's 15-minute window (RC5 — a reported wallet was
+ * rejected with `Request expired: 7201s old`, a browser clock two hours behind).
+ */
+const RECOVERABLE_SIGNATURE_CODES = new Set([
+  'INVALID_SIGNATURE',
+  'INVALID_REQUEST_SIGNATURE',
+  'EXPIRED_TIMESTAMP'
+]);
+
+/**
+ * Self-recovery from an L2 rejection.
+ *
+ * Before r12 a skewed client could never recover: lib/serverTime.ts only learned the offset from
+ * SUCCESSFUL responses, and the 403 body carried no `serverTime` at all, so every retry re-signed
+ * with the same wrong clock. The 403 bodies now carry the server's own clock; this applies it and
+ * drops the cached signing key.
+ *
+ * @returns whether a SINGLE retry is warranted. The caller must not retry more than once —
+ *          see fetchWithSignatureRecovery below.
+ */
+export function recoverFromSignatureRejection(status: number, body: any): boolean {
+  if (status !== 403) return false;
+
+  const code = typeof body?.code === 'string' ? body.code : undefined;
+  if (!code || !RECOVERABLE_SIGNATURE_CODES.has(code)) return false;
+
+  const serverTime = body?.serverTime;
+  if (typeof serverTime === 'number' && Number.isFinite(serverTime) && serverTime > 0) {
+    setServerTime(serverTime);
+  }
+
+  resetSigningKey();
+  return true;
+}
+
+/**
+ * Run a request and, if L2 rejects it recoverably, re-run it exactly ONCE.
+ *
+ * Single-shot is deliberate. `makeRequest` must re-derive its timestamp and signature on each
+ * call so the retry actually uses the corrected offset and the fresh key. Retrying a claim is
+ * only safe because every L2 403 site returns before any state mutation (verified in r12 V0:
+ * pages/api/rewards/claim.ts returns at :110/:126/:160, first write at :171; confirm.ts returns
+ * at :53/:63/:92/:117, first write at :148), so a retry cannot create a second reservation or
+ * pending-claim row.
+ */
+export async function fetchWithSignatureRecovery(
+  makeRequest: () => Promise<Response>
+): Promise<Response> {
+  const response = await makeRequest();
+  if (response.status !== 403) return response;
+
+  let body: any = null;
+  try {
+    body = await response.clone().json();
+  } catch {
+    body = null;
+  }
+
+  if (!recoverFromSignatureRejection(response.status, body)) return response;
+
+  // Exactly one retry, whatever the second response says.
+  return makeRequest();
 }

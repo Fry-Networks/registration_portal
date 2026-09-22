@@ -9,7 +9,8 @@ import { useToastContext } from '../../hooks/ToastContext';
 import { REWARD_WALLET, tFRY } from '../../lib/utils';
 import { startConfirmationWatcher } from '../../lib/confirmWatcher';
 import { getClientToken } from '../../lib/clientToken';
-import { generateRequestSignatureAsync } from '../../lib/requestSignature.client';
+import { generateRequestSignatureAsync, fetchWithSignatureRecovery } from '../../lib/requestSignature.client';
+import { getServerTimestamp, getServerTimeOffsetMs } from '../../lib/serverTime';
 import { parseAlgodError } from '../../lib/algorand/errorParser';
 import { buildPaymentTxn, buildOptInTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
@@ -22,6 +23,35 @@ import { useTheme } from 'next-themes';
 const devMode =
   process.env.NEXT_PUBLIC_DEV_MODE &&
   process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+
+// RC5/RC6 (r12): the L2 layers answer with a code but no user-facing copy, so INVALID_SIGNATURE /
+// MISSING_SIGNATURE / DEVICE_FINGERPRINT_REFRESH / WALLET_MISMATCH all fell through to the generic
+// "Server error" below. By the time one of these reaches the error map,
+// fetchWithSignatureRecovery has already applied the server's clock offset, dropped the stale
+// signing key and retried once - so a message here means the retry failed too.
+const SKEW_WARNING_MS = 2 * 60 * 1000;
+
+function signatureErrorMessage(code?: string): string | null {
+  if (code === 'INVALID_SIGNATURE' || code === 'EXPIRED_TIMESTAMP') {
+    const offsetMs = getServerTimeOffsetMs();
+    if (Math.abs(offsetMs) >= SKEW_WARNING_MS) {
+      const minutes = Math.max(1, Math.round(Math.abs(offsetMs) / 60000));
+      const direction = offsetMs > 0 ? 'behind' : 'ahead of';
+      return `Your computer clock is off by about ${minutes} minute${minutes === 1 ? '' : 's'} (${direction} ours), so the security check rejected this request. We have corrected for it \u2014 please try the claim again. Setting your device to update its clock automatically will stop this recurring.`;
+    }
+    return 'The security check rejected this request. Your signing key has been refreshed \u2014 please try the claim again.';
+  }
+  if (code === 'MISSING_SIGNATURE') {
+    return 'This request reached the server unsigned. Reload the page, then try the claim again.';
+  }
+  if (code === 'DEVICE_FINGERPRINT_REFRESH') {
+    return 'A security check refreshed your session. Please try the claim again.';
+  }
+  if (code === 'WALLET_MISMATCH') {
+    return 'This claim belongs to a different wallet. Sign in with the wallet that owns this device and try again.';
+  }
+  return null;
+}
 
 type ClaimContext = {
   minerKey?: string;
@@ -377,18 +407,24 @@ export default function ClaimModal({
       const baseBody = no ? { miner_key, no } : { miner_key };
       const clientToken = await getClientToken();
 
-      const previewTimestamp = Math.floor(Date.now() / 1000);
-      const previewSignature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', { ...baseBody, preview: true }, previewTimestamp);
-
-      const previewResponse = await fetch('/api/rewards/claim', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-client-token': clientToken,
-          'x-request-signature': previewSignature,
-          'x-request-timestamp': previewTimestamp.toString()
-        },
-        body: JSON.stringify({ ...baseBody, preview: true })
+      const previewBody = { ...baseBody, preview: true };
+      // RC5/RC6: sign with the server-corrected clock, and let ONE retry re-sign with a fresh
+      // offset and key if L2 rejects. Safe because every L2 403 site returns before any write
+      // (claim.ts returns at :110/:126/:160, first write at :171), so the retry cannot create a
+      // second reservation or preview row.
+      const previewResponse = await fetchWithSignatureRecovery(async () => {
+        const previewTimestamp = getServerTimestamp();
+        const previewSignature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', previewBody, previewTimestamp);
+        return fetch('/api/rewards/claim', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-token': clientToken,
+            'x-request-signature': previewSignature,
+            'x-request-timestamp': previewTimestamp.toString()
+          },
+          body: JSON.stringify(previewBody)
+        });
       });
 
       const previewResult = await previewResponse.json().catch(() => ({}));
@@ -411,7 +447,7 @@ export default function ClaimModal({
             : code === 'REWARD_VAULT_DEPLETED'
             ? previewResult?.action ||
               'Rewards vault is depleted. Claims will resume once the vault is refilled.'
-            : previewResult?.message || 'Server error';
+            : signatureErrorMessage(code) || previewResult?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
         setStatusText('Claim failed: ' + friendly);
@@ -435,18 +471,19 @@ export default function ClaimModal({
       setStage('submitting');
       setStatusText('Finalizing reward transfer with Algorand...');
       // Generate request signature for extra security
-      const timestamp = Math.floor(Date.now() / 1000);
-      const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', baseBody, timestamp);
-      
-      const response = await fetch('/api/rewards/claim', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-client-token': clientToken,
-          'x-request-signature': signature,
-          'x-request-timestamp': timestamp.toString()
-        },
-        body: JSON.stringify(baseBody)
+      const response = await fetchWithSignatureRecovery(async () => {
+        const timestamp = getServerTimestamp();
+        const signature = await generateRequestSignatureAsync('POST', '/api/rewards/claim', baseBody, timestamp);
+        return fetch('/api/rewards/claim', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-token': clientToken,
+            'x-request-signature': signature,
+            'x-request-timestamp': timestamp.toString()
+          },
+          body: JSON.stringify(baseBody)
+        });
       });
 
       const result = await response.json();
@@ -469,21 +506,23 @@ export default function ClaimModal({
           setStage('submitted');
           setStatusText('Submitting your claim…');
           const confirmBody = { groupId: result.groupId, signedUserLegB64: bytesToB64(signed[0]) };
-          const cTs = Math.floor(Date.now() / 1000);
-          const cSig = await generateRequestSignatureAsync('POST', '/api/rewards/confirm', confirmBody, cTs);
-          const confirmResp = await fetch('/api/rewards/confirm', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-client-token': clientToken,
-              'x-request-signature': cSig,
-              'x-request-timestamp': cTs.toString()
-            },
-            body: JSON.stringify(confirmBody)
+          const confirmResp = await fetchWithSignatureRecovery(async () => {
+            const cTs = getServerTimestamp();
+            const cSig = await generateRequestSignatureAsync('POST', '/api/rewards/confirm', confirmBody, cTs);
+            return fetch('/api/rewards/confirm', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-client-token': clientToken,
+                'x-request-signature': cSig,
+                'x-request-timestamp': cTs.toString()
+              },
+              body: JSON.stringify(confirmBody)
+            });
           });
           const confirmJson = await confirmResp.json().catch(() => ({}));
           if (!confirmResp.ok || !confirmJson.ok) {
-            const msg = confirmJson?.message || 'Claim confirmation failed';
+            const msg = signatureErrorMessage(confirmJson?.code as string | undefined) || confirmJson?.message || 'Claim confirmation failed';
             toast.error({ heading: 'Claim Error', message: msg });
             setStage('error');
             setStatusText('Claim failed: ' + msg);
@@ -540,7 +579,7 @@ export default function ClaimModal({
             : code === 'REWARD_VAULT_DEPLETED'
             ? result?.action ||
               'Rewards vault is depleted. Claims will resume once the vault is refilled.'
-            : result?.message || 'Server error';
+            : signatureErrorMessage(code) || result?.message || 'Server error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
         setStatusText('Claim failed: ' + friendly);
@@ -620,7 +659,7 @@ export default function ClaimModal({
               'This reward is under review or awaiting proof-of-coverage evidence and cannot be claimed yet. No action is needed — it becomes claimable automatically once verification completes.'
             : code === 'REWARD_VAULT_DEPLETED'
             ? result?.action || 'Rewards vault is depleted. Claims will resume once the vault is refilled.'
-            : result?.message || 'Unknown error';
+            : signatureErrorMessage(code) || result?.message || 'Unknown error';
         toast.error({ heading: 'Claim Error', message: friendly });
         setStage('error');
         setStatusText('Claim failed: ' + friendly);

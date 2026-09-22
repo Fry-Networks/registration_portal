@@ -50,20 +50,24 @@ export default async function handler(
     const timestamp = parseInt(req.headers['x-request-timestamp'] as string, 10);
 
     if (!signature || !timestamp) {
+      // RC5 (r12): serverTime lets a clock-skewed client correct its offset and retry once.
       res.status(403).json({
         success: false,
         code: 'MISSING_SIGNATURE',
-        message: 'Request signature or timestamp missing'
+        message: 'Request signature or timestamp missing',
+        serverTime: Date.now()
       });
       return;
     }
 
     const signatureValid = await verifyRequestSignatureAsync(req.method || 'POST', req.url || '/api/rewards/confirm', req.body, timestamp, signature, req);
     if (!signatureValid) {
+      // RC5 (r12): as in claim.ts — this return precedes every write in this handler.
       res.status(403).json({
         success: false,
         code: 'INVALID_SIGNATURE',
-        message: 'Invalid request signature'
+        message: 'Invalid request signature',
+        serverTime: Date.now()
       });
       return;
     }
@@ -92,7 +96,8 @@ export default async function handler(
     return res.status(403).json({
       success: false,
       code: 'DEVICE_MISMATCH',
-      message: 'Request originated from different device or script'
+      message: 'Request originated from different device or script',
+      serverTime: Date.now()
     });
   }
   // User-pays-gas confirm: reassemble the user-signed payment leg with the server-signed
@@ -114,7 +119,7 @@ export default async function handler(
         return;
       }
       if (pending.claimingAddress !== walletAddress) {
-        res.status(403).json(createApiError(ErrorCodes.WALLET_MISMATCH, 'This claim belongs to a different wallet.'));
+        res.status(403).json(createApiError(ErrorCodes.WALLET_MISMATCH, 'This claim belongs to a different wallet.', undefined, { serverTime: Date.now() }));
         return;
       }
 

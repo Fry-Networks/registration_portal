@@ -22,7 +22,7 @@ import { useModal } from '../app/modalcontext';
 import ClaimModal from '../components/modals/Claim';
 import BoostModal from '../components/modals/Boost';
 import { getClientToken, refreshClientToken } from '../lib/clientToken';
-import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
+import { generateRequestSignatureAsync, fetchWithSignatureRecovery } from '../lib/requestSignature.client';
 import { useFingerprintReady } from '../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../lib/api/fetchWithFingerprintRetry';
 import { isSecurityBlockCode } from '../lib/api/securityCodes';
@@ -311,7 +311,9 @@ export default function History({
           return false;
         }
       };
-      const response = await fetchWithFingerprintRetry(async () => {
+      // RC5/RC6: one signature-recovery retry outside the fingerprint retry. The factory
+      // re-derives the timestamp from getServerTimestamp(), so the retry uses the corrected clock.
+      const response = await fetchWithSignatureRecovery(() => fetchWithFingerprintRetry(async () => {
         const body = {
           miner_key: minerKey,
           page: targetPage
@@ -331,7 +333,7 @@ export default function History({
         });
       }, refreshFingerprint, {
         refreshClientToken: refreshClientTokenOnce
-      });
+      }));
       if (!response.ok) {
         let errorCode: string | undefined;
         try {

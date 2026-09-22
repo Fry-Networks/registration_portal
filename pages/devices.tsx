@@ -16,7 +16,7 @@ import { useTokenBalanceBatch, type TokenBalanceEntry } from '../lib/hooks/useTo
 import clientPromise from '../lib/mongoclient';
 import { Device, FryConversion, FryToken, Product } from '../lib/types';
 import { getClientToken, refreshClientToken } from '../lib/clientToken';
-import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
+import { generateRequestSignatureAsync, fetchWithSignatureRecovery } from '../lib/requestSignature.client';
 import { getServerTime, getServerTimestamp, setServerTime } from "../lib/serverTime";
 import CopyAddress from '../components/CopyAddress';
 import bgImg from '../assets/background.png';
@@ -1072,9 +1072,11 @@ const DevicesPage = ({
             }
           });
         };
-        const res = await fetchWithFingerprintRetry(requestFactory, refreshFingerprint, {
+        // RC5/RC6: one signature-recovery retry outside the fingerprint retry. requestFactory
+        // re-derives its timestamp from getServerTimestamp(), so the retry uses the corrected clock.
+        const res = await fetchWithSignatureRecovery(() => fetchWithFingerprintRetry(requestFactory, refreshFingerprint, {
           refreshClientToken: refreshClientTokenOnce
-        });
+        }));
         if (!res.ok) {
           consecutiveFailures += 1;
           if (active && res.status === 401) {

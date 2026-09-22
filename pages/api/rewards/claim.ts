@@ -107,8 +107,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const timestamp = Number(req.headers['x-request-timestamp']);
 
     if (!signature || Number.isNaN(timestamp)) {
+      // RC5 (r12): serverTime lets a clock-skewed client correct its offset and retry once.
       res.status(403).json(
-        createApiError('MISSING_SIGNATURE', 'Request signature or timestamp missing')
+        createApiError('MISSING_SIGNATURE', 'Request signature or timestamp missing', undefined, { serverTime: Date.now() })
       );
       return;
     }
@@ -123,8 +124,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
 
     if (!signatureValid) {
+      // RC5 (r12): an expired timestamp arrives here as INVALID_SIGNATURE; serverTime is what
+      // makes the rejection self-correcting. This return precedes every write in this handler.
       res.status(403).json(
-        createApiError('INVALID_SIGNATURE', 'Invalid or expired request signature')
+        createApiError('INVALID_SIGNATURE', 'Invalid or expired request signature', undefined, { serverTime: Date.now() })
       );
       return;
     }
@@ -158,7 +161,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (fingerprintStatus === 'blocked') {
     res.status(403).json(
-      createApiError('DEVICE_MISMATCH', 'Request from unauthorized device. This operation requires the original browser.')
+      createApiError('DEVICE_MISMATCH', 'Request from unauthorized device. This operation requires the original browser.', undefined, { serverTime: Date.now() })
     );
     return;
   }

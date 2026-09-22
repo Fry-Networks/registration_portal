@@ -34,6 +34,16 @@ export function getServerTimestamp(): number {
 }
 
 /**
+ * The tracked offset itself (serverTime - localTime), in ms.
+ *
+ * RC5 (r12): the claim UI needs the magnitude of the skew to tell a user their clock is wrong,
+ * not just a corrected timestamp. Positive means the local clock is BEHIND the server.
+ */
+export function getServerTimeOffsetMs(): number {
+  return serverTimeOffsetMs;
+}
+
+/**
  * Reset offset (e.g. on logout).
  */
 export function resetServerTime(): void {

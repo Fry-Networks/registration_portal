@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import useSWR from 'swr';
 import { getClientToken, refreshClientToken } from '../clientToken';
-import { generateRequestSignatureAsync } from '../requestSignature.client';
+import { generateRequestSignatureAsync, fetchWithSignatureRecovery } from '../requestSignature.client';
+import { getServerTimestamp } from '../serverTime';
 import { useFingerprintReady } from '../../app/fingerprintcontext';
 import { fetchWithFingerprintRetry } from '../api/fetchWithFingerprintRetry';
 
@@ -29,7 +30,7 @@ const createFetcher = (refreshFingerprint: () => Promise<boolean>) => async (key
   };
 
   const makeRequest = async () => {
-    const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = getServerTimestamp();
     const payload = { miner_key };
     const signature = await generateRequestSignatureAsync('POST', '/api/rewards/get-reward-summary', payload, timestamp);
     const clientToken = await getClientToken();
@@ -46,9 +47,11 @@ const createFetcher = (refreshFingerprint: () => Promise<boolean>) => async (key
     });
   };
 
-  const res = await fetchWithFingerprintRetry(makeRequest, refreshFingerprint, {
+  // RC5/RC6: one signature-recovery retry outside the fingerprint retry. makeRequest re-derives
+  // its timestamp from getServerTimestamp(), so the retry uses the corrected clock and a fresh key.
+  const res = await fetchWithSignatureRecovery(() => fetchWithFingerprintRetry(makeRequest, refreshFingerprint, {
     refreshClientToken: refreshClientTokenOnce
-  });
+  }));
   if (!res.ok) throw new Error('Failed to fetch summary');
   const json = await res.json();
   return json?.summary ?? { pending: 0, claimable: 0, firstRewardAt: null };

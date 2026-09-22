@@ -60,10 +60,15 @@ export const enforceWalletApiSecurity = async (
     const timestamp = typeof timestampHeader === 'string' ? Number(timestampHeader) : NaN;
 
     if (!signature || Number.isNaN(timestamp)) {
+      // RC5 (r12): the body carries the server's own clock so a skewed client can correct its
+      // offset and retry. Before this, serverTime only ever reached the client on a SUCCESSFUL
+      // response, so a client whose clock was outside the window could never recover.
       res.status(403).json(
         createApiError(
           'MISSING_SIGNATURE',
-          'Request signature or timestamp missing'
+          'Request signature or timestamp missing',
+          undefined,
+          { serverTime: Date.now() }
         )
       );
       return null;
@@ -104,10 +109,15 @@ export const enforceWalletApiSecurity = async (
     );
 
     if (!signatureValid) {
+      // RC5 (r12): see above — an expired timestamp surfaces here as INVALID_SIGNATURE (the
+      // EXPIRED_TIMESTAMP distinction is server-log only), so this is THE body a clock-skewed
+      // client sees. The code string is unchanged; only serverTime is added.
       res.status(403).json(
         createApiError(
           'INVALID_SIGNATURE',
-          'Invalid or expired request signature'
+          'Invalid or expired request signature',
+          undefined,
+          { serverTime: Date.now() }
         )
       );
       return null;
@@ -138,7 +148,9 @@ export const enforceWalletApiSecurity = async (
     res.status(403).json(
       createApiError(
         'DEVICE_MISMATCH',
-        'Request originated from a different device or script'
+        'Request originated from a different device or script',
+        undefined,
+        { serverTime: Date.now() }
       )
     );
     return null;
