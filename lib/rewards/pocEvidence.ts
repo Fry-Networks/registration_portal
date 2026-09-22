@@ -1,3 +1,38 @@
+// ===========================================================================
+// COLLECTION-NAMING GOTCHA: three different things are called 'PoC hardware'.
+// Verified against the live ARES00 MongoDB on 2026-09-22 with getCollectionNames().
+//
+//   (a) THE PoC EVIDENCE STORE -- the PoC *database*:
+//         client.db('PoC').collection('hardware')        <- heartbeats, reward date-keys
+//         client.db('PoC').collection('installations')   <- leases
+//       Read by THIS FILE, by lib/deviceActivity.ts (all three liveness tiers) and
+//       written by lib/poc-hardware.ts. This is the only 'PoC hardware' that carries
+//       evidence.
+//
+//   (b) A DEAD LOOKUP -- client.db('main').collection('PoC') in
+//       pages/api/hardware/status.ts:83-108, whose comment calls it 'main.PoC.hardware'.
+//       Database 'main' has NO collection named 'PoC'. See the note at that call site.
+//
+//   (c) THE CREDENTIALS STORE -- a different database, same collection NAME:
+//         client.db(MONGO_CREDS_DB ?? 'creds')
+//               .collection(MONGO_CREDS_COLLECTION ?? 'hardware')
+//       Read by pages/api/my-keys.ts (CRED_COLLECTIONS[0] === 'hardware'),
+//       pages/api/hardware/status.ts and pages/api/hardware/register.ts. It holds
+//       provisioning credentials, not evidence.
+//
+// So the bare name 'hardware' is ambiguous in this repo: always name the database
+// with it (PoC.hardware vs creds.hardware vs main.hardware).
+//
+// LOOK-ALIKES -- a collection-name scan by pattern will pick up backups and fixtures.
+// Live on ARES00 as of 2026-09-22:
+//   db PoC  : hardware, installations, measurements, merkle_trees, versions, presearch,
+//             mysterium, PLUS the stale copies hardware_backup and
+//             versions_backup_20260819.
+//   db main : poc_reward_dailies (the real one) sitting next to the fixture
+//             test_poc_reward_dailies and the singular poc_reward_daily; plus a
+//             main.hardware collection that is neither (a) nor (c).
+// Match collection names exactly; never with /poc/i or /hardware/.
+// ===========================================================================
 import type { MongoClient } from 'mongodb';
 
 // Forward PoC evidence guard for the claim path — mirror of push_distribute_v2 `poc_in_window`:

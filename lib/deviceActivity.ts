@@ -53,6 +53,9 @@ export async function computeActiveSetDetailed(
   // 15m would strip rewards from devices hardwareapi still considers live, and the dashboard
   // would disagree with the service that actually pays them.
   try {
+    // NAMING: this is the PoC *database* hardware collection (evidence), not
+    // creds.hardware (credentials) and not the dead main.PoC read in
+    // pages/api/hardware/status.ts -- see the header block in lib/rewards/pocEvidence.ts.
     const hardware = client.db('PoC').collection('hardware');
     const hardwareCutoff = new Date(Date.now() - 15 * 60 * 1000);
     

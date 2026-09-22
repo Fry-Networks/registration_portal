@@ -80,7 +80,26 @@ export default async function handler(
       .find({ miner_key: { $in: uniqueKeys } })
       .toArray();
 
-    // Fetch device-reported MACs from main.PoC.hardware
+    // DEAD PATH -- DO NOT TRUST THIS BLOCK. Verified on ARES00 2026-09-22:
+    // getCollectionNames() on database 'main' returns no collection named 'PoC'
+    // (it lists hardware, poc_reward_dailies, poc_reward_daily and the fixture
+    // test_poc_reward_dailies -- no 'PoC'). MongoDB does not error on a find()
+    // against a missing collection, so the catch below never fires: the cursor just
+    // comes back empty, pocDocs stays {}, and the three fields fed from it below
+    // (device_mac, mac_last_changed, mac_match at lines ~187-201) are silently omitted
+    // from every response. miner_mac is unaffected: it comes from the creds doc.
+    // The comment this replaced named the source 'main.PoC.hardware'; no such
+    // collection is present.
+    //
+    // The real device-reported MAC evidence lives in the PoC *database*:
+    // client.db('PoC').collection('hardware'). See the header block in
+    // lib/rewards/pocEvidence.ts for the full three-way naming gotcha.
+    //
+    // TO FIX (a real behaviour change -- deliberately NOT done in this comment-only
+    // pass): repoint to client.db('PoC').collection('hardware'), confirm the mac.*
+    // subdocument shape there actually matches the projection below before trusting
+    // mac_match, and add a test that fails when the lookup yields nothing instead of
+    // letting the omission pass silently.
     let pocDocs: Record<string, any> = {};
     try {
       const mainDb = client.db('main');
