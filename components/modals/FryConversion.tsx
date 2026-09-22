@@ -29,6 +29,7 @@ import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import { conversionErrorMessage } from '../../lib/conversionErrors';
 import CopyAddress from '../CopyAddress';
 import fry2OptInQr from '../../opt-in-qrcodes/FRY2-Opt-in.png';
 import fNodeOptInQr from '../../opt-in-qrcodes/fNode-Opt-in.png';
@@ -310,9 +311,21 @@ export default function FryConversionModal({
       });
 
       if (!response.ok) {
+        const body = await response.json().catch(() => ({} as Record<string, unknown>));
+        const code = typeof body?.code === 'string' ? body.code : null;
+        const copy = conversionErrorMessage(response.status, code ?? undefined);
         toast.error({
-          heading: 'Error',
-          message: 'Network error to get account status for conversion'
+          heading: copy.heading,
+          message: copy.message,
+          part: 'conversion.get-fry.status',
+          walletAddress: session.user.address,
+          metadata: {
+            status: response.status,
+            code,
+            endpoint: '/api/conversion/get_fry_conversion',
+            heading: copy.heading,
+            message: copy.message
+          }
         });
         return;
       }

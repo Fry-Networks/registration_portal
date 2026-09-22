@@ -20,6 +20,10 @@ import { useWalletActions } from '../../lib/wallet/useWalletActions';
 import { buildAssetTransferTxn } from '../../lib/wallet/transactions';
 import { WalletRequestInFlightError } from '../../lib/wallet/requestCoordinator.client';
 import { useSmartRetry } from '../../lib/hooks/useSmartRetry';
+import {
+  conversionErrorMessage,
+  shouldRetryConversionRead
+} from '../../lib/conversionErrors';
 
 const testMode = process.env.NEXT_PUBLIC_TEST_MODE === 'true';
 
@@ -256,8 +260,8 @@ export default function PostSnapshotConversionModal({
       return;
     }
 
-    try {
-      const response = await fetch('/api/conversion/get_post_snapshot', {
+    const requestStatus = () =>
+      fetch('/api/conversion/get_post_snapshot', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -267,10 +271,31 @@ export default function PostSnapshotConversionModal({
         })
       });
 
+    try {
+      let response = await requestStatus();
+
+      // ONE retry, 503 only. This read is idempotent and a 503 means the algod failover
+      // balance lookup failed, which is transient. Burn/claim submits are never retried.
+      if (!response.ok && shouldRetryConversionRead(response.status)) {
+        response = await requestStatus();
+      }
+
       if (!response.ok) {
+        const body = await response.json().catch(() => ({} as Record<string, unknown>));
+        const code = typeof body?.code === 'string' ? body.code : null;
+        const copy = conversionErrorMessage(response.status, code ?? undefined);
         toast.error({
-          heading: 'Error',
-          message: 'Network error fetching post-snapshot status'
+          heading: copy.heading,
+          message: copy.message,
+          part: 'conversion.post-snapshot.status',
+          walletAddress: session.user.address,
+          metadata: {
+            status: response.status,
+            code,
+            endpoint: '/api/conversion/get_post_snapshot',
+            heading: copy.heading,
+            message: copy.message
+          }
         });
         return;
       }
