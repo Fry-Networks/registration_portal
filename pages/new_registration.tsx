@@ -20,7 +20,7 @@ export default function NewRegistrationPage() {
   const { data: session, status } = useSession();
   const { openModal, closeModal } = useModal();
   const { activeAccount } = useWallet();
-  const isValid = /\b([A-Z]{2,6})-[A-Z0-9]{32}\b/gm.test(minerKey);
+  const isValid = /^[A-Z]{2,6}-[A-Z0-9]{32}$/.test(minerKey.trim().toUpperCase());
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
 
   
