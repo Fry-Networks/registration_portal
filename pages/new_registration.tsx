@@ -23,6 +23,21 @@ export default function NewRegistrationPage() {
   const isValid = /^[A-Z]{2,6}-[A-Z0-9]{32}$/.test(minerKey.trim().toUpperCase());
   const [updateSuccess, setUpdateSuccess] = useState({ status: 'success', message: '' });
 
+  // Firmware 0.3.2 ends web provisioning by opening
+  //   /new_registration#key=FEM-<32 hex>
+  // so a user with no Android phone arrives here with their key already known. The key
+  // travels in the FRAGMENT: unlike a query string it never reaches nginx, the access
+  // log or a Referer header. ?key= is accepted as a fallback for clients that drop it.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const fromHash = new URLSearchParams(
+      (typeof window !== 'undefined' ? window.location.hash : '').replace(/^#/, ''),
+    ).get('key');
+    const fromQuery = typeof router.query.key === 'string' ? router.query.key : null;
+    const supplied = fromHash || fromQuery;
+    if (supplied) setMinerKey(supplied.trim().toUpperCase());
+  }, [router.isReady, router.query.key]);
+
   
   const startRegistration = async () => {
     if (!activeAccount) {
