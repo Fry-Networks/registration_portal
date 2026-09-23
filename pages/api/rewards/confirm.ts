@@ -28,14 +28,26 @@ const testMode =
 
 // The vault-signed legs of a user-pays claim group are [reward legs (vault -> claimer), then the
 // FFG holder-cut legs (vault -> sink)] — see buildUserPaysClaimGroup in lib/algorand/admin.ts.
-// algod's sendRawTransaction answers with the txid of group member 0, which is the user's gas
-// PAYMENT leg, not the transfer that moved the reward. The audit row must carry the leg that
-// actually moved the asset, so it is recovered here from the envelope the server already holds.
-// Returns undefined when nothing matches; the caller falls back rather than inventing an id.
-const extractAssetTransferTxId = (
+//
+// ONE settled group therefore carries TWO identifiers that are easy to confuse:
+//   * the GAS id   — the txid of group member 0, the user's ALGO payment leg. This is what
+//                    algod's sendRawTransaction answers with, and it is what the weekly/daily
+//                    reward entries (`tx_id`) and this handler's 200 response carry.
+//   * the ASSET id — the txid of the axfer leg that actually moved the reward to the claimer.
+// The audit row in main.device_transactions is keyed on the asset id, because that is the
+// transaction a support agent or an explorer lookup is actually after. To keep the two surfaces
+// joinable the gas id is persisted alongside it (`metadata.gasTxId`) and `txIdSource` records
+// which leg `txId` came from. This task deliberately does not change what the reward entries
+// store; it only makes the split explicit and the rows joinable.
+//
+// Returns every matching leg in group order (a group may pay the claimer more than once) and an
+// empty array when nothing matches; the caller then falls back and flags it rather than inventing
+// an id.
+const extractAssetTransferTxIds = (
   signedServerLegsB64: string[],
   claimingAddress: string
-): string | undefined => {
+): string[] => {
+  const txIds: string[] = [];
   for (const legB64 of signedServerLegsB64) {
     try {
       const decoded = algosdk.decodeSignedTransaction(new Uint8Array(Buffer.from(legB64, 'base64')));
@@ -45,14 +57,14 @@ const extractAssetTransferTxId = (
       }
       const receiver = txn.assetTransfer?.receiver;
       if (receiver && String(receiver) === claimingAddress) {
-        return txn.txID();
+        txIds.push(txn.txID());
       }
     } catch (decodeError) {
       // A leg we cannot decode is skipped: this runs after the group already settled on chain,
       // so it must never turn a successful claim into an error.
     }
   }
-  return undefined;
+  return txIds;
 };
 
 export default async function handler(
@@ -208,15 +220,41 @@ export default async function handler(
       // settled, and until now nothing ever came back to it. Forward-only: the helper moves a
       // pending/submitted row and nothing else, and a failure here is logged, never retried — the
       // payment is already on chain and must not resurface to the user as an error.
-      const assetTransferTxId = extractAssetTransferTxId(
+      const assetTransferTxIds = extractAssetTransferTxIds(
         (pending.signedServerLegsB64 as string[]) || [],
         walletAddress
       );
+      const assetTransferTxId = assetTransferTxIds[0];
+      // Self-describing: a reader of the audit row never has to guess which leg `txId` is.
+      const txIdSource = assetTransferTxId ? 'asset-transfer' as const : 'group-gas-fallback' as const;
+      if (!assetTransferTxId) {
+        // The fallback stores the GAS id in a field that means the asset id. That is a silent
+        // mislabel unless it is both flagged on the row and surfaced here, because it means the
+        // envelope held no decodable axfer leg to the claimer — a group shape we did not expect.
+        loggers.apiError(
+          '/api/rewards/confirm',
+          new Error('No asset-transfer leg to the claimer in the settled group; the audit row falls back to the gas-payment txid.'),
+          {
+            miner_key: minerKey,
+            address: walletAddress,
+            issueType: 'REWARD_CONFIRM_ASSET_LEG_UNRESOLVED',
+            part: 'rewards-confirm.userpays.journal',
+            metadata: {
+              groupId,
+              gasTxId: txid,
+              serverLegCount: ((pending.signedServerLegsB64 as string[]) || []).length
+            }
+          }
+        );
+      }
       try {
         await confirmJournalEntryByGroupId({
           miner_key: minerKey,
           groupId,
-          txId: assetTransferTxId ?? txid
+          txId: assetTransferTxId ?? txid,
+          gasTxId: txid,
+          assetTxIds: assetTransferTxIds,
+          txIdSource
         });
       } catch (journalError) {
         loggers.apiError(

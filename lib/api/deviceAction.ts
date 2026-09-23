@@ -19,6 +19,14 @@ export interface DeviceActionContext {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * The BASE idempotency key for a request. Deliberately left as-is: it is what
+ * `device_request_locks` records for the in-flight request, and a client that sends
+ * `x-idempotency-key` still pins it. Note that for a claim-all it is stable for the life of the
+ * device - Claim.tsx posts the identical body `{miner_key}` every time - so it identifies the
+ * DEVICE+ACTION, not the attempt. The attempt is identified by the key `appendJournalEntry`
+ * returns below, which derives from this one.
+ */
 const deriveIdempotencyKey = (req: NextApiRequest, bodyHashSeed: Record<string, unknown>) => {
   const headerKey = req.headers['x-idempotency-key'];
   if (typeof headerKey === 'string' && headerKey.trim().length > 0) {
@@ -81,18 +89,24 @@ export const withDeviceActionLock = async <T>(
     return;
   }
 
+  // The key of the audit row this attempt owns. It is the base key for a device's first attempt
+  // and a discriminated one (`<base>#2`, ...) once an earlier attempt has settled, so a confirmed
+  // row is never reopened by the next claim. Resolved by the `open` write below.
+  let journalKey = idempotencyKey;
+
   try {
-    await appendJournalEntry({
+    journalKey = await appendJournalEntry({
       miner_key,
       action,
       idempotencyKey,
       walletAddress: address,
       request: req.body ?? {},
       status: 'pending',
-      metadata
+      metadata,
+      phase: 'open'
     });
 
-    const result = (await handler({ idempotencyKey })) ?? {};
+    const result = (await handler({ idempotencyKey: journalKey })) ?? {};
 
     const journalUpdate: Pick<AppendJournalEntryParams, 'status' | 'txId' | 'error' | 'metadata'> = {
       status: result.journal?.status ?? 'confirmed',
@@ -107,7 +121,7 @@ export const withDeviceActionLock = async <T>(
     await appendJournalEntry({
       miner_key,
       action,
-      idempotencyKey,
+      idempotencyKey: journalKey,
       walletAddress: address,
       request: req.body ?? {},
       status: journalUpdate.status,
@@ -128,7 +142,7 @@ export const withDeviceActionLock = async <T>(
     await appendJournalEntry({
       miner_key,
       action,
-      idempotencyKey,
+      idempotencyKey: journalKey,
       walletAddress: address,
       request: req.body ?? {},
       status: 'failed',
@@ -145,7 +159,7 @@ export const withDeviceActionLock = async <T>(
       endpoint: req.url ?? undefined,
       metadata: {
         status,
-        idempotencyKey,
+        idempotencyKey: journalKey,
         action,
         originalError: error instanceof Error ? error.message : error,
         ...(metadata ?? {})

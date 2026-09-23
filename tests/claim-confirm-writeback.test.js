@@ -46,7 +46,7 @@ const ASSET = 2485202024; // fNODE
 // ------------------------------------------------------------------ fixtures
 // Mirrors lib/algorand/admin.ts buildUserPaysClaimGroup: leg0 = user -> vault ALGO gas payment,
 // then the vault-signed reward legs (vault -> claimer), then the FFG holder-cut legs (vault -> sink).
-const buildGroup = ({ nonce, withFeeLeg = false }) => {
+const buildGroup = ({ nonce, withFeeLeg = false, extraRewardLeg = false, noRewardLeg = false }) => {
   const base = {
     fee: 0,
     flatFee: true,
@@ -69,6 +69,15 @@ const buildGroup = ({ nonce, withFeeLeg = false }) => {
     amount: 33070000,
     suggestedParams: { ...base },
   });
+  // A second reward leg to the SAME claimer: a real group can pay a device more than once
+  // (weekly + daily in one claim), and only the first was ever recorded.
+  const secondRewardLeg = realAlgosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+    sender: VAULT.addr,
+    receiver: USER.addr,
+    assetIndex: ASSET,
+    amount: 7770000,
+    suggestedParams: { ...base },
+  });
   const feeLeg = realAlgosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
     sender: VAULT.addr,
     receiver: SINK.addr,
@@ -76,7 +85,8 @@ const buildGroup = ({ nonce, withFeeLeg = false }) => {
     amount: 1000000,
     suggestedParams: { ...base },
   });
-  const serverLegs = withFeeLeg ? [rewardLeg, feeLeg] : [rewardLeg];
+  const rewardLegs = noRewardLeg ? [] : (extraRewardLeg ? [rewardLeg, secondRewardLeg] : [rewardLeg]);
+  const serverLegs = withFeeLeg || noRewardLeg ? [...rewardLegs, feeLeg] : rewardLegs;
   realAlgosdk.assignGroupID([leg0, ...serverLegs]);
   return {
     groupId: Buffer.from(leg0.group).toString('base64'),
@@ -84,6 +94,7 @@ const buildGroup = ({ nonce, withFeeLeg = false }) => {
     signedServerLegsB64: serverLegs.map((t) => Buffer.from(t.signTxn(VAULT.sk)).toString('base64')),
     gasTxId: leg0.txID(),
     assetTxId: rewardLeg.txID(),
+    secondAssetTxId: secondRewardLeg.txID(),
     feeLegTxId: feeLeg.txID(),
   };
 };
@@ -94,6 +105,8 @@ const state = {
   pending: [],        // main.reward_pending_claims
   rewardUpdates: [],  // main.device-rewards writes
   deleted: [],
+  journalWrites: [],  // every device_transactions updateOne: { filter, update, options, result }
+  loggedErrors: [],   // loggers.apiError calls
 };
 
 const valueAt = (doc, dotted) =>
@@ -108,14 +121,51 @@ const matches = (doc, filter) =>
     return actual === expected;
   });
 
+// $set uses DOTTED paths for the metadata sub-fields, so the fake has to walk them the way mongo
+// does — a plain Object.assign would invent a literal "metadata.gasTxId" key and quietly hide a
+// clobbered metadata object.
+const setAt = (doc, dotted, value) => {
+  const segs = dotted.split('.');
+  let cursor = doc;
+  for (let i = 0; i < segs.length - 1; i += 1) {
+    if (cursor[segs[i]] === null || typeof cursor[segs[i]] !== 'object') cursor[segs[i]] = {};
+    cursor = cursor[segs[i]];
+  }
+  cursor[segs[segs.length - 1]] = value;
+};
+
+// Mongo seeds an upserted document from the EQUALITY fields of the filter only.
+const equalityFields = (filter) => {
+  const doc = {};
+  for (const [key, expected] of Object.entries(filter || {})) {
+    if (expected && typeof expected === 'object' && !Array.isArray(expected) && !(expected instanceof Date)) continue;
+    setAt(doc, key, expected);
+  }
+  return doc;
+};
+
 const journalCollection = {
   createIndex: async () => 'ok',
   findOne: async (filter) => state.journal.find((r) => matches(r, filter)) || null,
-  updateOne: async (filter, update) => {
+  // The third argument matters: without it the fake upserts nothing whatever the caller asks for,
+  // so turning this write into a backfill (`{ upsert: true }`) would stay invisible.
+  updateOne: async (filter, update, options = {}) => {
     const row = state.journal.find((r) => matches(r, filter));
-    if (!row) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
-    Object.assign(row, update.$set || {});
-    return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };
+    let result;
+    if (row) {
+      for (const [key, value] of Object.entries(update.$set || {})) setAt(row, key, value);
+      result = { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 };
+    } else if (options.upsert) {
+      const doc = equalityFields(filter);
+      for (const [key, value] of Object.entries(update.$set || {})) setAt(doc, key, value);
+      for (const [key, value] of Object.entries(update.$setOnInsert || {})) setAt(doc, key, value);
+      state.journal.push(doc);
+      result = { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 };
+    } else {
+      result = { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
+    }
+    state.journalWrites.push({ filter, update, options, result });
+    return result;
   },
 };
 
@@ -172,7 +222,15 @@ stub('../lib/adminCheck', { __esModule: true, isAdminRequest: async () => true, 
 stub('../lib/clientTokenMiddleware', { __esModule: true, verifyClientToken: async () => true });
 stub('../lib/requestSignature.server', { __esModule: true, verifyRequestSignatureAsync: async () => true });
 stub('../lib/deviceFingerprint', { __esModule: true, verifyDeviceFingerprintMiddleware: async () => 'ok' });
-stub('../lib/logger', { __esModule: true, loggers: { apiError: () => {}, txnLog: () => {}, api: () => {}, security: () => {} } });
+stub('../lib/logger', {
+  __esModule: true,
+  loggers: {
+    apiError: (endpoint, error, metadata) => { state.loggedErrors.push({ endpoint, error, metadata }); },
+    txnLog: () => {},
+    api: () => {},
+    security: () => {},
+  },
+});
 stub('../lib/discord-webhook', { __esModule: true, notifyDiscordError: async () => {} });
 stub('../lib/utils', { __esModule: true, getTransactionTime: async () => new Date('2026-09-22T14:21:39Z') });
 stub('../lib/algorand/admin', { __esModule: true, loadMnemonicAccountPair: () => ({ address: String(VAULT.addr), account: { addr: VAULT.addr } }) });
@@ -232,6 +290,8 @@ const reset = () => {
   state.pending.length = 0;
   state.rewardUpdates.length = 0;
   state.deleted.length = 0;
+  state.journalWrites.length = 0;
+  state.loggedErrors.length = 0;
   submitted.length = 0;
   sendBehaviour = 'ok';
 };
@@ -367,4 +427,85 @@ test('(c2) NEGATIVE: the writeback targets exactly this device AND this group, n
   assert.equal(otherDeviceRow.txId, undefined, "another device's audit row received a txId");
   assert.equal(abandonedAttemptRow.status, 'pending', "this device's earlier abandoned attempt was confirmed");
   assert.equal(abandonedAttemptRow.txId, undefined, "this device's earlier abandoned attempt received a txId");
+});
+
+test('(e) BOTH transaction ids are persisted, discriminated, and the /claim metadata survives', async () => {
+  reset();
+  const group = buildGroup({ nonce: 7000, withFeeLeg: true });
+  seedPending(group);
+  const row = seedJournal(group.groupId);
+
+  const captured = await runConfirm(group);
+
+  // The 200 response and the reward entries still carry the GAS id - that split is deliberate and
+  // unchanged by this task; what changed is that the audit row now records both, and says which
+  // is which, so the two surfaces can be joined.
+  assert.equal(captured.body?.txId, group.gasTxId, 'the response should still return the submitted group id');
+  assert.equal(row.txId, group.assetTxId, 'the audit row must key on the asset-transfer leg');
+  assert.equal(row.txIdSource, 'asset-transfer', `txIdSource was ${String(row.txIdSource)}`);
+  assert.equal(row.metadata.gasTxId, group.gasTxId, 'the gas id is not joinable from the audit row');
+  assert.deepEqual(row.metadata.assetTxIds, [group.assetTxId]);
+  // The dotted $set must not eat the metadata /claim wrote - including the groupId the writeback
+  // itself filters on, which a whole-object $set would have destroyed.
+  assert.equal(row.metadata.groupId, group.groupId, 'the writeback clobbered metadata.groupId');
+  assert.equal(row.metadata.mode, 'user_pays', 'the writeback clobbered metadata written by /claim');
+});
+
+test('(f) every reward leg paid to the claimer is recorded, not only the first', async () => {
+  reset();
+  const group = buildGroup({ nonce: 7500, withFeeLeg: true, extraRewardLeg: true });
+  seedPending(group);
+  const row = seedJournal(group.groupId);
+
+  await runConfirm(group);
+
+  assert.deepEqual(
+    row.metadata.assetTxIds,
+    [group.assetTxId, group.secondAssetTxId],
+    'a group paying the claimer twice must record both legs',
+  );
+  assert.equal(row.txId, group.assetTxId, 'txId stays the first reward leg');
+  assert.ok(!row.metadata.assetTxIds.includes(group.feeLegTxId), 'the FFG holder-cut leg is not a reward leg');
+});
+
+test('(g) with no reward leg to the claimer the gas-id fallback is flagged, not silent', async () => {
+  reset();
+  const group = buildGroup({ nonce: 8000, noRewardLeg: true });
+  seedPending(group);
+  const row = seedJournal(group.groupId);
+
+  await runConfirm(group);
+
+  assert.equal(row.txId, group.gasTxId, 'the fallback should still store something, not nothing');
+  assert.equal(
+    row.txIdSource,
+    'group-gas-fallback',
+    `a gas-id fallback must be marked on the row (txIdSource=${String(row.txIdSource)})`,
+  );
+  assert.equal(row.metadata.assetTxIds, undefined, 'no reward leg was found, so none may be claimed');
+  const flagged = state.loggedErrors.filter((e) => e.metadata?.issueType === 'REWARD_CONFIRM_ASSET_LEG_UNRESOLVED');
+  assert.equal(flagged.length, 1, 'the silent gas-id fallback was not logged');
+  // loggers.apiError(endpoint, error, ErrorLogMetadata) - the free-form context sits one level
+  // down, under ErrorLogMetadata.metadata.
+  assert.equal(flagged[0].metadata.metadata.groupId, group.groupId);
+  assert.equal(flagged[0].metadata.metadata.gasTxId, group.gasTxId);
+  assert.equal(flagged[0].metadata.metadata.serverLegCount, group.signedServerLegsB64.length);
+});
+
+test('(h) NEGATIVE: a groupId with no audit row is never backfilled', async () => {
+  reset();
+  const group = buildGroup({ nonce: 9000 });
+  seedPending(group);
+  // Deliberately no seedJournal: this is the shape where /claim's audit row already aged out of
+  // the 90-day TTL, or never existed. The writeback must leave the collection exactly as it is.
+
+  const captured = await runConfirm(group);
+
+  assert.equal(captured.status, 200, 'a missing audit row must not fail the settled claim');
+  assert.equal(state.journal.length, 0, `the writeback backfilled ${state.journal.length} audit row(s)`);
+  const writes = state.journalWrites.filter((w) => w.filter['metadata.groupId'] === group.groupId);
+  assert.equal(writes.length, 1, 'expected exactly one writeback attempt');
+  assert.notEqual(writes[0].options?.upsert, true, 'the writeback asked mongo to upsert - that is a backfill');
+  assert.equal(writes[0].result.matchedCount, 0, `matchedCount was ${writes[0].result.matchedCount}`);
+  assert.equal(writes[0].result.upsertedCount, 0, `upsertedCount was ${writes[0].result.upsertedCount}`);
 });
