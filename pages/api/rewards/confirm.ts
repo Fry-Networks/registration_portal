@@ -14,6 +14,7 @@ import { verifyRequestSignatureAsync } from '../../../lib/requestSignature.serve
 import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { loggers } from '../../../lib/logger';
+import { confirmJournalEntryByGroupId } from '../../../lib/db/requestLocks';
 import {
   CommonErrors,
   createApiError,
@@ -24,6 +25,35 @@ import {
 const testMode =
   process.env.NEXT_PUBLIC_TEST_MODE &&
   process.env.NEXT_PUBLIC_TEST_MODE === 'true';
+
+// The vault-signed legs of a user-pays claim group are [reward legs (vault -> claimer), then the
+// FFG holder-cut legs (vault -> sink)] — see buildUserPaysClaimGroup in lib/algorand/admin.ts.
+// algod's sendRawTransaction answers with the txid of group member 0, which is the user's gas
+// PAYMENT leg, not the transfer that moved the reward. The audit row must carry the leg that
+// actually moved the asset, so it is recovered here from the envelope the server already holds.
+// Returns undefined when nothing matches; the caller falls back rather than inventing an id.
+const extractAssetTransferTxId = (
+  signedServerLegsB64: string[],
+  claimingAddress: string
+): string | undefined => {
+  for (const legB64 of signedServerLegsB64) {
+    try {
+      const decoded = algosdk.decodeSignedTransaction(new Uint8Array(Buffer.from(legB64, 'base64')));
+      const txn = decoded.txn as any;
+      if (txn?.type !== 'axfer') {
+        continue;
+      }
+      const receiver = txn.assetTransfer?.receiver;
+      if (receiver && String(receiver) === claimingAddress) {
+        return txn.txID();
+      }
+    } catch (decodeError) {
+      // A leg we cannot decode is skipped: this runs after the group already settled on chain,
+      // so it must never turn a successful claim into an error.
+    }
+  }
+  return undefined;
+};
 
 export default async function handler(
   req: NextApiRequest,
@@ -172,6 +202,35 @@ export default async function handler(
         );
       }
       await pendingCollection.deleteOne({ groupId });
+
+      // Close the audit row (main.device_transactions). /claim mints it `pending` because the
+      // envelope is only pre-signed there; this is the first point at which the claim is genuinely
+      // settled, and until now nothing ever came back to it. Forward-only: the helper moves a
+      // pending/submitted row and nothing else, and a failure here is logged, never retried — the
+      // payment is already on chain and must not resurface to the user as an error.
+      const assetTransferTxId = extractAssetTransferTxId(
+        (pending.signedServerLegsB64 as string[]) || [],
+        walletAddress
+      );
+      try {
+        await confirmJournalEntryByGroupId({
+          miner_key: minerKey,
+          groupId,
+          txId: assetTransferTxId ?? txid
+        });
+      } catch (journalError) {
+        loggers.apiError(
+          '/api/rewards/confirm',
+          journalError instanceof Error ? journalError : new Error(String(journalError)),
+          {
+            miner_key: minerKey,
+            address: walletAddress,
+            issueType: 'REWARD_CONFIRM_JOURNAL_WRITEBACK_FAILED',
+            part: 'rewards-confirm.userpays.journal',
+            metadata: { groupId }
+          }
+        );
+      }
 
       loggers.txnLog('reward_claim_userpays_confirmed', txid, { address: walletAddress, claimedAt });
       res.status(200).json({ ok: true, success: true, txId: txid, claimedAt });

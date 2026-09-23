@@ -1,4 +1,4 @@
-import type { Collection, Document, WithId } from 'mongodb';
+import type { Collection, Document, Filter, WithId } from 'mongodb';
 import type { ObjectId } from 'mongodb';
 import clientPromise from '../mongoclient';
 
@@ -162,4 +162,51 @@ export const appendJournalEntry = async (params: AppendJournalEntryParams): Prom
     },
     { upsert: true }
   );
+};
+
+export interface ConfirmJournalByGroupParams {
+  miner_key: string;
+  groupId: string;
+  txId: string;
+}
+
+/**
+ * Forward-only writeback for the user-pays claim path.
+ *
+ * /api/rewards/claim mints the pre-signed envelope and deliberately leaves the audit row
+ * `pending` — nothing is on chain at that point. The group is submitted later by
+ * /api/rewards/confirm, which consumed the envelope and moved the reward entries to `claimed`
+ * but never came back to the audit row: measured in the R12 sweep, 0 of 1855 `pending` rows
+ * carried a txId while 747 of them already had `claimed` entries.
+ *
+ * Only a row that is still `pending` or `submitted` is moved, so an already-`confirmed` (or
+ * `failed`) row can never be reopened or rewritten. Nothing is upserted either — an absent row
+ * stays absent rather than being backfilled.
+ */
+export const confirmJournalEntryByGroupId = async ({
+  miner_key,
+  groupId,
+  txId
+}: ConfirmJournalByGroupParams): Promise<boolean> => {
+  if (!miner_key || !groupId || !txId) {
+    return false;
+  }
+
+  const collection = await ensureJournal();
+  const result = await collection.updateOne(
+    {
+      miner_key,
+      'metadata.groupId': groupId,
+      status: { $in: ['pending', 'submitted'] }
+    } as Filter<DeviceTransactionJournal>,
+    {
+      $set: {
+        status: 'confirmed',
+        txId,
+        updatedAt: new Date()
+      }
+    }
+  );
+
+  return (result.modifiedCount ?? 0) > 0;
 };
