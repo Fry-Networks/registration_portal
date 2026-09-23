@@ -5,10 +5,8 @@ import { Title, Card, Button, Badge, Text, Flex, Grid, Metric } from '@tremor/re
 import { useSession } from 'next-auth/react';
 import { useWallet } from '@txnlab/use-wallet-react';
 import { useTheme } from 'next-themes';
-import { getClientToken } from '../lib/clientToken';
-import { generateRequestSignatureAsync } from '../lib/requestSignature.client';
+import { dimoFetch as fetchWithSignature } from '../lib/api/dimoFetch';
 import dynamic from 'next/dynamic';
-import { getServerTimestamp } from "../lib/serverTime";
 import { GetServerSideProps } from 'next';
 import { getConfigFlag } from '../lib/config';
 import HeroBanner from '../components/HeroBanner';
@@ -32,24 +30,6 @@ type SubscriptionView = {
   graceExpiresAt?: string;
   claimed: boolean;
   minerKeyChecksum?: string;
-};
-const fetchWithSignature = async (endpoint: string, method: 'GET' | 'POST', payload: any = {}) => {
-  // Frontend helper to reuse the existing HMAC signature + client token security stack.
-  const token = await getClientToken();
-  const timestamp = getServerTimestamp();
-  const signature = await generateRequestSignatureAsync(method, endpoint, payload, timestamp);
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    'x-client-token': token,
-    'x-request-signature': signature,
-    'x-request-timestamp': timestamp.toString()
-  };
-  return fetch(endpoint, {
-    method,
-    headers,
-    // Send the payload even on GET so the signature body matches what the server verifies.
-    body: JSON.stringify(payload)
-  });
 };
 export default function DimoPerksPage() {
   const {

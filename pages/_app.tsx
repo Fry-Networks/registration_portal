@@ -16,7 +16,7 @@ import { NotificationProvider } from '../app/notificationcontext';
 import { ThemeProvider } from 'next-themes';
 import 'leaflet/dist/leaflet.css';
 import { useRouter } from 'next/router';
-import { getClientToken } from '../lib/clientToken';
+import { useClientTokenWarmup } from '../lib/hooks/useClientTokenWarmup';
 import { FingerprintProvider, useFingerprintReady, useRegisterFingerprintRefresh } from '../app/fingerprintcontext';
 import type { MySession } from './api/auth/[...nextauth]';
 import { useClientErrorLogger } from '../lib/hooks/useClientErrorLogger';
@@ -104,14 +104,6 @@ export default function MyApp({ Component, pageProps }: MyAppProps) {
       };
 
       const unsubscribeReadyFallback = subscribeToManagerReadyFallback(manager);
-
-      (async () => {
-        try {
-          await getClientToken();
-        } catch (error) {
-          console.error('[ClientToken] Failed to warm token cache', error);
-        }
-      })();
 
       Modal.setAppElement?.('#__next');
 
@@ -248,6 +240,9 @@ const ProtectedComponent: React.FC<ProtectedComponentProps> = ({
   pageProps
 }) => {
   const { data: sessionData, status, update } = useSession();
+  // R12b: the L1 token is derived from the session, so warming it before one exists can only
+  // 401. Gated here, inside SessionProvider, rather than in MyApp's mount-once effect.
+  useClientTokenWarmup(status);
   const session = sessionData as MySession | null;
   useClientErrorLogger(session);
   const isLoading = status === 'loading';
