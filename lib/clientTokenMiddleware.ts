@@ -11,8 +11,18 @@
  * exactly mirroring the R11 L2 fix (lib/requestSignature.server.ts deriveSigningKey), so the
  * token cannot be produced without a real session and cannot be replayed into another one.
  *
- * This prevents automated scripts (curl, Node.js, etc.) from calling sensitive endpoints even
- * if they have a valid session cookie, because the token is also bound to the User-Agent.
+ * What L1 provides after that change, stated without overclaiming: the token is a per-session,
+ * per-User-Agent value derived server-side, so it is no longer a secret shipped in the client
+ * bundle and it can only be obtained by a caller that already holds a valid session (it is handed
+ * out by GET /api/auth/signing-key). A token minted for one session, or under one User-Agent,
+ * cannot be replayed into another. That is defence in depth BEHIND the session check and
+ * alongside the L2 request signature.
+ *
+ * What it does NOT provide: it is not an anti-automation control. Any client that can
+ * authenticate - curl, a Node script, a headless browser - can fetch its own token from
+ * /api/auth/signing-key with the same session cookie and send it, and can send any User-Agent it
+ * likes as long as it is the same one it fetched the token with. L1 raises the cost of replaying
+ * a captured header; it does not distinguish a browser from a script.
  */
 
 import { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
