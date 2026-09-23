@@ -209,8 +209,12 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
  * Anchored, and always paired with an equality on `miner_key`, so mongo serves it from
  * unique(miner_key, idempotencyKey) rather than scanning.
  *
- * Deliberately NOT a bare `^<base>#` prefix: a client may pin its own key with `x-idempotency-key`,
- * and two client keys of which one is a `#`-prefix of the other must not reach each other's rows.
+ * Deliberately NOT a bare `^<base>#` prefix, but note what that anchoring does and does not buy:
+ * it separates the DERIVED-HASH keyspace. A derived base key is a bare sha256 hex digest, which
+ * contains no `#`, so one derived key's escalated rows can never be reached from another's.
+ * It does NOT separate client-pinned `x-idempotency-key` values: a pinned `K` still matches the
+ * escalated rows minted for a distinct pinned `K#7`. No production caller sends that header
+ * (lib/api/deviceAction.ts only reads it), so that overlap is unreachable as the code stands.
  */
 const escalatedAttemptKeyPattern = (baseKey: string): RegExp =>
   new RegExp(`^${escapeRegExp(baseKey)}${ATTEMPT_KEY_SEPARATOR}([0-9]+|[0-9a-z]+-[0-9a-f]{16})$`);
