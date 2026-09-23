@@ -1,7 +1,7 @@
 // RC5 + RC6 (r12) — L2 self-recovery from clock skew and stale signing keys.
 //
-// RC5: a reported wallet was rejected
-// five times with L2 details "Request expired: 7201s old" — a browser clock two hours behind.
+// RC5: a reported wallet was rejected five times with L2 details
+// "Request expired: 7201s old" — a browser clock two hours behind.
 // lib/requestSignature.server.ts:192 rejects anything older than MAX_AGE_SECONDS=900 and logs
 // EXPIRED_TIMESTAMP, but the HTTP body the caller actually receives is code INVALID_SIGNATURE
 // with NO serverTime, and lib/serverTime.ts only ever learned the offset from SUCCESSFUL
