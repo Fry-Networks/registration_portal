@@ -139,7 +139,17 @@ export default async function handler(
         // claim.ts pays device.reward_wallet, so a verified rebind has to move it too.
         rebindSet = { reward_wallet: address, ...rebindMetadata(existingAddr) };
       }
-      if (exists.is_registered && existingAddr && existingAddr !== address && !mayRebind) {
+      // RC1 re-review (2026-09-22): this refusal used to be prefixed with
+      // `exists.is_registered`, so a doc bound to ANOTHER wallet but left is_registered:false
+      // fell straight through and this route rebound it with no ownership proof at all.
+      // register.ts refuses on the bound address alone (:99) and is now matched here: a
+      // non-empty bound address that is not the session wallet is a refusal unless
+      // mayRebindClobberedDevice() proved the caller owns it. Devices owned by nobody are
+      // untouched by this -- the `existingAddr &&` short-circuit still lets the 485 docs with
+      // is_registered:true and no address, and the 4,891 with neither, be claimed (ARES00
+      // census 2026-09-22; the 235 docs in the bound + is_registered:false shape are all
+      // genuinely owned: none is in the clobber state, none has a creds.hardware record).
+      if (existingAddr && existingAddr !== address && !mayRebind) {
         res.status(409).json(
           createApiError(
             ErrorCodes.ALREADY_REGISTERED,
