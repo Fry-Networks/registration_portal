@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { Collection, Document, Filter, UpdateFilter, WithId } from 'mongodb';
 import type { ObjectId } from 'mongodb';
 import clientPromise from '../mongoclient';
@@ -115,9 +116,14 @@ export interface DeviceTransactionJournal {
    * payment. `txIdSource` says which of the two ended up here, and the gas id is kept beside it
    * at `metadata.gasTxId` so the audit row and the weekly/daily reward entries (which still
    * store the gas id) remain joinable.
+   *
+   * The server-pays (custodial) claim path has no user gas leg at all: it signs the whole group
+   * itself and stores the id algod answered `sendRawTransaction` with, i.e. group member 0. That
+   * id is discriminated as `custodial-group`, so `txIdSource` is set on EVERY settled claim row
+   * and a reader never has to infer the path from the absence of a field.
    */
   txId?: string;
-  txIdSource?: 'asset-transfer' | 'group-gas-fallback';
+  txIdSource?: 'asset-transfer' | 'group-gas-fallback' | 'custodial-group';
   error?: string;
   metadata?: Record<string, unknown>;
   createdAt: Date;
@@ -144,6 +150,7 @@ export interface AppendJournalEntryParams {
   request: Record<string, unknown>;
   status?: DeviceTransactionJournal['status'];
   txId?: string;
+  txIdSource?: DeviceTransactionJournal['txIdSource'];
   error?: string;
   metadata?: Record<string, unknown>;
   /**
@@ -157,15 +164,56 @@ export interface AppendJournalEntryParams {
 /** A row in this status is a settled record of a finished attempt: it is never rewritten. */
 const SETTLED_JOURNAL_STATUS: DeviceTransactionJournal['status'] = 'confirmed';
 
-/** Bound on the attempt escalation below; far above any device's 90-day settled-claim count. */
-const MAX_JOURNAL_ATTEMPTS = 50;
+const ATTEMPT_KEY_SEPARATOR = '#';
 
 /**
- * The journal key for attempt N of a base idempotency key. Attempt 1 keeps the bare base key, so
- * every row written before this change keeps its identity and nothing needs backfilling.
+ * Collision backstop for the minted attempt key below. It is NOT an attempt budget: the key is
+ * unique by construction, so the first insert is the one that succeeds and this loop does not run
+ * in normal operation. See `mintAttemptKey`.
  */
-export const attemptIdempotencyKey = (baseKey: string, attempt: number): string =>
-  attempt <= 1 ? baseKey : `${baseKey}#${attempt}`;
+const MAX_MINTED_KEY_COLLISIONS = 5;
+
+/**
+ * A monotonic, per-process millisecond stamp. `Date.now()` repeats within a millisecond (and steps
+ * backwards across an NTP correction); this never does, so two attempts opened by the same process
+ * in the same millisecond still mint different keys without reading the collection first.
+ */
+let lastMintedAttemptStamp = 0;
+const nextAttemptStamp = (): number => {
+  const now = Date.now();
+  lastMintedAttemptStamp = now > lastMintedAttemptStamp ? now : lastMintedAttemptStamp + 1;
+  return lastMintedAttemptStamp;
+};
+
+/**
+ * The key for a NEW attempt on `baseKey`: `<base>#<monotonic ms, base36>-<64 bits of CSPRNG>`.
+ *
+ * It is unique by construction rather than by search, which is the whole point. The previous
+ * scheme walked a SEQUENCE (`<base>`, `<base>#2`, `<base>#3`, ...) and every settled row on the
+ * way was a permanent occupant for its 90-day TTL, so the walk got one step longer per settled
+ * claim and hit its ceiling at 50. Nothing here depends on how many rows the device already owns.
+ *
+ * Two attempts can only mint the same key if they land in the same millisecond in DIFFERENT
+ * processes (the stamp is monotonic within one) and independently draw the same 64-bit random
+ * value - about 1 in 1.8e19 per same-millisecond pair. That is why the retry loop below is a
+ * backstop and not a budget.
+ */
+const mintAttemptKey = (baseKey: string): string =>
+  `${baseKey}${ATTEMPT_KEY_SEPARATOR}${nextAttemptStamp().toString(36)}-${crypto.randomBytes(8).toString('hex')}`;
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Matches exactly the escalated keys this module can ever have minted for `baseKey`: the legacy
+ * `#2`..`#50` sequence written before this change, and the `#<base36 ms>-<16 hex>` form above.
+ * Anchored, and always paired with an equality on `miner_key`, so mongo serves it from
+ * unique(miner_key, idempotencyKey) rather than scanning.
+ *
+ * Deliberately NOT a bare `^<base>#` prefix: a client may pin its own key with `x-idempotency-key`,
+ * and two client keys of which one is a `#`-prefix of the other must not reach each other's rows.
+ */
+const escalatedAttemptKeyPattern = (baseKey: string): RegExp =>
+  new RegExp(`^${escapeRegExp(baseKey)}${ATTEMPT_KEY_SEPARATOR}([0-9]+|[0-9a-z]+-[0-9a-f]{16})$`);
 
 /**
  * One journal row records ONE attempt, and a settled attempt is immutable.
@@ -180,10 +228,17 @@ export const attemptIdempotencyKey = (baseKey: string, attempt: number): string 
  *
  * The `open` phase therefore refuses to touch a row that is already `confirmed`. Because the
  * filter excludes it, the upsert's insert collides with the unique index (E11000) and the attempt
- * escalates to the next key (`<base>`, `<base>#2`, `<base>#3`, ...), leaving the settled row
- * exactly as it was. A row that is NOT settled (`pending`/`submitted`/`failed`) is still reused,
- * so a genuine duplicate or abandoned submit collapses into a single attempt row exactly as
- * before - the only thing that changed is that a settlement is now permanent.
+ * takes a key of its own, leaving the settled row exactly as it was. A row that is NOT settled
+ * (`pending`/`submitted`/`failed`) is still reused, so a genuine duplicate or abandoned submit
+ * collapses into a single attempt row exactly as before - the only thing that changed is that a
+ * settlement is now permanent.
+ *
+ * That escalation must not itself be a budget. It originally walked a sequence (`<base>#2`,
+ * `<base>#3`, ...) bounded at 50 while the rows it walked past were only removed by the 90-day
+ * TTL, so every settled claim consumed one key for 90 days and the 51st claim in that window threw
+ * - an availability hole on the money path, and 90 daily claims in a 90-day window is ordinary
+ * use. The escalated key is now MINTED (`mintAttemptKey`) instead of searched for, so the first
+ * insert succeeds regardless of how many settled rows the device already owns.
  *
  * `open` also stamps `createdAt`, rather than `$setOnInsert`-ing it. The 90-day TTL index is on
  * `createdAt`, so a settlement landing in a reused months-old row used to expire on the ORIGINAL
@@ -203,6 +258,7 @@ export const appendJournalEntry = async (params: AppendJournalEntryParams): Prom
     request: params.request,
     status: params.status ?? 'pending',
     txId: params.txId,
+    txIdSource: params.txIdSource,
     error: params.error,
     metadata: params.metadata,
     updatedAt: now
@@ -224,8 +280,59 @@ export const appendJournalEntry = async (params: AppendJournalEntryParams): Prom
     return params.idempotencyKey;
   }
 
-  for (let attempt = 1; attempt <= MAX_JOURNAL_ATTEMPTS; attempt += 1) {
-    const idempotencyKey = attemptIdempotencyKey(params.idempotencyKey, attempt);
+  // Attempt 1 is the BARE base key: every row written before the attempt scheme existed keeps its
+  // identity, nothing needs backfilling, and a still-open attempt (pending/submitted/failed) under
+  // that key is REUSED, so a genuine duplicate or an abandoned submit still collapses into one row.
+  try {
+    await collection.updateOne(
+      {
+        miner_key: params.miner_key,
+        idempotencyKey: params.idempotencyKey,
+        status: { $ne: SETTLED_JOURNAL_STATUS }
+      } as Filter<DeviceTransactionJournal>,
+      { $set: { ...fields, createdAt: now } } as UpdateFilter<DeviceTransactionJournal>,
+      { upsert: true }
+    );
+    return params.idempotencyKey;
+  } catch (error: any) {
+    // The only way this upsert can collide is a SETTLED row holding the base key: the filter
+    // excluded it, so mongo tried to insert a second row with the same unique key.
+    if (error?.code !== 11000) {
+      throw error;
+    }
+  }
+
+  // The base key belongs to that settled row for the rest of its 90 days. If an EARLIER escalated
+  // attempt is still open, reuse it, so the reuse property holds past the first settlement too and
+  // an abandoned submit still does not multiply rows.
+  const openAttempt = await collection.findOne({
+    miner_key: params.miner_key,
+    idempotencyKey: escalatedAttemptKeyPattern(params.idempotencyKey),
+    status: { $ne: SETTLED_JOURNAL_STATUS }
+  } as Filter<DeviceTransactionJournal>);
+
+  if (openAttempt?.idempotencyKey) {
+    const reused = await collection.updateOne(
+      {
+        miner_key: params.miner_key,
+        idempotencyKey: openAttempt.idempotencyKey,
+        status: { $ne: SETTLED_JOURNAL_STATUS }
+      } as Filter<DeviceTransactionJournal>,
+      { $set: { ...fields, createdAt: now } } as UpdateFilter<DeviceTransactionJournal>,
+      { upsert: false }
+    );
+    if ((reused.matchedCount ?? 0) > 0) {
+      return openAttempt.idempotencyKey;
+    }
+    // It settled between the read and the write. Fall through and take a key of this attempt's own
+    // rather than touching it.
+  }
+
+  // Mint a key that is unique by construction, so the FIRST insert succeeds however many settled
+  // rows this device already owns. There is no sequence to walk and therefore no ceiling: a device
+  // can settle an unbounded number of claims inside one 90-day TTL window.
+  for (let collision = 0; collision < MAX_MINTED_KEY_COLLISIONS; collision += 1) {
+    const idempotencyKey = mintAttemptKey(params.idempotencyKey);
     try {
       await collection.updateOne(
         {
@@ -238,9 +345,8 @@ export const appendJournalEntry = async (params: AppendJournalEntryParams): Prom
       );
       return idempotencyKey;
     } catch (error: any) {
-      // The only way this upsert can collide is a SETTLED row holding this key: the filter
-      // excluded it, so mongo tried to insert a second row with the same unique key. Step to the
-      // next attempt key instead of reopening the settlement.
+      // Unreachable in normal operation (see `mintAttemptKey`): it needs a same-millisecond,
+      // cross-process, 64-bit random collision with a SETTLED row. Re-mint rather than reopen it.
       if (error?.code === 11000) {
         continue;
       }
@@ -249,7 +355,8 @@ export const appendJournalEntry = async (params: AppendJournalEntryParams): Prom
   }
 
   throw new Error(
-    `Unable to open a device_transactions attempt row for ${params.miner_key} after ${MAX_JOURNAL_ATTEMPTS} attempts`
+    `Unable to open a device_transactions attempt row for ${params.miner_key}: ` +
+      `${MAX_MINTED_KEY_COLLISIONS} independently minted attempt keys collided`
   );
 };
 

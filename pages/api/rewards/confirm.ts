@@ -248,7 +248,7 @@ export default async function handler(
         );
       }
       try {
-        await confirmJournalEntryByGroupId({
+        const writtenBack = await confirmJournalEntryByGroupId({
           miner_key: minerKey,
           groupId,
           txId: assetTransferTxId ?? txid,
@@ -256,6 +256,29 @@ export default async function handler(
           assetTxIds: assetTransferTxIds,
           txIdSource
         });
+        if (!writtenBack) {
+          // The helper answers false when it matched no open audit row. Discarding that made "no
+          // audit row for a settled claim" indistinguishable from a clean writeback, which is the
+          // exact blind spot that let the 1855 pending rows go unnoticed. The payment is on chain
+          // either way, so this is reported at the same severity as a writeback that threw - never
+          // retried and never surfaced to the claimer.
+          loggers.apiError(
+            '/api/rewards/confirm',
+            new Error('Settled claim group matched no open device_transactions audit row; the settlement was not recorded.'),
+            {
+              miner_key: minerKey,
+              address: walletAddress,
+              issueType: 'REWARD_CONFIRM_JOURNAL_WRITEBACK_MISSED',
+              part: 'rewards-confirm.userpays.journal',
+              metadata: {
+                groupId,
+                gasTxId: txid,
+                txId: assetTransferTxId ?? txid,
+                txIdSource
+              }
+            }
+          );
+        }
       } catch (journalError) {
         loggers.apiError(
           '/api/rewards/confirm',

@@ -509,3 +509,57 @@ test('(h) NEGATIVE: a groupId with no audit row is never backfilled', async () =
   assert.equal(writes[0].result.matchedCount, 0, `matchedCount was ${writes[0].result.matchedCount}`);
   assert.equal(writes[0].result.upsertedCount, 0, `upsertedCount was ${writes[0].result.upsertedCount}`);
 });
+
+// ------------------------------------------------------------- MEDIUM 1 cover
+// confirmJournalEntryByGroupId answers false when it matched no open audit row. That boolean was
+// discarded at the call site, so "this settled claim has no audit row" looked exactly like a clean
+// writeback — the same blind spot that let 1855 pending rows go unnoticed in the first place. The
+// payment is on chain by then, so it is reported and never retried, at the SAME severity as a
+// writeback that threw (loggers.apiError, issueType REWARD_CONFIRM_JOURNAL_WRITEBACK_*).
+
+test('(i) a settled claim whose audit row is missing is REPORTED, not silently swallowed', async () => {
+  reset();
+  const group = buildGroup({ nonce: 11000, withFeeLeg: true });
+  seedPending(group);
+  // No seedJournal: /claim's audit row aged out of the 90-day TTL, or never existed.
+
+  const captured = await runConfirm(group);
+
+  assert.equal(captured.status, 200, 'a missing audit row must not fail the settled claim');
+  assert.equal(state.journal.length, 0, 'the missing row must not be backfilled');
+
+  const missed = state.loggedErrors.filter(
+    (e) => e.metadata?.issueType === 'REWARD_CONFIRM_JOURNAL_WRITEBACK_MISSED',
+  );
+  assert.equal(
+    missed.length,
+    1,
+    `a writeback that matched no audit row was not reported (issueTypes seen: ${JSON.stringify(state.loggedErrors.map((e) => e.metadata?.issueType))})`,
+  );
+  assert.equal(missed[0].endpoint, '/api/rewards/confirm');
+  assert.ok(missed[0].error instanceof Error, 'the miss must be reported through the Error channel');
+  assert.equal(missed[0].metadata.part, 'rewards-confirm.userpays.journal');
+  assert.equal(missed[0].metadata.miner_key, MINER);
+  // loggers.apiError(endpoint, error, ErrorLogMetadata) — free-form context one level down.
+  assert.equal(missed[0].metadata.metadata.groupId, group.groupId);
+  assert.equal(missed[0].metadata.metadata.gasTxId, group.gasTxId);
+  assert.equal(missed[0].metadata.metadata.txId, group.assetTxId);
+  assert.equal(missed[0].metadata.metadata.txIdSource, 'asset-transfer');
+});
+
+test('(j) a writeback that DID land reports nothing', async () => {
+  reset();
+  const group = buildGroup({ nonce: 12000, withFeeLeg: true });
+  seedPending(group);
+  const row = seedJournal(group.groupId);
+
+  const captured = await runConfirm(group);
+
+  assert.equal(captured.status, 200);
+  assert.equal(row.status, 'confirmed', 'fixture is broken: the writeback did not land');
+  assert.equal(
+    state.loggedErrors.filter((e) => String(e.metadata?.issueType || '').startsWith('REWARD_CONFIRM_JOURNAL_WRITEBACK')).length,
+    0,
+    `a successful writeback raised ${JSON.stringify(state.loggedErrors.map((e) => e.metadata?.issueType))}`,
+  );
+});

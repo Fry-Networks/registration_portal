@@ -778,6 +778,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         journal: {
           status: 'confirmed' as const,
           txId,
+          // The server-pays group carries no user gas leg: this is the id algod answered
+          // sendRawTransaction with, i.e. group member 0 of a custodially signed group. Named so
+          // the audit row is as self-describing as the user-pays one, where /api/rewards/confirm
+          // records 'asset-transfer' or 'group-gas-fallback'.
+          txIdSource: 'custodial-group' as const,
           metadata: {
             totals: totalsDisplay,
             rewardCount: records.length,

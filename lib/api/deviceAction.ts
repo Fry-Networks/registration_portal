@@ -45,6 +45,9 @@ export interface DeviceActionResult<T = unknown> {
   journal?: {
     status?: DeviceTransactionJournal['status'];
     txId?: string;
+    /** Says which transaction of the settled group `txId` is, so the audit row never has to be
+     *  guessed at. The user-pays path sets it from /api/rewards/confirm's writeback instead. */
+    txIdSource?: DeviceTransactionJournal['txIdSource'];
     error?: string;
     metadata?: Record<string, unknown>;
   };
@@ -108,9 +111,10 @@ export const withDeviceActionLock = async <T>(
 
     const result = (await handler({ idempotencyKey: journalKey })) ?? {};
 
-    const journalUpdate: Pick<AppendJournalEntryParams, 'status' | 'txId' | 'error' | 'metadata'> = {
+    const journalUpdate: Pick<AppendJournalEntryParams, 'status' | 'txId' | 'txIdSource' | 'error' | 'metadata'> = {
       status: result.journal?.status ?? 'confirmed',
       txId: result.journal?.txId,
+      txIdSource: result.journal?.txIdSource,
       error: result.journal?.error,
       metadata: {
         ...metadata,
@@ -126,6 +130,7 @@ export const withDeviceActionLock = async <T>(
       request: req.body ?? {},
       status: journalUpdate.status,
       txId: journalUpdate.txId,
+      txIdSource: journalUpdate.txIdSource,
       error: journalUpdate.error,
       metadata: journalUpdate.metadata
     });
