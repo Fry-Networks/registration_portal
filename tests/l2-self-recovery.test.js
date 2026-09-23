@@ -10,8 +10,9 @@
 //
 // RC6: 6,344 "Signature verification failed" events in 72h, 97% of them from three wallets.
 // components/modals/Claim.tsx signs with raw Date.now() and never calls resetSigningKey(), so a
-// stale per-session key is replayed on every attempt. Only lib/api/secureFetch.ts:61 resets it,
-// and Claim.tsx does not go through secureFetch.
+// stale per-session key is replayed on every attempt. Only lib/api/secureFetch.ts reset it, and
+// Claim.tsx does not go through secureFetch. (RC5/RC6 fix: secureFetch now routes its 403s
+// through recoverFromSignatureRejection() -- see section (e).)
 //
 // The contract pinned here:
 //   (a) an expired-timestamp rejection carries a numeric serverTime in the 403 body;
@@ -82,22 +83,88 @@ const mkRes = () => {
 const expiredTimestamp = () => Math.floor(Date.now() / 1000) - OBSERVED_SKEW_SECONDS;
 
 // ================================================================ (a) server contract
-const { enforceWalletApiSecurity } = require('../lib/api/enforceWalletSecurity.ts');
+//
+// RC5/RC6 review (r12): the two tests that stood here drove enforceWalletApiSecurity while NAMING
+// /api/rewards/get-reward-summary-batch and /api/rewards/get-asset-totals. Those routes do not use
+// that helper -- each verifies the signature inline and emits its OWN 403 -- so the assertions said
+// nothing about the endpoints the reported wallet was actually rejected on, and the serverTime added in
+// 527590a was a no-op there. The route contract is now pinned by driving the real handlers. The
+// helper keeps its own coverage below, named after an endpoint that genuinely goes through it.
 
-test('(a) an expired-timestamp rejection carries a numeric serverTime the client can use', async () => {
+// Every reward route that verifies an L2 signature inline instead of through
+// enforceWalletApiSecurity. The reported wallet's EXPIRED_TIMESTAMP events were on the 1st, 2nd and 4th.
+const INLINE_SIGNATURE_ROUTES = [
+  { endpoint: '/api/rewards/get-reward-summary-batch', body: { miner_keys: [MINER] } },
+  { endpoint: '/api/rewards/get-reward-summary', body: { miner_key: MINER } },
+  { endpoint: '/api/rewards/get-rewards-page', body: { miner_key: MINER, page: 1 } },
+  { endpoint: '/api/rewards/get-asset-totals', body: {} },
+  { endpoint: '/api/rewards/boost', body: { miner_key: MINER, no: 1 } },
+];
+
+// Deferred to test-run time so every stub below is registered before the handler is loaded.
+const callRoute = async (endpoint, headers, body) => {
+  const handler = require(`../pages${endpoint}.ts`).default;
+  const { res, out } = mkRes();
+  await handler({ method: 'POST', url: endpoint, headers, body }, res);
+  return out;
+};
+
+for (const route of INLINE_SIGNATURE_ROUTES) {
+  test(`(a) ${route.endpoint} answers an expired timestamp with a 403 carrying serverTime`, async () => {
+    const out = await callRoute(
+      route.endpoint,
+      {
+        'x-request-signature': 'f'.repeat(64),
+        'x-request-timestamp': String(expiredTimestamp()),
+      },
+      route.body
+    );
+
+    assert.equal(out.statusCode, 403, `expected 403, got ${out.statusCode}: ${JSON.stringify(out.body)}`);
+    assert.equal(out.body.code, 'INVALID_SIGNATURE', 'the code string must not change');
+    assert.equal(
+      typeof out.body.serverTime,
+      'number',
+      `${route.endpoint}: the 403 body must carry a numeric serverTime, got ${JSON.stringify(out.body)}`
+    );
+    assert.ok(
+      Math.abs(out.body.serverTime - Date.now()) < 60_000,
+      `serverTime must be the server's own clock, got ${out.body.serverTime}`
+    );
+  });
+
+  test(`(a) ${route.endpoint} answers a missing signature with a 403 carrying serverTime`, async () => {
+    const out = await callRoute(route.endpoint, {}, route.body);
+
+    assert.equal(out.statusCode, 403, `expected 403, got ${out.statusCode}: ${JSON.stringify(out.body)}`);
+    assert.equal(out.body.code, 'MISSING_SIGNATURE');
+    assert.equal(
+      typeof out.body.serverTime,
+      'number',
+      `${route.endpoint}: ${JSON.stringify(out.body)}`
+    );
+  });
+}
+
+// The shared helper keeps the coverage it had, unchanged assertion for assertion, but named after
+// a route that really does call it (pages/api/stake/precheck.ts:32, and thirteen others).
+const { enforceWalletApiSecurity } = require('../lib/api/enforceWalletSecurity.ts');
+const HELPER_ENDPOINT = '/api/stake/precheck';
+
+test('(a) enforceWalletApiSecurity: an expired-timestamp rejection carries a numeric serverTime the client can use', async () => {
   const { res, out } = mkRes();
   const req = {
     method: 'POST',
-    url: '/api/rewards/get-reward-summary-batch',
+    url: HELPER_ENDPOINT,
     headers: {
       'x-request-signature': 'f'.repeat(64),
       'x-request-timestamp': String(expiredTimestamp()),
     },
-    body: { miner_keys: [MINER] },
+    body: { miner_key: MINER },
   };
 
   const result = await enforceWalletApiSecurity(req, res, {
-    endpoint: '/api/rewards/get-reward-summary-batch',
+    endpoint: HELPER_ENDPOINT,
     method: 'POST',
   });
 
@@ -115,12 +182,12 @@ test('(a) an expired-timestamp rejection carries a numeric serverTime the client
   );
 });
 
-test('(a) a missing-signature 403 also carries serverTime', async () => {
+test('(a) enforceWalletApiSecurity: a missing-signature 403 also carries serverTime', async () => {
   const { res, out } = mkRes();
-  const req = { method: 'POST', url: '/api/rewards/get-asset-totals', headers: {}, body: {} };
+  const req = { method: 'POST', url: HELPER_ENDPOINT, headers: {}, body: {} };
 
   const result = await enforceWalletApiSecurity(req, res, {
-    endpoint: '/api/rewards/get-asset-totals',
+    endpoint: HELPER_ENDPOINT,
     method: 'POST',
   });
 
@@ -307,10 +374,24 @@ stub('../lib/utils', {
   tFRY: { id: '2681521901', decimals: 6 },
   getTransactionTime: async () => new Date(),
   REWARD_WALLET: VAULT,
+  // RC5/RC6: the inline-signature reward routes compute module-level asset-id constants from
+  // these at IMPORT time, so the stub has to expose them or the handler cannot be required at
+  // all. Nothing below is reached on the 403 path under test; the ids are the real ones.
+  normalizeAssetId: (value) => Number(value),
+  FRY_1: { id: '924268058', decimals: 6 },
+  FRY_2: { id: '2485314946', decimals: 6 },
+  fVPN: { id: '2656692124', decimals: 6 },
+  ALGO: { id: '0', decimals: 6 },
+  FRYALGO_WALLET: VAULT,
+  fixedInputSwap: async () => ({}),
 });
+stub('../lib/price', { __esModule: true, getFRYPrice: async () => 1, getAlgoUsdPrice: async () => 1 });
+stub('../lib/discord-webhook', { __esModule: true, notifyDiscordError: async () => {} });
 stub('../lib/rewards/pocEvidence', {
   __esModule: true,
   loadEvidence: async () => ({ dates: new Set(), leases: [] }),
+  loadEvidenceBatch: async () => new Map(),
+  emptyEvidence: () => ({ dates: new Set(), leases: [] }),
   hasEvidenceInWindow: () => true,
 });
 stub('../lib/monitoring/walletHealth', { __esModule: true, monitorWalletHealth: async () => {} });
@@ -379,5 +460,139 @@ test('(d) a 403-rejected claim writes nothing, so one retry cannot double-reserv
   assert.deepEqual(writes, [], `a rejected claim must not touch the database, saw ${JSON.stringify(writes)}`);
   assert.equal(lockCalls, 0, 'the device action lock must not be acquired behind a 403');
   assert.equal(reserveCalls, 0, 'no reward rows may be reserved behind a 403');
-  assert.ok(writes.length <= 1, 'at most one reservation/preview row across the original and the retry');
+  // Was: `assert.ok(writes.length <= 1, ...)` -- vacuous after the strict deepEqual above, which
+  // already pins writes to []. The retry is only self-correcting if the SECOND 403 also carries
+  // the server clock, which nothing else asserts.
+  assert.equal(
+    typeof second.body.serverTime,
+    'number',
+    `the retry's 403 must also carry serverTime, got ${JSON.stringify(second.body)}`
+  );
+});
+// ================================================================ (e) secureFetch
+// RC6 review (r12): lib/api/secureFetch.ts signed with a raw Date.now() and carried its own retry
+// that dropped the signing key but never looked at serverTime -- so the one client path that DID
+// retry still re-signed with the same wrong clock. It now takes its timestamp from the tracked
+// server offset and routes the rejection through the shared recoverFromSignatureRejection().
+stub('../lib/clientToken', {
+  __esModule: true,
+  getClientToken: async () => 'client-token-1',
+  refreshClientToken: async () => 'client-token-2',
+});
+
+test('(e) secureFetch re-signs with the server clock after a 403 that carries serverTime', async () => {
+  const { secureFetch } = require('../lib/api/secureFetch.ts');
+  const { resetServerTime, getServerTimeOffsetMs } = require('../lib/serverTime.ts');
+  const { resetSigningKey } = require('../lib/requestSignature.client.ts');
+
+  resetServerTime();
+  resetSigningKey();
+
+  const hadWindow = Object.prototype.hasOwnProperty.call(global, 'window');
+  const realFetch = global.fetch;
+  if (!hadWindow) global.window = {};
+
+  const sentTimestamps = [];
+  const skewMs = OBSERVED_SKEW_SECONDS * 1000;
+  let calls = 0;
+
+  global.fetch = async (url, init) => {
+    if (String(url).includes('/api/auth/signing-key')) {
+      return new Response(JSON.stringify({ key: `session-key-${calls}` }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    calls += 1;
+    sentTimestamps.push(Number(init.headers['x-request-timestamp']));
+    if (calls === 1) {
+      // Exactly what the four reward routes now return.
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'INVALID_SIGNATURE',
+          message: 'Invalid or expired request signature',
+          serverTime: Date.now() + skewMs,
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await secureFetch('/api/rewards/get-reward-summary', { miner_key: MINER });
+
+    assert.equal(response.status, 200, 'the corrected retry succeeds');
+    assert.equal(calls, 2, `exactly one retry, saw ${calls} attempts`);
+    assert.equal(sentTimestamps.length, 2);
+    assert.ok(
+      Math.abs(sentTimestamps[0] - Math.floor(Date.now() / 1000)) < 10,
+      `the first attempt signs with the uncorrected local clock, got ${sentTimestamps[0]}`
+    );
+    assert.ok(
+      Math.abs(sentTimestamps[1] - sentTimestamps[0] - OBSERVED_SKEW_SECONDS) < 10,
+      `the retry must re-sign with the SERVER clock: expected ~${OBSERVED_SKEW_SECONDS}s later than ` +
+        `${sentTimestamps[0]}, got ${sentTimestamps[1]} (delta ${sentTimestamps[1] - sentTimestamps[0]}s)`
+    );
+    assert.ok(
+      Math.abs(getServerTimeOffsetMs() - skewMs) < 5_000,
+      `the offset from the 403 body must have been applied, got ${getServerTimeOffsetMs()}ms`
+    );
+  } finally {
+    global.fetch = realFetch;
+    if (!hadWindow) delete global.window;
+    resetServerTime();
+    resetSigningKey();
+  }
+});
+
+test('(e) secureFetch takes its timestamp from the tracked server offset, not the raw local clock', async () => {
+  const { secureFetch } = require('../lib/api/secureFetch.ts');
+  const { setServerTime, resetServerTime } = require('../lib/serverTime.ts');
+  const { resetSigningKey } = require('../lib/requestSignature.client.ts');
+
+  resetServerTime();
+  resetSigningKey();
+
+  const hadWindow = Object.prototype.hasOwnProperty.call(global, 'window');
+  const realFetch = global.fetch;
+  if (!hadWindow) global.window = {};
+
+  const skewMs = OBSERVED_SKEW_SECONDS * 1000;
+  let sent = null;
+
+  global.fetch = async (url, init) => {
+    if (String(url).includes('/api/auth/signing-key')) {
+      return new Response(JSON.stringify({ key: 'session-key' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    sent = Number(init.headers['x-request-timestamp']);
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    // An earlier response already taught the client that its clock is two hours behind.
+    setServerTime(Date.now() + skewMs);
+
+    await secureFetch('/api/rewards/get-asset-totals', {});
+
+    assert.ok(
+      Math.abs(sent - Math.floor((Date.now() + skewMs) / 1000)) < 10,
+      `the header must carry server time, got ${sent}, expected ~${Math.floor((Date.now() + skewMs) / 1000)}`
+    );
+  } finally {
+    global.fetch = realFetch;
+    if (!hadWindow) delete global.window;
+    resetServerTime();
+    resetSigningKey();
+  }
 });

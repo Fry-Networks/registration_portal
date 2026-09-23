@@ -41,21 +41,24 @@ export default async function handler(
     const timestamp = req.headers['x-request-timestamp'] as string;
 
     if (!signature || !timestamp) {
-      res.status(403).json({
-        success: false,
-        code: 'MISSING_SIGNATURE',
-        message: 'Request signature or timestamp missing'
-      });
+      // RC5 (r12): serverTime lets a clock-skewed client correct its offset and retry once.
+      // This route emits its OWN 403 -- it does not go through enforceWalletApiSecurity -- so the
+      // field has to be added here or lib/requestSignature.client.ts has nothing to learn from.
+      res.status(403).json(
+        createApiError('MISSING_SIGNATURE', 'Request signature or timestamp missing', undefined, { serverTime: Date.now() })
+      );
       return;
     }
 
     const signatureValid = await verifyRequestSignatureAsync('POST', '/api/rewards/get-rewards-page', req.body, Number(timestamp), signature, req);
     if (!signatureValid) {
-      res.status(403).json({
-        success: false,
-        code: 'INVALID_SIGNATURE',
-        message: 'Invalid or expired request signature'
-      });
+      // RC5 (r12): an expired timestamp surfaces here as INVALID_SIGNATURE (the EXPIRED_TIMESTAMP
+      // distinction is server-log only), so this is THE body a clock-skewed client sees. The code
+      // string and the message are unchanged; only serverTime is added. This return precedes every
+      // read and write in the handler.
+      res.status(403).json(
+        createApiError('INVALID_SIGNATURE', 'Invalid or expired request signature', undefined, { serverTime: Date.now() })
+      );
       return;
     }
   }
