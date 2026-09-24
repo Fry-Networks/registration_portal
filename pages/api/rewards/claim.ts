@@ -17,6 +17,7 @@ import { createApiError, ErrorCodes } from '../../../lib/api-errors';
 import { effectiveAmount, isHeld, isVoided } from '../../../lib/rewards/effective';
 import { loadEvidence, hasEvidenceInWindow } from '../../../lib/rewards/pocEvidence';
 import { reserveRows, releaseRows, releaseStaleReservations } from '../../../lib/rewards/reservation';
+import { settleRows } from '../../../lib/rewards/settle';
 // Modern wallet infrastructure imports for consistent network handling
 import { getAlgodClient } from '../../../lib/wallet/clients';
 import { getFailoverAlgodClient } from '../../../lib/algorand/failover';
@@ -666,8 +667,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         throw new Error('Reward transfer could not be submitted to Algorand.');
       }
 
-      const weeklyNos = records.filter((r) => r.source === 'weekly').map((r) => r.reward_number);
-      const dailyNos = records.filter((r) => r.source === 'daily').map((r) => r.reward_number);
       monitorTransaction(txId, {
         minerKey: miner_key,
         walletAddress: session.user.address,
@@ -678,46 +677,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.warn('[claim] monitorTransaction failed', error);
       });
 
-      let modifiedAny = false;
-      if (weeklyNos.length > 0) {
-        const updateWeekly = await rewardsCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'weekly_rewards.$[elem].status': 'claimed',
-              'weekly_rewards.$[elem].tx_id': txId,
-              'weekly_rewards.$[elem].claimed_at': new Date()
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
-        );
-        if (updateWeekly.modifiedCount) modifiedAny = true;
+      // The custodial path reserves nothing (reserveRows runs only in the user-pays branch), so there
+      // is no claiming_group to scope by. Settle the exact elements selected above — the selection
+      // records[] was built from, index-aligned with it — through pinned arrayFilters
+      // (lib/rewards/settle.js); claimed_amount is written per element in the same update.
+      const selectedRows = typeof no === 'number'
+        ? (weeklyClaimables.some((wr: any) => wr.reward_number === no)
+            ? weeklyClaimables.filter((wr: any) => wr.reward_number === no)
+            : dailyClaimables.filter((dr: any) => dr.reward_number === no))
+        : [...weeklyClaimables, ...dailyClaimables];
+      const settle = await settleRows(rewardsCollection, { minerKey: miner_key, txId, claimedAt: new Date(), records, selected: selectedRows });
+      for (const issue of settle.issues) {
+        loggers.apiError('/api/rewards/claim', new Error(`Claim settle: ${issue.code} (${issue.count})`), {
+          miner_key,
+          address: session.user.address,
+          issueType: `REWARD_CLAIM_SETTLE_${issue.code}`,
+          part: 'claim.custodial.settle',
+          metadata: { txId, items: issue.items }
+        });
       }
-
-      if (dailyNos.length > 0) {
-        const updateDaily = await rewardsCollection.updateOne(
-          { miner_key },
-          {
-            $set: {
-              'daily_rewards.$[elem].status': 'claimed',
-              'daily_rewards.$[elem].tx_id': txId,
-              'daily_rewards.$[elem].claimed_at': new Date()
-            }
-          },
-          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
-        );
-        if (updateDaily.modifiedCount) modifiedAny = true;
-      }
-
-      // add-only: record the effective amount actually claimed, per row (F3-y truthful accounting)
-      for (const r of records) {
-        const arr = r.source === 'weekly' ? 'weekly_rewards' : 'daily_rewards';
-        await rewardsCollection.updateOne(
-          { miner_key },
-          { $set: { [`${arr}.$[elem].claimed_amount`]: r.amount } },
-          { arrayFilters: [{ 'elem.reward_number': r.reward_number, 'elem.status': 'claimed', 'elem.tx_id': txId }] }
-        );
-      }
+      const modifiedAny = settle.settled > 0;
 
       // FFG per-claim audit (additive): records the fee taken per asset this claim. Pending-reward
       // consumption remains at the FULL claim amount (claimed rows + total_claimed below) — never payout.
