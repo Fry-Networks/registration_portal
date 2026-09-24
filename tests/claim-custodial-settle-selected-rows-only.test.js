@@ -63,7 +63,7 @@ const docMatches = (doc, filter) => Object.entries(filter || {}).every(([k, w]) 
 const elemMatchesFilter = (el, f, id) => Object.entries(f).every(([k, w]) => cond(el?.[k.slice(id.length + 1)], w));
 const store = { docs: [], pending: [], writes: [] };
 const rewardsCollection = {
-  findOne: async (filter) => { const d = store.docs.find((x) => docMatches(x, filter)); return d ? clone(d) : null; },
+  findOne: async (filter, opts) => { const d = store.docs.find((x) => docMatches(x, filter)); if (d && opts && opts.projection && state.mutateOnSettleRead) { state.mutateOnSettleRead(d); state.mutateOnSettleRead = null; } return d ? clone(d) : null; },
   updateOne: async (filter, update, options = {}) => {
     if (state.failSettleWrites && JSON.stringify(update.$set || {}).includes('"claimed"')) throw new Error('simulated write failure');
     const d = store.docs.find((x) => docMatches(x, filter));
@@ -96,7 +96,7 @@ const pendingCollection = {
   findOne: async (filter) => store.pending.find((p) => docMatches(p, filter)) || null,
   insertOne: async () => ({ insertedId: 'x' }), deleteOne: async () => ({ deletedCount: 0 }),
 };
-const state = { transfers: [], loggedErrors: [], noEvidence: new Set(), failSettleWrites: false };
+const state = { transfers: [], loggedErrors: [], noEvidence: new Set(), failSettleWrites: false, mutateOnSettleRead: null };
 const fakeCollection = (name) => {
   if (name === 'devices') return { findOne: async () => ({ miner_key: MINER, address: ADDR, reward_wallet: ADDR }) };
   if (name === 'device-rewards') return rewardsCollection;
@@ -154,7 +154,7 @@ const runClaim = async (body) => {
   try { await handler({ method: 'POST', headers: {}, body: { miner_key: MINER, ...body } }, res); } catch (e) { thrown = e; }
   return { ...captured, thrown };
 };
-const reset = () => { store.docs.length = 0; store.pending.length = 0; store.writes.length = 0; state.loggedErrors.length = 0; state.noEvidence = new Set(); state.failSettleWrites = false; };
+const reset = () => { store.docs.length = 0; store.pending.length = 0; store.writes.length = 0; state.loggedErrors.length = 0; state.noEvidence = new Set(); state.failSettleWrites = false; state.mutateOnSettleRead = null; };
 const W = (o) => ({ asset_id: TFRY, unlock_at: new Date('2026-06-01T00:00:00Z'), ...o });
 const live = () => store.docs[0];
 
@@ -252,4 +252,16 @@ test('C6 guard: a row with a string reward_number does not block the other paid 
   const out = await runClaim({});
   assert.equal(out.thrown, null, JSON.stringify(out.thrown && (out.thrown.response || out.thrown.message)));
   assert.equal(live().weekly_rewards[0].status, 'claimed');
+  assert.equal(live().weekly_rewards[1].status, 'claimed', 'the string-numbered row itself settles');
+});
+
+test('C7: a paid row changed between the claim snapshot and the settle (corrected_amount) still settles, AMOUNT_DRIFT logged', async () => {
+  reset();
+  seedC1();
+  state.mutateOnSettleRead = (d) => { d.weekly_rewards[0].corrected_amount = 140.1; };
+  const out = await runClaim({ no: 18 });
+  assert.equal(out.thrown, null, JSON.stringify(out.thrown && (out.thrown.response || out.thrown.message)));
+  assert.equal(live().weekly_rewards[0].status, 'claimed', 'paid row must not stay claimable');
+  assert.equal(live().weekly_rewards[0].claimed_amount, 12.5, 'claimed_amount = the amount actually paid');
+  assert.ok(state.loggedErrors.some((e) => e.metadata && e.metadata.issueType === 'REWARD_CLAIM_SETTLE_AMOUNT_DRIFT'));
 });

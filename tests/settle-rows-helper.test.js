@@ -111,3 +111,30 @@ test('custodial: identical twins — one selected settles exactly one element po
   const both = await settleRows(c2, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 4, amount: 3 }, { source: 'weekly', reward_number: 4, amount: 3 }], selected: [doc2.weekly_rewards[0], doc2.weekly_rewards[1]] });
   assert.deepEqual([both.settled, both.clean, c2.calls.length], [2, true, 2]);
 });
+
+test('custodial: a paid row whose fields changed since the snapshot still settles (AMOUNT_DRIFT / ROW_DRIFT, non-blocking)', async () => {
+  const snap = { reward_number: 9, status: 'claimable', amount: 30, corrected_amount: 3, week_start: '2026-01-01' };
+  const doc = { _id: 1, weekly_rewards: [{ ...snap, corrected_amount: 3.3 }], daily_rewards: [] };
+  const c = coll(doc);
+  const out = await settleRows(c, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 9, amount: 3 }], selected: [snap] });
+  assert.deepEqual([out.settled, out.clean, out.issues.map((i) => i.code)], [1, true, ['AMOUNT_DRIFT']]);
+  const doc2 = { _id: 1, weekly_rewards: [{ ...snap, reviewed_by: 'x' }], daily_rewards: [] };
+  const out2 = await settleRows(coll(doc2), { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 9, amount: 3 }], selected: [snap] });
+  assert.deepEqual([out2.settled, out2.clean, out2.issues.map((i) => i.code)], [1, true, ['ROW_DRIFT']]);
+});
+
+test('custodial fallback never settles an unselected twin: drifted selected row + held twin with the same identity -> PIN_NOT_UNIQUE, no write', async () => {
+  const snap = { reward_number: 9, status: 'claimable', amount: 3, week_start: '2026-01-01' };
+  const held = { ...snap, payout_hold: true };
+  const doc = { _id: 1, weekly_rewards: [{ ...snap, corrected_amount: 2 }, held], daily_rewards: [] };
+  const c = coll(doc);
+  const out = await settleRows(c, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 9, amount: 3 }], selected: [snap] });
+  assert.deepEqual([out.settled, out.clean, c.calls.length, out.issues.map((i) => i.code)], [0, false, 0, ['PIN_NOT_UNIQUE']]);
+  const doc2 = { _id: 1, weekly_rewards: [{ ...snap, status: 'claimed' }, held], daily_rewards: [] };
+  const c2 = coll(doc2);
+  const out2 = await settleRows(c2, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 9, amount: 3 }], selected: [snap] });
+  assert.deepEqual([out2.settled, c2.calls.length, out2.issues.map((i) => i.code)], [0, 0, ['PIN_NOT_UNIQUE']], 'selected row gone from claimable: the held twin is not settled in its place');
+  const doc3 = { _id: 1, weekly_rewards: [{ ...snap, status: 'claimed' }], daily_rewards: [] };
+  const out3 = await settleRows(coll(doc3), { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 9, amount: 3 }], selected: [snap] });
+  assert.deepEqual([out3.settled, out3.clean, out3.issues.map((i) => i.code)], [0, false, ['ROW_CHANGED']]);
+});
