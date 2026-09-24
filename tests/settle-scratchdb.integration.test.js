@@ -144,4 +144,52 @@ if (!URI && REQUIRED) {
     assert.equal(await db.collection('reward_pending_claims').countDocuments({ groupId: G }), 0, 'envelope deleted after a clean settle');
     assert.equal(await db.collection('reward_pending_claims').countDocuments({ groupId: G2 }), 1, 'other group envelope untouched');
   });
+
+  test('custodial settle on a real mongod: positional writes hit exactly the selected elements (twins, held twin, drift, Date/string epochs); a changed index is a RACE', { skip }, async () => {
+    const { settleRows } = require('../lib/rewards/settle');
+    const CUST = 'FEM-SCRATCHCUSTODIAL0000000000000000';
+    const ws = new Date('2026-01-08T00:00:00Z');
+    await db.collection('device-rewards').insertOne({
+      miner_key: CUST,
+      weekly_rewards: [
+        { reward_number: 18, status: 'claimable', asset_id: TFRY, amount: 100, corrected_amount: 12.5, week_start: ws },                     // 0 selected (no _id)
+        { reward_number: 18, status: 'claimable', asset_id: TFRY, amount: 100, corrected_amount: 12.5, week_start: ws, payout_hold: true },  // 1 held twin: never settled
+        { _id: new ObjectId(), reward_number: 18, status: 'claimable', asset_id: TFRY, amount: 200, corrected_amount: 25.75, week_start: new Date('2026-03-19T00:00:00Z') }, // 2 selected, drifts before settle
+        { reward_number: 18, status: 'claimed', tx_id: 'OLDTX', claimed_amount: 7.7, asset_id: TFRY, amount: 7.7, week_start: new Date('2025-06-05T00:00:00Z') },        // 3 old claimed
+        { reward_number: 18, status: 'claimable', asset_id: TFRY, amount: 12.5, week_start: '2026-01-08' },                                  // 4 string-epoch lookalike, not selected
+      ],
+      daily_rewards: [
+        { reward_number: 5, status: 'claimable', asset_id: TFRY, amount: 3.21, date: '2026-08-01' },   // 0 selected
+        { reward_number: 5, status: 'claimable', asset_id: TFRY, amount: 3.21, date: '2026-08-02' },   // 1 same rn + amount, not selected
+      ],
+    });
+    const coll = db.collection('device-rewards');
+    const snap = await coll.findOne({ miner_key: CUST });
+    const selected = [snap.weekly_rewards[0], snap.weekly_rewards[2], snap.daily_rewards[0]];
+    const records = [{ source: 'weekly', reward_number: 18, amount: 12.5 }, { source: 'weekly', reward_number: 18, amount: 25.75 }, { source: 'daily', reward_number: 5, amount: 3.21 }];
+    await coll.updateOne({ miner_key: CUST }, { $set: { 'weekly_rewards.2.corrected_amount': 25.8 } }); // drift after the claim read, before the settle
+    const before = await typed(CUST);
+    const claimedAt = new Date('2026-09-24T20:00:00Z');
+    const out = await settleRows(coll, { minerKey: CUST, txId: 'CUSTTX', claimedAt, records, selected });
+    assert.deepEqual([out.settled, out.clean, out.issues.map((i) => i.code)], [3, true, ['AMOUNT_DRIFT']]);
+    const d = await coll.findOne({ miner_key: CUST });
+    for (const [arr, i, amt] of [['weekly_rewards', 0, 12.5], ['weekly_rewards', 2, 25.75], ['daily_rewards', 0, 3.21]]) {
+      assert.equal(d[arr][i].status, 'claimed', `${arr}[${i}]`); assert.equal(d[arr][i].tx_id, 'CUSTTX'); assert.equal(d[arr][i].claimed_amount, amt);
+      assert.equal(d[arr][i].claimed_at.getTime(), claimedAt.getTime());
+    }
+    const after = await typed(CUST);
+    for (const i of [1, 3, 4]) assert.deepStrictEqual(after[0][i], before[0][i], `weekly[${i}] value+type untouched`);
+    assert.deepStrictEqual(after[1][1], before[1][1], 'daily[1] value+type untouched');
+
+    // RACE on the real engine: the element at the resolved index changes between the helper's read and its write.
+    await coll.updateOne({ miner_key: CUST }, { $push: { weekly_rewards: { reward_number: 22, status: 'claimable', asset_id: TFRY, amount: 4, week_start: new Date('2026-04-02T00:00:00Z') } } });
+    const snap2 = await coll.findOne({ miner_key: CUST });
+    const racing = { findOne: async (q, o) => { const doc = await coll.findOne(q, o); await coll.updateOne({ miner_key: CUST }, { $set: { 'weekly_rewards.5.status': 'claiming', 'weekly_rewards.5.claiming_group': 'OTHER' } }); return doc; },
+      updateOne: (f, u, o) => coll.updateOne(f, u, o) };
+    const out2 = await settleRows(racing, { minerKey: CUST, txId: 'CUSTTX2', claimedAt, records: [{ source: 'weekly', reward_number: 22, amount: 4 }], selected: [snap2.weekly_rewards[5]] });
+    assert.deepEqual([out2.settled, out2.clean, out2.issues.map((i) => i.code)], [0, false, ['RACE']]);
+    const d2 = await coll.findOne({ miner_key: CUST });
+    assert.equal(d2.weekly_rewards[5].status, 'claiming', 'the concurrently changed element is not overwritten');
+    assert.equal(d2.weekly_rewards[5].tx_id, undefined);
+  });
 }

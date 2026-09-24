@@ -187,7 +187,7 @@ export default async function handler(
 
       // Moved claimed-write (user-pays only). Settles exactly the elements THIS group reserved and
       // paid: each records[] entry resolves to one element with status 'claiming' and
-      // claiming_group === groupId, written through a pinned arrayFilter (lib/rewards/settle.js).
+      // claiming_group === groupId, written positionally with an identity guard (lib/rewards/settle.js).
       // Never a 'claimable' row, never reward_number alone; a repeat is a no-op.
       const rewardsCollection = db.collection('device-rewards');
       const minerKey = pending.miner_key as string;

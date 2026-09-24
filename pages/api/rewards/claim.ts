@@ -679,7 +679,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // The custodial path reserves nothing (reserveRows runs only in the user-pays branch), so there
       // is no claiming_group to scope by. Settle the exact elements selected above — the selection
-      // records[] was built from, index-aligned with it — through pinned arrayFilters
+      // records[] was built from, index-aligned with it — positionally with an identity guard
       // (lib/rewards/settle.js); claimed_amount is written per element in the same update.
       const selectedRows = typeof no === 'number'
         ? (weeklyClaimables.some((wr: any) => wr.reward_number === no)
