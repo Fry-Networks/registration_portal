@@ -6,10 +6,12 @@ export declare function effectiveAmount(row: any): number;
 export declare function micro(v: any): number;
 export declare function pinFor(e: any, source: 'weekly' | 'daily', status: string, groupId: string | null): Record<string, any>;
 export declare function elemMatches(e: any, pin: Record<string, any>): boolean;
+export declare function sameElement(a: any, b: any): boolean;
+export declare function positionalGuard(e: any, source: 'weekly' | 'daily', index: number, status: string, groupId: string | null): Record<string, any>;
 export declare function planSettle(
   doc: any,
   opts: { txId: string; records: SettleRecord[]; groupId?: string; selected?: any[] }
-): { chosen: Map<any, { source: 'weekly' | 'daily'; amount: number; status: string; group: string | null }>; alreadySettled: number; issues: Map<string, any[]> };
+): { chosen: Map<any, { source: 'weekly' | 'daily'; amount: number; status: string; group: string | null; index: number }>; alreadySettled: number; issues: Map<string, any[]> };
 export declare function settleRows(
   rewardsCollection: any,
   opts: { minerKey: string; txId: string; claimedAt: Date; records: SettleRecord[]; groupId?: string; selected?: any[] }

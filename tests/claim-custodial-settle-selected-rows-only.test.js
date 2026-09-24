@@ -58,18 +58,22 @@ const clone = (v) => {
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clone(x)]));
   return v;
 };
-const docMatches = (doc, filter) => Object.entries(filter || {}).every(([k, w]) => cond(doc[k], w));
+const pathGet = (doc, k) => k.split('.').reduce((acc, seg) => (acc === null || acc === undefined ? undefined : Array.isArray(acc) && /^\d+$/.test(seg) ? acc[Number(seg)] : acc[seg]), doc);
+const docMatches = (doc, filter) => Object.entries(filter || {}).every(([k, w]) => cond(k.includes('.') ? pathGet(doc, k) : doc[k], w));
 const elemMatchesFilter = (el, f, id) => Object.entries(f).every(([k, w]) => cond(el?.[k.slice(id.length + 1)], w));
 const store = { docs: [], pending: [], writes: [] };
 const rewardsCollection = {
   findOne: async (filter) => { const d = store.docs.find((x) => docMatches(x, filter)); return d ? clone(d) : null; },
   updateOne: async (filter, update, options = {}) => {
+    if (state.failSettleWrites && JSON.stringify(update.$set || {}).includes('"claimed"')) throw new Error('simulated write failure');
     const d = store.docs.find((x) => docMatches(x, filter));
     store.writes.push({ filter, update, options });
     if (!d) return { matchedCount: 0, modifiedCount: 0 };
     const af = options.arrayFilters || []; const resolved = new Map(); const ops = [];
     for (const [kind, spec] of [['$set', update.$set || {}], ['$unset', update.$unset || {}], ['$inc', update.$inc || {}]]) {
       for (const [path, value] of Object.entries(spec)) {
+        const pm = path.match(/^([a-z_]+)\.(\d+)\.(.+)$/);
+        if (pm) { const el = (d[pm[1]] || [])[Number(pm[2])]; if (!el) throw new Error(`fake mongo: no element at ${path}`); ops.push({ kind, target: el, field: pm[3], value }); continue; }
         const m = path.match(/^([a-z_]+)\.\$\[([a-z]+)\]\.(.+)$/);
         if (!m) { ops.push({ kind, target: d, field: path, value }); continue; }
         const f = af.find((x) => Object.keys(x).some((k) => k.startsWith(m[2] + '.')));
@@ -92,7 +96,7 @@ const pendingCollection = {
   findOne: async (filter) => store.pending.find((p) => docMatches(p, filter)) || null,
   insertOne: async () => ({ insertedId: 'x' }), deleteOne: async () => ({ deletedCount: 0 }),
 };
-const state = { transfers: [], loggedErrors: [], noEvidence: new Set() };
+const state = { transfers: [], loggedErrors: [], noEvidence: new Set(), failSettleWrites: false };
 const fakeCollection = (name) => {
   if (name === 'devices') return { findOne: async () => ({ miner_key: MINER, address: ADDR, reward_wallet: ADDR }) };
   if (name === 'device-rewards') return rewardsCollection;
@@ -150,7 +154,7 @@ const runClaim = async (body) => {
   try { await handler({ method: 'POST', headers: {}, body: { miner_key: MINER, ...body } }, res); } catch (e) { thrown = e; }
   return { ...captured, thrown };
 };
-const reset = () => { store.docs.length = 0; store.pending.length = 0; store.writes.length = 0; state.loggedErrors.length = 0; state.noEvidence = new Set(); };
+const reset = () => { store.docs.length = 0; store.pending.length = 0; store.writes.length = 0; state.loggedErrors.length = 0; state.noEvidence = new Set(); state.failSettleWrites = false; };
 const W = (o) => ({ asset_id: TFRY, unlock_at: new Date('2026-06-01T00:00:00Z'), ...o });
 const live = () => store.docs[0];
 
@@ -213,4 +217,39 @@ test('C3 guard: the custodial legs are unchanged — one full-amount transfer to
   await runClaim({ no: 18 });
   assert.deepEqual(state.transfers.map((t) => [t.receiver, t.amount]), [[ADDR, 12500000]]);
   assert.ok(!state.transfers.some((t) => t.receiver === SINK), 'no FFG fee leg on a matured claim (gate unchanged)');
+});
+
+test('C4: a held twin identical except payout_hold is never settled, and the selected paid row is', async () => {
+  reset();
+  const ws = new Date('2026-01-08T00:00:00Z'); const we = new Date('2026-01-14T23:59:59Z');
+  store.docs.push({ _id: new ObjectId(), miner_key: MINER, total_claimable: 100, total_claimed: 0, weekly_rewards: [
+    W({ reward_number: 18, status: 'claimable', amount: 12.5, corrected_by: 'fem_final_f3y', week_start: ws, week_end: we }),
+    W({ reward_number: 18, status: 'claimable', amount: 12.5, corrected_by: 'fem_final_f3y', payout_hold: true, week_start: ws, week_end: we }),
+  ], daily_rewards: [] });
+  const before = clone(live());
+  const out = await runClaim({ no: 18 });
+  assert.equal(out.thrown, null, JSON.stringify(out.thrown && (out.thrown.response || out.thrown.message)));
+  assert.deepEqual([live().weekly_rewards[0].status, live().weekly_rewards[0].tx_id, live().weekly_rewards[0].claimed_amount], ['claimed', 'CUSTODIALTX', 12.5], 'selected paid row settled');
+  assert.deepStrictEqual(live().weekly_rewards[1], before.weekly_rewards[1], 'held twin untouched');
+});
+
+test('C5: a database failure while settling fails the request and leaves the claim totals untouched', async () => {
+  reset();
+  seedC1();
+  state.failSettleWrites = true;
+  const out = await runClaim({ no: 18 });
+  assert.ok(out.thrown, 'request must fail');
+  assert.ok(!(out.thrown && out.thrown.response && out.thrown.response.code === 'ALREADY_TRANSITIONED'), 'must not answer "no longer claimable" after an on-chain payment');
+  assert.equal(live().total_claimable, 1000); assert.equal(live().total_claimed, 0);
+});
+
+test('C6 guard: a row with a string reward_number does not block the other paid rows from settling', async () => {
+  reset();
+  store.docs.push({ _id: new ObjectId(), miner_key: MINER, total_claimable: 100, total_claimed: 0, weekly_rewards: [
+    W({ reward_number: 21, status: 'claimable', amount: 3, corrected_by: 'fem_final_f3y', week_start: new Date('2026-02-05T00:00:00Z'), week_end: new Date('2026-02-11T23:59:59Z') }),
+    W({ reward_number: '22', status: 'claimable', amount: 4, corrected_by: 'fem_final_f3y', week_start: new Date('2026-02-12T00:00:00Z'), week_end: new Date('2026-02-18T23:59:59Z') }),
+  ], daily_rewards: [] });
+  const out = await runClaim({});
+  assert.equal(out.thrown, null, JSON.stringify(out.thrown && (out.thrown.response || out.thrown.message)));
+  assert.equal(live().weekly_rewards[0].status, 'claimed');
 });

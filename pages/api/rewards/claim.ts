@@ -696,6 +696,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           metadata: { txId, items: issue.items }
         });
       }
+      // A database failure while settling keeps the pre-fix behaviour: the request fails (500) before the
+      // claim totals move, instead of reporting the paid rows as no longer claimable.
+      if (settle.issues.some((i) => i.code === 'FAILED' || i.code === 'WRITE_FAILED')) {
+        throw new Error('Reward rows could not be settled after the on-chain transfer; see REWARD_CLAIM_SETTLE_* logs.');
+      }
       const modifiedAny = settle.settled > 0;
 
       // FFG per-claim audit (additive): records the fee taken per asset this claim. Pending-reward

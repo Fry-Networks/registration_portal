@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ObjectId } = require('mongodb');
-const { settleRows, planSettle, pinFor, elemMatches, effectiveAmount, micro } = require('../lib/rewards/settle');
+const { settleRows, planSettle, pinFor, positionalGuard, sameElement, elemMatches, effectiveAmount, micro } = require('../lib/rewards/settle');
 
 require('ts-node').register({ transpileOnly: true, compilerOptions: { module: 'commonjs', moduleResolution: 'node', target: 'ES2017', jsx: 'react' } });
 
@@ -71,22 +71,43 @@ test('never throws: findOne rejects -> FAILED; second write rejects -> first sti
   assert.equal(b.settled, 1); assert.deepEqual(b.issues.map((i) => i.code), ['WRITE_FAILED']); assert.equal(b.clean, false);
 });
 
-test('validation: unknown source is BAD_RECORD; user-pays without a group is NO_GROUP; custodial misalignment is SELECTION_MISMATCH', () => {
-  const doc = { weekly_rewards: [], daily_rewards: [] };
-  assert.ok(planSettle(doc, { txId: 'T', groupId: 'G', records: [{ source: 'monthly', reward_number: 1, amount: 1 }] }).issues.has('BAD_RECORD'));
-  assert.ok(planSettle(doc, { txId: 'T', records: [{ source: 'weekly', reward_number: 1, amount: 1 }] }).issues.has('NO_GROUP'));
-  assert.ok(planSettle(doc, { txId: 'T', selected: [], records: [{ source: 'weekly', reward_number: 1, amount: 1 }] }).issues.has('SELECTION_MISMATCH'));
-  assert.ok(planSettle(doc, { txId: 'T', selected: [{ reward_number: 1, amount: 2 }], records: [{ source: 'weekly', reward_number: 1, amount: 1 }] }).issues.has('SELECTION_MISMATCH'));
+test('validation is per record: a bad record is reported and skipped, valid records still settle (both modes)', async () => {
+  const doc = { _id: 1, weekly_rewards: [{ reward_number: 1, status: 'claiming', claiming_group: 'G', amount: 1 }], daily_rewards: [] };
+  const up = await settleRows(coll(doc), { minerKey: 'M', groupId: 'G', txId: 'T', claimedAt: new Date(), records: [{ source: 'monthly', reward_number: 9, amount: 9 }, { source: 'weekly', reward_number: 1, amount: 1 }] });
+  assert.deepEqual([up.settled, up.issues.map((i) => i.code), up.clean], [1, ['BAD_RECORD'], false]);
+  assert.ok(planSettle({ weekly_rewards: [], daily_rewards: [] }, { txId: 'T', records: [{ source: 'weekly', reward_number: 1, amount: 1 }] }).issues.has('NO_GROUP'));
+  const row = { reward_number: '7', status: 'claimable', amount: 2 };
+  const cdoc = { _id: 1, weekly_rewards: [row, { reward_number: 8, status: 'claimable', amount: 3 }], daily_rewards: [] };
+  const cu = await settleRows(coll(cdoc), { minerKey: 'M', txId: 'T', claimedAt: new Date(),
+    records: [{ source: 'weekly', reward_number: 8, amount: 4 }, { source: 'weekly', reward_number: '7', amount: 2 }], selected: [cdoc.weekly_rewards[1], row] });
+  assert.deepEqual([cu.settled, cu.issues.map((i) => i.code)], [1, ['SELECTION_MISMATCH']], 'misaligned record skipped, string-numbered row still settled');
 });
 
-test('custodial: two identical rows without _id, only one selected -> PIN_NOT_UNIQUE, nothing written; both selected -> one write settles both', async () => {
+test('positionalGuard addresses exactly arr.<index> with the stored identity (values as read)', () => {
+  const d = new Date('2026-01-08T00:00:00Z');
+  assert.deepEqual(positionalGuard({ reward_number: 4, week_start: d }, 'weekly', 5, 'claimable', null),
+    { 'weekly_rewards.5.reward_number': 4, 'weekly_rewards.5.status': 'claimable', 'weekly_rewards.5._id': { $exists: false }, 'weekly_rewards.5.week_start': d });
+  assert.deepEqual(Object.keys(positionalGuard({ _id: new ObjectId(), reward_number: 4, date: '2026-01-08' }, 'daily', 0, 'claiming', 'G')).sort(),
+    ['daily_rewards.0._id', 'daily_rewards.0.claiming_group', 'daily_rewards.0.date', 'daily_rewards.0.reward_number', 'daily_rewards.0.status']);
+});
+
+test('sameElement: every field must match (a held twin differs), BSON-aware', () => {
+  const d = new Date('2026-01-08T00:00:00Z');
+  assert.equal(sameElement({ rn: 1, ws: d, n: { a: [1, 2] } }, { rn: 1, ws: new Date(d), n: { a: [1, 2] } }), true);
+  assert.equal(sameElement({ rn: 1, ws: d }, { rn: 1, ws: d, payout_hold: true }), false);
+  assert.equal(sameElement({ rn: 1, ws: d }, { rn: 1, ws: '2026-01-08T00:00:00.000Z' }), false);
+});
+
+test('custodial: identical twins — one selected settles exactly one element positionally; both selected settle both', async () => {
   const twin = () => ({ reward_number: 4, status: 'claimable', amount: 3, week_start: '2026-01-01' });
   const doc1 = { _id: 1, weekly_rewards: [twin(), twin()], daily_rewards: [] };
   const c1 = coll(doc1);
   const one = await settleRows(c1, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 4, amount: 3 }], selected: [doc1.weekly_rewards[0]] });
-  assert.deepEqual([one.settled, c1.calls.length, one.issues.map((i) => i.code)[0]], [0, 0, 'PIN_NOT_UNIQUE']);
+  assert.deepEqual([one.settled, one.clean, c1.calls.length], [1, true, 1]);
+  assert.ok(Object.keys(c1.calls[0].u.$set).every((k) => k.startsWith('weekly_rewards.0.')), 'positional write to index 0');
+  assert.equal(c1.calls[0].f['weekly_rewards.0.status'], 'claimable');
   const doc2 = { _id: 1, weekly_rewards: [twin(), twin()], daily_rewards: [] };
   const c2 = coll(doc2);
   const both = await settleRows(c2, { minerKey: 'M', txId: 'T', claimedAt: new Date(), records: [{ source: 'weekly', reward_number: 4, amount: 3 }, { source: 'weekly', reward_number: 4, amount: 3 }], selected: [doc2.weekly_rewards[0], doc2.weekly_rewards[1]] });
-  assert.deepEqual([both.settled, c2.calls.length, both.clean], [2, 1, true]);
+  assert.deepEqual([both.settled, both.clean, c2.calls.length], [2, true, 2]);
 });

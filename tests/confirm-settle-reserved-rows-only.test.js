@@ -65,7 +65,8 @@ const clone = (v) => {
   if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clone(x)]));
   return v;
 };
-const docMatches = (doc, filter) => Object.entries(filter || {}).every(([k, w]) => cond(doc[k], w));
+const pathGet = (doc, k) => k.split('.').reduce((acc, seg) => (acc === null || acc === undefined ? undefined : Array.isArray(acc) && /^\d+$/.test(seg) ? acc[Number(seg)] : acc[seg]), doc);
+const docMatches = (doc, filter) => Object.entries(filter || {}).every(([k, w]) => cond(k.includes('.') ? pathGet(doc, k) : doc[k], w));
 const elemMatchesFilter = (el, f, id) =>
   Object.entries(f).every(([k, w]) => { const field = k.slice(id.length + 1); return cond(el?.[field], w); });
 
@@ -79,6 +80,8 @@ const rewardsCollection = (store) => ({
     const ops = [];
     for (const [kind, spec] of [['$set', update.$set || {}], ['$unset', update.$unset || {}]]) {
       for (const [path, value] of Object.entries(spec)) {
+        const pm = path.match(/^([a-z_]+)\.(\d+)\.(.+)$/);
+        if (pm) { const el = (d[pm[1]] || [])[Number(pm[2])]; if (!el) throw new Error(`fake mongo: no element at ${path}`); ops.push({ kind, target: el, field: pm[3], value }); continue; }
         const m = path.match(/^([a-z_]+)\.\$\[([a-z]+)\]\.(.+)$/);
         if (!m) { ops.push({ kind, target: d, field: path, value }); continue; }
         const f = af.find((x) => Object.keys(x).some((k) => k.startsWith(m[2] + '.')));
