@@ -15,6 +15,7 @@ import { isAdminRequest } from '../../../lib/adminCheck';
 import { verifyDeviceFingerprintMiddleware } from '../../../lib/deviceFingerprint';
 import { loggers } from '../../../lib/logger';
 import { confirmJournalEntryByGroupId } from '../../../lib/db/requestLocks';
+import { settleRows } from '../../../lib/rewards/settle';
 import {
   CommonErrors,
   createApiError,
@@ -184,36 +185,37 @@ export default async function handler(
       const { txid } = await algod.sendRawTransaction(signedGroup).do();
       await algosdk.waitForConfirmation(algod, txid, 6);
 
-      // Moved claimed-write (user-pays only). Idempotent via the status:claimable arrayFilter.
+      // Moved claimed-write (user-pays only). Settles exactly the elements THIS group reserved and
+      // paid: each records[] entry resolves to one element with status 'claiming' and
+      // claiming_group === groupId, written positionally with an identity guard (lib/rewards/settle.js).
+      // Never a 'claimable' row, never reward_number alone; a repeat is a no-op.
       const rewardsCollection = db.collection('device-rewards');
       const minerKey = pending.miner_key as string;
       const records = (pending.records || []) as Array<{ source: string; reward_number: number; amount: number }>;
-      const weeklyNos = records.filter((r) => r.source === 'weekly').map((r) => r.reward_number);
-      const dailyNos = records.filter((r) => r.source === 'daily').map((r) => r.reward_number);
       const claimedAt = new Date();
-      if (weeklyNos.length) {
-        await rewardsCollection.updateOne(
-          { miner_key: minerKey },
-          { $set: { 'weekly_rewards.$[elem].status': 'claimed', 'weekly_rewards.$[elem].tx_id': txid, 'weekly_rewards.$[elem].claimed_at': claimedAt } },
-          { arrayFilters: [{ 'elem.reward_number': { $in: weeklyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
-        );
+      const settle = await settleRows(rewardsCollection, { minerKey, groupId, txId: txid, claimedAt, records });
+      for (const issue of settle.issues) {
+        loggers.apiError('/api/rewards/confirm', new Error(`Claim settle: ${issue.code} (${issue.count})`), {
+          miner_key: minerKey,
+          address: walletAddress,
+          issueType: `REWARD_CONFIRM_SETTLE_${issue.code}`,
+          part: 'rewards-confirm.userpays.settle',
+          metadata: { groupId, gasTxId: txid, items: issue.items }
+        });
       }
-      if (dailyNos.length) {
-        await rewardsCollection.updateOne(
-          { miner_key: minerKey },
-          { $set: { 'daily_rewards.$[elem].status': 'claimed', 'daily_rewards.$[elem].tx_id': txid, 'daily_rewards.$[elem].claimed_at': claimedAt } },
-          { arrayFilters: [{ 'elem.reward_number': { $in: dailyNos }, 'elem.status': { $in: ['claimable', 'claiming'] } }] }
-        );
+      // releaseStaleReservations frees a group's 'claiming' rows once its envelope is gone. This group
+      // is PAID, so that is only safe when every record settled; otherwise keep it for review.
+      if (settle.clean) {
+        await pendingCollection.deleteOne({ groupId });
+      } else {
+        loggers.apiError('/api/rewards/confirm', new Error('Paid claim group not fully settled; envelope retained.'), {
+          miner_key: minerKey,
+          address: walletAddress,
+          issueType: 'REWARD_CONFIRM_SETTLE_ENVELOPE_RETAINED',
+          part: 'rewards-confirm.userpays.settle',
+          metadata: { groupId, gasTxId: txid, settled: settle.settled, alreadySettled: settle.alreadySettled, codes: settle.issues.map((i) => i.code) }
+        });
       }
-      for (const r of records) {
-        const arr = r.source === 'weekly' ? 'weekly_rewards' : 'daily_rewards';
-        await rewardsCollection.updateOne(
-          { miner_key: minerKey },
-          { $set: { [`${arr}.$[elem].claimed_amount`]: r.amount } },
-          { arrayFilters: [{ 'elem.reward_number': r.reward_number, 'elem.status': 'claimed', 'elem.tx_id': txid }] }
-        );
-      }
-      await pendingCollection.deleteOne({ groupId });
 
       // Close the audit row (main.device_transactions). /claim mints it `pending` because the
       // envelope is only pre-signed there; this is the first point at which the claim is genuinely
