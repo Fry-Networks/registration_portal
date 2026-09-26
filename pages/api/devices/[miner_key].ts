@@ -18,6 +18,7 @@ import type { Collection, Document, UpdateFilter, ObjectId } from 'mongodb';
 import type { Device } from '../../../lib/types';
 import { shouldForceLegacyUnverified } from '../../../lib/legacyStake';
 import { shouldReconcileVerified } from '../../../lib/stakeReconcile';
+import { remapLegacyMinerKey } from '../../../lib/minerKey';
 
 export default async function handler(
   req: NextApiRequest,
@@ -36,9 +37,9 @@ export default async function handler(
   const testMode =
     process.env.NEXT_PUBLIC_TEST_MODE &&
     process.env.NEXT_PUBLIC_TEST_MODE === 'true';
-  const { miner_key } = req.query;
+  const { miner_key: rawMinerKey } = req.query;
 
-  if (!miner_key || typeof miner_key !== 'string') {
+  if (!rawMinerKey || typeof rawMinerKey !== 'string') {
     return res.status(400).json(
       createApiError(
         ErrorCodes.INVALID_INPUT,
@@ -47,6 +48,11 @@ export default async function handler(
       )
     );
   }
+
+  // Old IOT- boards were reissued as FEM- devices; the physical label on the board still
+  // reads IOT-<hex>. Lookup ONLY -- grants no ownership, flips no reward/eligibility/claim
+  // flag, and never touches auth. See lib/minerKey.ts.
+  const miner_key = remapLegacyMinerKey(rawMinerKey);
 
   try {
     const client = await clientPromise;

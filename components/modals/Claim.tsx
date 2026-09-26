@@ -520,7 +520,11 @@ export default function ClaimModal({
           setStatusText(
             `Approve the gas payment in your wallet — it shows ${groupLegs} transaction${groupLegs === 1 ? '' : 's'} in one atomic group; you sign only the first (the network fee).`
           );
-          const signed = await signTransactions([b64ToBytes(result.unsignedUserLeg as string), ...(((result.unsignedServerLegs as string[]) || []).map(b64ToBytes))], { indexesToSign: [0] });
+          const signed = await withTimeout(
+            signTransactions([b64ToBytes(result.unsignedUserLeg as string), ...(((result.unsignedServerLegs as string[]) || []).map(b64ToBytes))], { indexesToSign: [0] }),
+            WALLET_SIGN_TIMEOUT_MS,
+            'The wallet signature for the claim'
+          );
           setStage('submitted');
           setStatusText('Submitting your claim…');
           const confirmBody = { groupId: result.groupId, signedUserLegB64: bytesToB64(signed[0]) };
@@ -569,7 +573,15 @@ export default function ClaimModal({
           closeModal(modalName);
           return;
         } catch (e: any) {
-          const msg = e?.message || 'Wallet signing was cancelled or failed';
+          // A hang here is NOT the fee-payment timeout above: by this point the server has
+          // already reserved the reward rows and minted the pending-claim envelope (see
+          // pages/api/rewards/claim.ts reserveRows), and nothing detects or prevents a second
+          // charge on this path -- so, unlike requestGasFee's message, this one must not imply
+          // a retry is safe. It is not: a retry just reserves a fresh batch of rows while this
+          // one stays stuck.
+          const msg = e instanceof WalletTimeoutError
+            ? `Your wallet did not respond to sign this claim. It may still be reserved on our side — do not click Claim All again. If it has not cleared in a few minutes, contact support with reference ${result.groupId}.`
+            : (e?.message || 'Wallet signing was cancelled or failed');
           toast.error({ heading: 'Claim Error', message: msg });
           setStage('error');
           setStatusText('Claim failed: ' + msg);
