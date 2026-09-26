@@ -515,7 +515,7 @@ export default function MyRegistrationsPage({ devices = [] }: { devices: DeviceW
           isValid={isValid}
         />
         <PositionModal modalName="positionVerification" onSubmit={handleVerify} />
-        <StakeVerification modalName="stakeVerification" miner={currentDevice?.miner_key} byod={!!currentDevice?.byod} />
+        <StakeVerification modalName="stakeVerification" miner={currentDevice?.miner_key} byod={!!currentDevice?.byod} alreadyVerified={!!currentDevice?.verified} />
         <WithdrawStakeVerification
           modalName="withdraw_stakeVerification"
           miner={currentDevice?.miner_key}

@@ -19,7 +19,7 @@ type HeroBannerProps = {
   holidayKey?: SeasonalThemeKey | null;
 };
 
-const formatPrice = (value?: number): string => {
+export const formatPrice = (value?: number): string => {
   if (typeof value !== 'number' || Number.isNaN(value) || value === 0) {
     return '—'; // no market price yet (B16 — was $0.000000)
   }
@@ -29,7 +29,11 @@ const formatPrice = (value?: number): string => {
   if (value >= 0.01) {
     return `$${value.toFixed(4)}`;
   }
-  return `$${value.toFixed(6)}`;
+  // Below a cent, fixed decimals hide the difference between two tokens: at six places
+  // both FRY 2.0 and fNODE printed "$0.000003" while their market prices were ~6.5%
+  // apart, so the page looked like it was showing one price twice. Significant digits
+  // keep the first meaningful figures whatever the exponent.
+  return `$${Number(value.toPrecision(3))}`;
 };
 
 const PriceChip = ({

@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from 'react';
 import { getSession, useSession } from 'next-auth/react';
 import { RiCloseLine } from '@remixicon/react';
 import { Device } from '../../lib/types';
+import { withTimeout, WalletTimeoutError, WALLET_SIGN_TIMEOUT_MS } from '../../lib/withTimeout';
 import MessageUpdate from '../messageUpdate';
 import { useToastContext } from '../../hooks/ToastContext';
 import { REWARD_WALLET, tFRY } from '../../lib/utils';
@@ -85,6 +86,9 @@ export default function ClaimModal({
   const intervalRef = useRef<any>(null);
   // Prevent stacking multiple fee-payment prompts; stays true until the wallet resolves.
   const feeRequestLockRef = useRef(false);
+  // Set where the error is caught: the caller only sees a boolean, but a wallet that never
+  // answered needs different advice from a wallet with no ALGO in it.
+  const feeTimedOutRef = useRef(false);
   const { data: session } = useSession();
   const toast = useToastContext();
   const { executeWithRetry: executeWalletRetry } = useSmartRetry('wallet_signing');
@@ -152,9 +156,13 @@ export default function ClaimModal({
       // Sign and submit
       await executeWalletRetry(
         async () => {
-          const txIds = await signAndSubmit([encodedTxn], {
-            message: 'Opt into tFRY to receive rewards'
-          });
+          const txIds = await withTimeout(
+            signAndSubmit([encodedTxn], {
+              message: 'Opt into tFRY to receive rewards'
+            }),
+            WALLET_SIGN_TIMEOUT_MS,
+            'The wallet signature for the opt-in'
+          );
           if (!txIds.length) {
             throw new Error('Wallet did not return a transaction id');
           }
@@ -299,12 +307,19 @@ export default function ClaimModal({
         useMicroAlgos: true
       });
 
+      feeTimedOutRef.current = false;
       feeRequestLockRef.current = true;
       await executeWalletRetry(
         async () => {
-          const txIds = await signAndSubmit([encodedTxn], {
-            message: 'Authorize network fee payment for reward claim'
-          });
+          // Bounded: the wallet lives on the user's phone and may never answer. Without a
+          // deadline this await hangs and the dialog cannot even be closed.
+          const txIds = await withTimeout(
+            signAndSubmit([encodedTxn], {
+              message: 'Authorize network fee payment for reward claim'
+            }),
+            WALLET_SIGN_TIMEOUT_MS,
+            'The wallet signature for the network fee'
+          );
           if (!txIds.length) {
             throw new Error('Wallet did not provide a transaction id');
           }
@@ -314,6 +329,7 @@ export default function ClaimModal({
       );
       return true;
     } catch (error) {
+      feeTimedOutRef.current = error instanceof WalletTimeoutError;
       if (error instanceof WalletRequestInFlightError) {
         // Let the user know they must resolve the existing wallet dialog first.
         toast.info({
@@ -462,7 +478,9 @@ export default function ClaimModal({
         if (!isFeePaid) {
           toast.error({ heading: 'Fee Payment Error', message: `Failed to pay transaction fee ${walletAddress}` });
           setStage('error');
-          setStatusText('Fee payment failed. Please ensure your reward wallet has enough ALGO and try again.');
+          setStatusText(feeTimedOutRef.current
+            ? 'Your wallet did not respond. Nothing has been claimed. Check the wallet app, then try again \u2014 if a fee was already signed we will detect it and will not charge you twice.'
+            : 'Fee payment failed. Please ensure your reward wallet has enough ALGO and try again.');
           setIsProcessing(false);
           return;
         }
